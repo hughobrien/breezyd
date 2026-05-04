@@ -72,17 +72,17 @@ breezyd --version
 ## Build from source
 
 Requires Go 1.22+ (developed on 1.26). No other system dependencies for the
-binaries themselves; building with `-race` (the default `make test`) needs a
+binaries themselves; the race-detector recipe (`just test-race`) needs a
 working C toolchain.
 
 ```sh
-make build       # produces ./breezyd and ./breezy
-make test        # go test -race ./...
-make lint        # go vet ./...
+just build       # produces ./breezyd and ./breezy
+just check       # vet + fast tests (pre-commit gate)
+just test-race   # full race-detector run (the CI command)
 ```
 
-On a dev host where `-race` needs cgo (e.g. clang on Linux without the gcc
-TSan runtime), set `CGO_ENABLED=1 CC=clang` before `make test`.
+`just test-race` already sets `CGO_ENABLED=1 CC=clang`, so the recipe works
+out of the box on dev hosts whose default `gcc` lacks the TSan runtime.
 
 ## Run with Nix
 
@@ -303,32 +303,30 @@ breezyd/
 ## Testing
 
 ```sh
-go test ./...                   # unit tests (default; uses fakedevice)
-make test                       # same, with -race
-go vet ./...                    # static checks
+just test                       # unit tests (uses fakedevice)
+just test-race                  # same, with -race (the CI command)
+just lint                       # go vet ./...
+just check                      # lint + fast tests (pre-commit gate)
+```
+
+Run a single package or test with raw `go`:
+
+```sh
+go test ./pkg/breezy/...
+go test ./cmd/breezyd -run TestPoller_FanSettle
 ```
 
 Live integration tests against real hardware are gated by both the
 `integration` build tag and `BREEZY_INTEGRATION=1`, plus three env vars
-identifying the target device. Example:
+identifying the target device. The `just test-integration` recipe wraps
+all of that:
 
 ```sh
-BREEZY_INTEGRATION=1 \
-BREEZY_TEST_DEVICE_IP=192.168.1.148 \
-BREEZY_TEST_DEVICE_ID=BREEZY00000000A0 \
-BREEZY_TEST_DEVICE_PASSWORD=<your password> \
-go test -tags integration ./pkg/breezy/...
+just test-integration 192.168.1.148 BREEZY00000000A0 <your password>
 ```
 
 These tests write to the device — each one registers a `t.Cleanup` that
 restores the prior value, so re-runs leave the unit in its original state.
-
-On this dev host, `-race` requires a CGO toolchain. If your default `gcc`
-lacks the TSan runtime, build the race tests with clang:
-
-```sh
-CGO_ENABLED=1 CC=clang go test -race ./...
-```
 
 ## Security
 
