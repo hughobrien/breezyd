@@ -146,24 +146,6 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// doWrite is the common path for service handlers (postFilterReset,
-// postFaultsReset) that still use the old write pattern. Task 6 will
-// migrate those handlers to recordingClient and remove doWrite.
-func (h *Handler) doWrite(ctx context.Context, name string, writes []breezy.ParamWrite) error {
-	client, err := h.dial(name)
-	if err != nil {
-		// Surface factory errors as a generic error; classifyClientErr will
-		// route to "internal" since they aren't net.Error.
-		return err
-	}
-	defer client.Close()
-
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	return client.WriteParams(cctx, writes)
-}
-
 // ----------------------------------------------------------------------------
 // POST /power, /speed, /mode, /heater, /rtc
 // ----------------------------------------------------------------------------

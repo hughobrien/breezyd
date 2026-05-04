@@ -7,8 +7,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
@@ -24,14 +26,23 @@ func (h *Handler) getFirmware(w http.ResponseWriter, r *http.Request) {
 	}
 	snap, _ := h.State.Get(name)
 	raw, ok := snap.Values[0x0086]
-	if !ok || len(raw) != 6 {
+	if !ok {
 		writeErr(w, "not_found", "firmware metadata not in cache yet")
 		return
 	}
-	year := int(uint16(raw[4]) | uint16(raw[5])<<8)
+	v, err := (breezy.Param{Type: breezy.TypeFirmwareMeta}).Decode(raw)
+	if err != nil {
+		writeErr(w, "internal", fmt.Sprintf("decode firmware: %v", err))
+		return
+	}
+	fw, ok := v.(breezy.FirmwareMetaValue)
+	if !ok {
+		writeErr(w, "internal", fmt.Sprintf("unexpected decoded type %T", v))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version":    fmt.Sprintf("%d.%02d", raw[0], raw[1]),
-		"build_date": fmt.Sprintf("%04d-%02d-%02d", year, raw[3], raw[2]),
+		"version":    fmt.Sprintf("%d.%02d", fw.Major, fw.Minor),
+		"build_date": fw.Date.Format("2006-01-02"),
 	})
 }
 
@@ -57,21 +68,19 @@ func (h *Handler) getFaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snap, _ := h.State.Get(name)
-	raw, ok := snap.Values[0x007F]
-	out := []map[string]any{}
-	if ok {
-		// Pairs of (code, kind). An odd trailing byte is ignored.
+	out := []breezy.FaultCode{}
+	if raw, ok := snap.Values[0x007F]; ok {
 		for i := 0; i+1 < len(raw); i += 2 {
-			kind := "alarm"
-			if raw[i+1] == 1 {
+			var kind string
+			switch raw[i+1] {
+			case 0:
+				kind = "alarm"
+			case 1:
 				kind = "warning"
-			} else if raw[i+1] != 0 {
+			default:
 				kind = fmt.Sprintf("unknown(%d)", raw[i+1])
 			}
-			out = append(out, map[string]any{
-				"code": int(raw[i]),
-				"kind": kind,
-			})
+			out = append(out, breezy.FaultCode{Code: int(raw[i]), Kind: kind})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"faults": out})
@@ -86,12 +95,18 @@ func (h *Handler) postFilterReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	writes := []breezy.ParamWrite{{ID: 0x0065, Value: []byte{1}}}
-	if err := h.doWrite(r.Context(), name, writes); err != nil {
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
+		return
+	}
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.ResetFilter(ctx, rc); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -100,11 +115,17 @@ func (h *Handler) postFaultsReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	writes := []breezy.ParamWrite{{ID: 0x0080, Value: []byte{1}}}
-	if err := h.doWrite(r.Context(), name, writes); err != nil {
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
+		return
+	}
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.ResetFaults(ctx, rc); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
