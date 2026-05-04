@@ -54,6 +54,15 @@ const httpTimeout = 10 * time.Second
 // discoverTimeout bounds the LAN broadcast in `breezy discover`.
 const discoverTimeout = 3 * time.Second
 
+// Build metadata. These are populated by goreleaser via -ldflags at build
+// time; an unbuilt local binary reports "dev" / "none" / "unknown" so
+// `breezy --version` is always meaningful.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -65,10 +74,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, usage) }
 	daemon := fs.String("daemon", "", "daemon URL (overrides config)")
+	versionFlag := fs.Bool("version", false, "print version information and exit")
 
 	if err := fs.Parse(args); err != nil {
 		// flag prints its own message + usage; we just need the right code.
 		return 2
+	}
+
+	if *versionFlag {
+		fmt.Fprintf(stdout, "breezy %s (commit %s, built %s)\n", version, commit, date)
+		return 0
 	}
 
 	rest := fs.Args()
@@ -87,6 +102,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdDiscover(stdout, stderr)
 	case "daemon-url":
 		fmt.Fprintln(stdout, daemonURL)
+		return 0
+	case "version":
+		fmt.Fprintf(stdout, "breezy %s (commit %s, built %s)\n", version, commit, date)
 		return 0
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)

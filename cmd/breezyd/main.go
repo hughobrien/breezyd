@@ -50,6 +50,16 @@ var (
 	flagConfig   = flag.String("config", defaultConfigPath(), "config file path")
 	flagAddr     = flag.String("addr", "", "listen address (overrides config)")
 	flagLogLevel = flag.String("log-level", "info", "log level (debug|info|warn|error)")
+	flagVersion  = flag.Bool("version", false, "print version information and exit")
+)
+
+// Build metadata. These are populated by goreleaser via -ldflags at build
+// time; an unbuilt local binary reports "dev" / "none" / "unknown" so
+// `breezyd --version` is always meaningful.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 // defaultConfigPath returns ~/.config/breezy/config.toml. When the
@@ -66,6 +76,10 @@ func defaultConfigPath() string {
 
 func main() {
 	flag.Parse()
+	if *flagVersion {
+		fmt.Printf("breezyd %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
 	if err := run(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, "breezyd:", err)
 		os.Exit(1)
