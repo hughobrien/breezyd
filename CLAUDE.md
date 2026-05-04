@@ -5,17 +5,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build, test, lint
 
 ```sh
-make build       # go build -> ./breezyd ./breezy
-make test        # go test -race ./...
-make lint        # go vet ./...
-make tidy        # go mod tidy
+just build       # go build -> ./breezyd ./breezy
+just test        # go test ./...           (fast, no race)
+just test-race   # go test -race ./...     (cgo+clang; the CI command)
+just lint        # go vet ./...
+just check       # lint + fast tests       (pre-commit gate)
+just tidy        # go mod tidy
+just clean       # remove binaries + clean test cache
+just fmt         # gofmt -w .
 ```
 
-Race tests need cgo. On this dev host the default `gcc` lacks the TSan runtime; use clang:
-
-```sh
-CGO_ENABLED=1 CC=clang go test -race ./...
-```
+`just test-race` bakes in `CGO_ENABLED=1 CC=clang` because the default `gcc` on this host lacks the TSan runtime.
 
 Run a single package or test:
 
@@ -27,14 +27,12 @@ go test ./cmd/breezyd -run TestPoller_FanSettle
 Live integration tests are double-gated and require real hardware. They are skipped unless **both** the `integration` build tag and `BREEZY_INTEGRATION=1` are set, plus the three target env vars:
 
 ```sh
-BREEZY_INTEGRATION=1 \
-BREEZY_TEST_DEVICE_IP=... BREEZY_TEST_DEVICE_ID=... BREEZY_TEST_DEVICE_PASSWORD=... \
-go test -tags integration ./pkg/breezy/...
+just test-integration <ip> <id> <password>
 ```
 
 These tests write to the device. Each one registers a `t.Cleanup` that restores the prior value, so re-runs leave state intact. **Never remove or weaken those cleanups** — see the project rule about not making unsanctioned writes to user hardware.
 
-Nix flake builds work too: `nix build`, `nix develop`, `nix run .#breezy -- ls`. The flake's `vendorHash` in `flake.nix` must be updated whenever `go.sum` changes.
+Nix flake builds work too: `nix build`, `nix develop`, `nix run .#breezy -- ls`. The flake's `vendorHash` in `flake.nix` must be updated whenever `go.sum` changes. `nix develop` includes `just`, so all recipes are available without a global install.
 
 ## Architecture
 
