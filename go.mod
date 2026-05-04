@@ -1,4 +1,4 @@
-module github.com/hughobrien/twinfresh
+module github.com/hughobrien/breezyd
 
 go 1.26.2
 

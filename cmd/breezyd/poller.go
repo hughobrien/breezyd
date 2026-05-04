@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // fanSettleDuration is how long after a fan-affecting write we suppress

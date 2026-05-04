@@ -69,10 +69,10 @@ The original task structure below stays. When implementing, refer to the **revis
 
 ```bash
 cd ~/breezyd
-go mod init github.com/hughobrien/twinfresh
+go mod init github.com/hughobrien/breezyd
 ```
 
-(Adjust module path if user has a different preferred GitHub org; `github.com/hughobrien/twinfresh` is a placeholder that compiles fine for local-only use.)
+(Adjust module path if user has a different preferred GitHub org; `github.com/hughobrien/breezyd` is a placeholder that compiles fine for local-only use.)
 
 - [ ] **Step 2: Write `.gitignore`**
 
@@ -659,7 +659,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 func TestFakeServer_RoundTrip(t *testing.T) {
@@ -718,7 +718,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 type Server struct {
@@ -865,7 +865,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy/fakedevice"
+	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 )
 
 func newFake(t *testing.T) *fakedevice.Server {
@@ -1322,7 +1322,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy/fakedevice"
+	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 )
 
 func TestDiscover_Loopback(t *testing.T) {
@@ -1810,8 +1810,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
-	"github.com/hughobrien/twinfresh/pkg/breezy/fakedevice"
+	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 )
 
 func TestPoller_PopulatesCache(t *testing.T) {
@@ -1857,7 +1857,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 type Poller struct {
@@ -1986,8 +1986,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
-	"github.com/hughobrien/twinfresh/pkg/breezy/fakedevice"
+	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 )
 
 func TestServer_ListAndGet(t *testing.T) {
@@ -2044,7 +2044,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 type DeviceConfig struct {
@@ -2378,7 +2378,7 @@ go get github.com/prometheus/client_golang/prometheus/promhttp
 package main
 
 import (
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -2517,8 +2517,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hughobrien/twinfresh/internal/config"
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/internal/config"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -3142,6 +3142,6 @@ git commit -m "docs: README with install + first-run + Prometheus"
 
 - **Spec coverage:** every section of the spec maps to a task — protocol library (Tasks 3–7), daemon (Tasks 9–12), CLI (Task 13), config (Task 8), discovery (Task 7 + integrated into Task 12 main.go), Phase 0 (Tasks 1–2), testing (Task 4 fake device, Task 14 live integration), README (Task 15). ✓
 - **Placeholder scan:** the Task 12 `main.go` includes a deliberate note about removing the duplicate `/metrics` handler — flagged in the steps as a cleanup. The `param-map.md` row count target (~60) is a known approximate from today's sweep, not a placeholder. The Task 6 param table is seeded with what's in the design + sweep; reconciliation step in Task 6 spells out the path to fill in Phase 0 additions. ✓
-- **Type consistency:** `Snapshot` matches between Task 9 (state), Task 10 (poller), Task 11 (server), Task 12 (metrics). `DeviceConfig` matches between Task 11 and Task 12. `Found` is defined in Task 7 and consumed in Task 12. Module path placeholder `github.com/hughobrien/twinfresh` is consistent across all imports. ✓
+- **Type consistency:** `Snapshot` matches between Task 9 (state), Task 10 (poller), Task 11 (server), Task 12 (metrics). `DeviceConfig` matches between Task 11 and Task 12. `Found` is defined in Task 7 and consumed in Task 12. Module path placeholder `github.com/hughobrien/breezyd` is consistent across all imports. ✓
 
 If implementation surfaces a Phase 0 finding that contradicts the seed param table, update Task 6's table and the Task 12 `ReadIDs`/metrics handlers in lockstep.

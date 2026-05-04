@@ -8,7 +8,7 @@ package main
 import (
 	"encoding/binary"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // uint8At returns the single byte stored at id, or (0, false) if the

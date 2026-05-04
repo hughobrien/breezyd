@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy/fakedevice"
+	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 )
 
 // mainSnapshotPath returns the absolute path to the captured device

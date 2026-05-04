@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // Server is an in-process UDP fake of a Breezy ERV.

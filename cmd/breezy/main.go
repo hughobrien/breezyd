@@ -36,8 +36,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hughobrien/twinfresh/internal/config"
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/internal/config"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // defaultDaemonURL is the fall-back when no --daemon flag is given and

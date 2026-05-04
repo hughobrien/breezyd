@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // envOrSkip returns the value of env var k, or t.Skip's with a clear

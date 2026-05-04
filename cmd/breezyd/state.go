@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // Snapshot is the latest known state of a single device. Values holds the raw
