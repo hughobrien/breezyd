@@ -88,17 +88,18 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool) ([]
 	defer pc.Close()
 
 	if broadcast {
-		// On Linux the kernel allows sending to 255.255.255.255 from an
-		// unconnected UDP socket without SO_BROADCAST in many cases (in
-		// particular when the destination is the limited broadcast and
-		// the socket is bound to 0.0.0.0). Subnet-directed broadcasts
-		// (192.168.x.255) require the route to exist on a local
-		// interface. We deliberately don't fail here if SO_BROADCAST
-		// isn't set: tests use unicast targets via DiscoverAt, and on
-		// hardware that does need it the manual's recommended approach
-		// is "send to 255.255.255.255 and let the kernel route."
+		// Some kernels (Linux included, depending on configuration) refuse
+		// sends to 255.255.255.255 / 192.168.x.255 from an unconnected UDP
+		// socket unless SO_BROADCAST is set on the underlying fd. Older
+		// versions of this code relied on the loose default, which works
+		// on most Linux boxes but isn't portable. enableBroadcast wraps
+		// the syscall in a build-tag-conditional helper so unix builds get
+		// the explicit setsockopt while non-unix targets fall through to
+		// whatever net.ListenPacket left us with (Windows discovery is a
+		// "v1.x feature" — see CHANGELOG).
 		if uc, ok := pc.(*net.UDPConn); ok {
 			_ = uc.SetReadBuffer(64 * 1024)
+			enableBroadcast(uc)
 		}
 	}
 
