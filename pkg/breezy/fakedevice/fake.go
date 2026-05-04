@@ -158,7 +158,19 @@ func (s *Server) serve() {
 // handle parses one request and dispatches based on FUNC. Errors that
 // aren't auth failures (bad header, bad ID, checksum, etc.) are silently
 // dropped — that's how real devices behave.
+//
+// Special case: a request whose deviceID field is the literal "DEFAULT_DEVICEID"
+// is treated as a discovery wildcard — we bypass the deviceID check and
+// password check (per the vendor manual, discovery is unauthenticated) and
+// reply with our real deviceID encoded in the 0x007C param of the response.
+// The packet's deviceID field on the response stays "DEFAULT_DEVICEID" so the
+// client's codec accepts it; the *real* ID lives in the data block.
 func (s *Server) handle(req []byte, peer *net.UDPAddr) {
+	if id, ok := extractRequestDeviceID(req); ok && id == breezy.DefaultDeviceID {
+		s.handleDiscovery(req, peer)
+		return
+	}
+
 	fn, data, err := breezy.DecodeResponse(req, s.deviceID, s.password)
 	if err != nil {
 		switch {
@@ -191,6 +203,46 @@ func (s *Server) handle(req []byte, peer *net.UDPAddr) {
 	default:
 		// Unknown function — drop.
 	}
+}
+
+// extractRequestDeviceID pulls the 16-byte deviceID field from a request
+// frame. Returns ("", false) if the frame is too short. Used to detect
+// the DEFAULT_DEVICEID discovery wildcard before attempting full decode.
+func extractRequestDeviceID(raw []byte) (string, bool) {
+	// Layout: 2 magic + 1 type + 1 size_id + 16 id ...
+	const idStart = 4
+	const idEnd = idStart + 16
+	if len(raw) < idEnd {
+		return "", false
+	}
+	return string(raw[idStart:idEnd]), true
+}
+
+// handleDiscovery responds to a request whose deviceID field is the
+// DEFAULT_DEVICEID wildcard. Per the vendor manual, discovery is
+// unauthenticated — any password works. We bypass the password check by
+// telling DecodeResponse to expect whatever password the client sent. The
+// response is encoded with deviceID=DEFAULT_DEVICEID so the client can
+// match against its outgoing request's ID; the real device ID is conveyed
+// in the data block (param 0x007C from our snapshot).
+func (s *Server) handleDiscovery(req []byte, peer *net.UDPAddr) {
+	clientPwd, ok := extractRequestPassword(req)
+	if !ok {
+		return
+	}
+	fn, data, err := breezy.DecodeResponse(req, breezy.DefaultDeviceID, clientPwd)
+	if err != nil {
+		// Bad checksum / truncated / etc — drop.
+		return
+	}
+	// Discovery only makes sense for FuncRead. If it's a write, drop.
+	if fn != breezy.FuncRead {
+		return
+	}
+	ids := parseReadDataBlock(data)
+	respData := s.buildResponseDataBlock(ids)
+	resp := breezy.EncodeRequest(breezy.DefaultDeviceID, clientPwd, breezy.FuncResponse, respData)
+	_, _ = s.conn.WriteToUDP(resp, peer)
 }
 
 // extractRequestPassword pulls the SIZE_PWD-prefixed password from a

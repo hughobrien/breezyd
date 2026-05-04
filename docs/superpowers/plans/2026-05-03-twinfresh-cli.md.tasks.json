@@ -46,7 +46,7 @@
     {
       "id": 6,
       "subject": "Task 6: Param registry (pkg/breezy/params.go)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** Typed registry from param-map.md. Lookup by ID/name. Value decoders.\n\n**Verify:** `go test -race -v ./pkg/breezy -run 'Params|Lookup|Value'` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/params.go\", \"pkg/breezy/params_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run 'Params|Lookup|Value'\", \"acceptanceCriteria\": [\"LookupByID/Name\", \"Value.String per type\", \"Value.Float64 numeric\", \"Writable mirrors map\"]}\n```"
     },
