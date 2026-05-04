@@ -197,12 +197,9 @@ The project has no deployed users. Behavior change: a config without `[daemon].l
 
 > **Breaking:** the CLI defaults to standalone mode (direct UDP) when no daemon is configured. Previously it tried `http://127.0.0.1:9876`. To keep the old behavior, set `[daemon] listen = "127.0.0.1:9876"` in `~/.config/breezy/config.toml` or pass `--daemon http://127.0.0.1:9876`.
 
-The first-run config bootstrap (`internal/config.WriteDefault`) currently emits a `[daemon]` block with `listen = "127.0.0.1:9876"` (verify when implementing). Either:
+The first-run config bootstrap (`internal/config.WriteDefault` at `internal/config/config.go:182`) currently emits an active `[daemon]` block with `listen = "127.0.0.1:9876"`. Phase 2 rewrites the template so daemon mode is **opt-in**: the entire `[daemon]` block is commented out by default, with a one-line comment explaining how to enable it. New first-run users land in standalone, which matches the motivation.
 
-- Leave the default and have `breezy` users be in daemon mode out of the box (and see a clear error if they haven't started `breezyd`), or
-- Comment out the `listen` line and have the default be standalone, with the comment explaining how to opt in.
-
-The second is friendlier for the no-install case (matches the motivation). Decide during implementation.
+The bootstrap test in `internal/config/config_test.go` that currently asserts the active `listen = "127.0.0.1:9876"` line (line 302) needs updating in lockstep.
 
 ## Testing
 
