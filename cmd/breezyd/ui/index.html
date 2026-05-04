@@ -44,6 +44,45 @@
     border-radius: 6px; margin-bottom: 1rem; color: #800;
   }
   .fw { font-size: 0.75rem; color: #888; margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
+  .controls { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
+  .controls h3 {
+    margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
+    color: #333; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .ctrl { margin: 0.4rem 0; }
+  .ctrl-label { color: #666; font-size: 0.75rem; margin-bottom: 0.15rem; display: block; }
+  .seg { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+  .seg button {
+    font-family: inherit; font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid #aaa; background: #fafafa;
+    border-radius: 4px; cursor: pointer;
+    flex: 1 1 auto;
+  }
+  .seg button[aria-pressed="true"] {
+    background: #4a7; color: #fff; border-color: #383;
+  }
+  .seg button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .toggle {
+    font-family: inherit; font-size: 0.85rem;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid #aaa; background: #fafafa;
+    border-radius: 4px; cursor: pointer;
+    width: 100%;
+  }
+  .toggle[aria-pressed="true"] {
+    background: #4a7; color: #fff; border-color: #383;
+  }
+  .toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+  .slider-row { display: flex; gap: 0.5rem; align-items: center; }
+  .slider-row input[type=range] { flex: 1; }
+  .slider-row .val { min-width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
+  .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
+  .toast {
+    background: #fee; border: 1px solid #c66; color: #800;
+    padding: 0.3rem 0.4rem; border-radius: 4px; font-size: 0.75rem;
+    margin-top: 0.25rem;
+  }
 </style>
 </head>
 <body>
@@ -61,6 +100,10 @@ const STALE_THRESHOLD_MS = 90 * 1000;
 
 let deviceNames = [];
 const lastSnapshots = {}; // name -> {snapshot fields, _fetchedAt}
+// State for in-flight writes. Disables that card's controls while pending.
+const inFlight = {}; // name -> bool
+// Per-control toasts. Cleared on next successful poll.
+const toasts = {}; // name -> { control: msg }
 
 async function bootstrap() {
   try {
@@ -98,6 +141,8 @@ async function refreshAll() {
   for (const res of results) {
     if (res.status === "fulfilled") {
       lastSnapshots[res.value.name] = { ...res.value.snap, _fetchedAt: Date.now() };
+      // Clear all toasts for this device on a successful refresh.
+      delete toasts[res.value.name];
     }
   }
   render();
@@ -164,6 +209,8 @@ function renderCard(name, snap) {
       ${kv("faults",  fmt(snap.service?.fault_level, "—"))}
     </div>
 
+    ${renderControls(name, snap, stale)}
+
     ${snap.firmware ? `<div class="fw">fw ${esc(snap.firmware.version || "?")} · ${esc(snap.firmware.build_date || "?")}</div>` : ""}
   </div>`;
 }
@@ -218,6 +265,170 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   }[c]));
+}
+
+function renderControls(name, snap, stale) {
+  const cfg = snap.configured || {};
+  const disabled = stale || inFlight[name];
+  const power = cfg.power === true;
+  const heater = cfg.heater_enabled === true;
+  const mode = cfg.airflow_mode || "";
+  const speedMode = cfg.speed_mode || "";  // "preset1".."preset3" | "manual"
+  const manualPct = typeof cfg.manual_pct === "number" ? cfg.manual_pct : 50;
+  const dis = disabled ? "disabled" : "";
+  const t = toasts[name] || {};
+
+  const modeBtn = (label, value) =>
+    `<button data-action="mode" data-name="${esc(name)}" data-value="${value}" ${dis}
+        aria-pressed="${mode === value ? "true" : "false"}">${esc(label)}</button>`;
+
+  const presetBtn = (n) =>
+    `<button data-action="preset" data-name="${esc(name)}" data-value="${n}" ${dis}
+        aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${n}</button>`;
+
+  const manualPressed = speedMode === "manual";
+  const manualBtn =
+    `<button data-action="manual-mode" data-name="${esc(name)}" ${dis}
+        aria-pressed="${manualPressed ? "true" : "false"}">manual</button>`;
+  const sliderDis = (disabled || !manualPressed) ? "disabled" : "";
+
+  return `<div class="controls">
+    <h3>Controls</h3>
+
+    <div class="ctrl">
+      <button class="toggle" data-action="power" data-name="${esc(name)}" ${dis}
+        aria-pressed="${power ? "true" : "false"}">
+        Power ${power ? "● on" : "○ off"}
+      </button>
+      ${t.power ? `<div class="toast">${esc(t.power)}</div>` : ""}
+    </div>
+
+    <div class="ctrl">
+      <span class="ctrl-label">Mode</span>
+      <div class="seg">
+        ${modeBtn("vent",  "ventilation")}
+        ${modeBtn("regen", "regeneration")}
+        ${modeBtn("sup",   "supply")}
+        ${modeBtn("ext",   "extract")}
+      </div>
+      ${t.mode ? `<div class="toast">${esc(t.mode)}</div>` : ""}
+    </div>
+
+    <div class="ctrl">
+      <span class="ctrl-label">Speed</span>
+      <div class="seg">
+        ${presetBtn(1)}
+        ${presetBtn(2)}
+        ${presetBtn(3)}
+        ${manualBtn}
+      </div>
+      <div class="slider-row">
+        <input type="range" min="10" max="100" step="5"
+          value="${manualPct}"
+          data-action="manual-slider" data-name="${esc(name)}" ${sliderDis}>
+        <span class="val">${manualPct}%</span>
+      </div>
+      ${t.speed ? `<div class="toast">${esc(t.speed)}</div>` : ""}
+    </div>
+
+    <div class="ctrl">
+      <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
+        aria-pressed="${heater ? "true" : "false"}">
+        Heater ${heater ? "● on" : "○ off"}
+      </button>
+      ${t.heater ? `<div class="toast">${esc(t.heater)}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+// Single delegated click handler for all control buttons.
+document.addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-action]");
+  if (!btn) return;
+  const name = btn.dataset.name;
+  const action = btn.dataset.action;
+  const value = btn.dataset.value;
+  const snap = lastSnapshots[name];
+  if (!snap) return;
+
+  switch (action) {
+    case "power":
+      await postWrite(name, "power", "/v1/devices/" + encodeURIComponent(name) + "/power",
+                      { on: !snap.configured?.power });
+      break;
+    case "mode":
+      await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
+                      { mode: value });
+      break;
+    case "preset":
+      await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                      { preset: parseInt(value, 10) });
+      break;
+    case "manual-mode":
+      // Selecting manual just enables the slider; no POST until the
+      // slider value changes. Force a re-render so the slider becomes
+      // interactive without waiting for the next poll.
+      if (snap.configured) snap.configured.speed_mode = "manual";
+      render();
+      break;
+    case "heater":
+      await postWrite(name, "heater", "/v1/devices/" + encodeURIComponent(name) + "/heater",
+                      { on: !snap.configured?.heater_enabled });
+      break;
+  }
+});
+
+// Slider handler — fires on `change` (mouseup/blur), not `input`.
+document.addEventListener("change", async (ev) => {
+  const el = ev.target;
+  if (!el.matches('input[type="range"][data-action="manual-slider"]')) return;
+  const name = el.dataset.name;
+  const pct = parseInt(el.value, 10);
+  await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                  { manual: pct });
+});
+
+async function postWrite(name, controlKey, url, body) {
+  inFlight[name] = true;
+  render();
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const env = await r.json();
+        if (env.error) msg = env.error;
+      } catch {}
+      setToast(name, controlKey, msg);
+    } else {
+      clearToast(name, controlKey);
+      // Refresh this device immediately so the user sees feedback before
+      // the next 5s tick. Other devices unaffected.
+      try {
+        const snapResp = await fetch("/v1/devices/" + encodeURIComponent(name));
+        if (snapResp.ok) {
+          lastSnapshots[name] = { ...(await snapResp.json()), _fetchedAt: Date.now() };
+        }
+      } catch {}
+    }
+  } catch (e) {
+    setToast(name, controlKey, e.message);
+  } finally {
+    inFlight[name] = false;
+    render();
+  }
+}
+
+function setToast(name, controlKey, msg) {
+  if (!toasts[name]) toasts[name] = {};
+  toasts[name][controlKey] = msg;
+}
+function clearToast(name, controlKey) {
+  if (toasts[name]) delete toasts[name][controlKey];
 }
 
 bootstrap();
