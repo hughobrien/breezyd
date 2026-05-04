@@ -159,8 +159,13 @@ type Handler struct {
 	// used instead. Either path is exercised in handleWriteSuccess.
 	NoticeFunc func(device string, id breezy.ParamID)
 
-	// mux is built lazily by routes() and cached.
-	mux *http.ServeMux
+	// mux is built lazily by routes() and cached. muxOnce guards the
+	// initialisation against a data race on the first concurrent burst
+	// of requests — net/http serves each request from its own goroutine,
+	// so without sync.Once two requests arriving before the cache is
+	// populated would each call routes() and race on the assignment.
+	mux     *http.ServeMux
+	muxOnce sync.Once
 }
 
 // errEnvelope is the JSON shape every error response shares. Error is the
@@ -173,9 +178,7 @@ type errEnvelope struct {
 
 // ServeHTTP dispatches the request through the lazily-built ServeMux.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.mux == nil {
-		h.mux = h.routes()
-	}
+	h.muxOnce.Do(func() { h.mux = h.routes() })
 	h.mux.ServeHTTP(w, r)
 }
 
