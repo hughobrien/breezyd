@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Human-friendly renderers for the breezy CLI's status, ls, faults,
-// firmware, and param verbs. Each function takes either a parsed daemon
-// response or a typed value from the local registry and writes a
+// firmware, and param verbs. Each function takes either a typed value
+// from pkg/breezy or a small local row type (lsRow) and writes a
 // multi-line block to the given Writer. They are package-private;
-// main.go's cmd* functions own the HTTP plumbing and then delegate the
+// the cmd* functions in commands.go call a backend, then delegate
 // formatting here.
 package main
 

@@ -33,7 +33,7 @@ type backend interface {
 	Faults(ctx context.Context, name string) ([]breezy.FaultCode, error)
 	Firmware(ctx context.Context, name string) (version, buildDate string, err error)
 	Efficiency(ctx context.Context, name string) (int, error)
-	GetParam(ctx context.Context, name string, id breezy.ParamID) (raw []byte, paramName, paramType, paramValue string, err error)
+	GetParam(ctx context.Context, name string, id breezy.ParamID) ([]byte, error)
 	Devices(ctx context.Context) ([]lsRow, error)
 
 	// Write-style operations.
@@ -248,26 +248,23 @@ func (d *daemonBackend) Efficiency(ctx context.Context, name string) (int, error
 	return resp.Pct, nil
 }
 
-func (d *daemonBackend) GetParam(ctx context.Context, name string, id breezy.ParamID) ([]byte, string, string, string, error) {
+func (d *daemonBackend) GetParam(ctx context.Context, name string, id breezy.ParamID) ([]byte, error) {
 	path := fmt.Sprintf("/v1/devices/%s/params/0x%04X", name, uint16(id))
 	status, raw, err := d.httpJSON(ctx, http.MethodGet, path, nil)
 	if err != nil || status >= 400 {
-		return nil, "", "", "", envelopeErr(status, raw, err)
+		return nil, envelopeErr(status, raw, err)
 	}
 	var resp struct {
-		Hex   string `json:"hex"`
-		Name  string `json:"name"`
-		Type  string `json:"type"`
-		Value string `json:"value"`
+		Hex string `json:"hex"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, "", "", "", fmt.Errorf("decode param: %w", err)
+		return nil, fmt.Errorf("decode param: %w", err)
 	}
 	b, err := hex.DecodeString(resp.Hex)
 	if err != nil {
-		return nil, "", "", "", fmt.Errorf("decode hex %q: %w", resp.Hex, err)
+		return nil, fmt.Errorf("decode hex %q: %w", resp.Hex, err)
 	}
-	return b, resp.Name, resp.Type, resp.Value, nil
+	return b, nil
 }
 
 func (d *daemonBackend) SetParam(ctx context.Context, name string, id breezy.ParamID, value []byte) error {
