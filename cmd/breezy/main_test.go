@@ -19,6 +19,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // stub records what the test server received so the test can assert.
@@ -694,4 +696,74 @@ func TestRecordingHandlerNoBody(t *testing.T) {
 		t.Fatalf("expected nil body, got %v", got.body)
 	}
 	_ = fmt.Sprintf // placate goimports
+}
+
+func TestCapsString(t *testing.T) {
+	for _, tc := range []struct {
+		caps breezy.Capabilities
+		want string
+	}{
+		{breezy.CapRead, "R"},
+		{breezy.CapWrite, "W"},
+		{breezy.CapReadWrite, "RW"},
+		{breezy.CapAll, "RWID"},
+		{breezy.CapRead | breezy.CapInc, "RI"},
+	} {
+		if got := capsString(tc.caps); got != tc.want {
+			t.Errorf("capsString(%b) = %q, want %q", tc.caps, got, tc.want)
+		}
+	}
+}
+
+func TestRenderParams(t *testing.T) {
+	params := []breezy.Param{
+		{ID: 0x0001, Name: "power", Type: breezy.TypeUint8, Unit: "", Caps: breezy.CapAll, Description: "Turn on/off"},
+		{ID: 0x004A, Name: "fan_supply_rpm", Type: breezy.TypeUint16, Unit: "rpm", Caps: breezy.CapRead, Description: "Live RPM"},
+		{ID: 0x0065, Name: "reset_filter_timer", Type: breezy.TypeWriteOnly, Unit: "", Caps: breezy.CapWrite, Description: "Trigger"},
+	}
+	var buf bytes.Buffer
+	renderParams(&buf, params)
+	out := buf.String()
+
+	for _, sub := range []string{
+		"ID", "NAME", "TYPE", "UNIT", "CAPS", "DESCRIPTION",
+		"0x0001", "power", "uint8", "RWID", "Turn on/off",
+		"0x004A", "fan_supply_rpm", "uint16", "rpm", "Live RPM",
+		"0x0065", "reset_filter_timer", "write_only", "W", "Trigger",
+	} {
+		if !strings.Contains(out, sub) {
+			t.Errorf("renderParams output missing %q:\n%s", sub, out)
+		}
+	}
+
+	// Empty Unit must render as "-".
+	powerLine := ""
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if strings.Contains(line, "0x0001") {
+			powerLine = line
+			break
+		}
+	}
+	if powerLine == "" {
+		t.Fatalf("no row found for 0x0001 in output:\n%s", out)
+	}
+	// The UNIT column for power must be the literal "-" (surrounded by spaces).
+	if !strings.Contains(powerLine, " -  ") {
+		t.Errorf("expected empty Unit rendered as '-' in row, got:\n%s", powerLine)
+	}
+
+	// Header line is the first non-empty line.
+	firstLine := strings.SplitN(out, "\n", 2)[0]
+	wantHeaderOrder := []string{"ID", "NAME", "TYPE", "UNIT", "CAPS", "DESCRIPTION"}
+	prev := -1
+	for _, h := range wantHeaderOrder {
+		idx := strings.Index(firstLine, h)
+		if idx < 0 {
+			t.Fatalf("header missing %q: %q", h, firstLine)
+		}
+		if idx <= prev {
+			t.Fatalf("header column %q out of order in: %q", h, firstLine)
+		}
+		prev = idx
+	}
 }
