@@ -324,6 +324,7 @@ so per-device commands read naturally:
 | ------------------------------------ | -------------------------------------------- |
 | `breezy ls`                          | one-line table of every configured device   |
 | `breezy discover`                    | LAN broadcast (bypasses daemon)             |
+| `breezy param`                       | list known parameters (id, type, unit, caps; use `name` with `get`/`set`) |
 | `breezy playroom status`             | full structured snapshot                     |
 | `breezy bedroom on` / `off`          | power                                        |
 | `breezy bedroom speed manual:30`     | set fan to 30 % manual                       |
@@ -339,7 +340,6 @@ so per-device commands read naturally:
 | `breezy playroom reset-faults`       | clear active fault flags                     |
 | `breezy playroom get humidity`       | raw param read by name or hex                |
 | `breezy playroom set 0x25 1e`        | raw param write (hex)                        |
-| `breezy param`                       | list known parameters (id, type, unit, caps; use `name` with `get`/`set`) |
 
 The CLI exit codes are: `0` success, `1` daemon/HTTP error (with the daemon's
 error envelope rendered as `error: <msg> (<code>)`), `2` local usage error.
