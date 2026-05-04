@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
-	"github.com/hughobrien/twinfresh/pkg/breezy/fakedevice"
+	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 )
 
 const (

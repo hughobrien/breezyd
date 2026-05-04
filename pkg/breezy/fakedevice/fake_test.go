@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 const (

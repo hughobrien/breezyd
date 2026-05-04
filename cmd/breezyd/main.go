@@ -30,8 +30,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hughobrien/twinfresh/internal/config"
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/internal/config"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )

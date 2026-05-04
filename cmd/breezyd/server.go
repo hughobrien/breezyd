@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hughobrien/twinfresh/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // HandlerClient is the subset of breezy.Client the HTTP handler needs.
