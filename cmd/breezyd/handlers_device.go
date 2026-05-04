@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
@@ -104,6 +103,9 @@ func (h *Handler) getParam(w http.ResponseWriter, r *http.Request) {
 //
 // Unknown params (not in the registry) are *allowed* — the caller is
 // signalling they know what they're doing.
+//
+// postParam writes raw bytes directly via rc.WriteParams; it does NOT go
+// through pkg/breezy/ops (ops are for known-shape writes only).
 func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.requireDevice(w, name); !ok {
@@ -114,7 +116,6 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", err.Error())
 		return
 	}
-
 	var body struct {
 		Hex string `json:"hex"`
 	}
@@ -130,18 +131,24 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", fmt.Sprintf("decode hex: %v", err))
 		return
 	}
-
-	writes := []breezy.ParamWrite{{ID: id, Value: val}}
-	if err := h.doWrite(r.Context(), name, writes); err != nil {
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
+		return
+	}
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := rc.WriteParams(ctx, []breezy.ParamWrite{{ID: id, Value: val}}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// doWrite is the common path for every write-issuing handler. It opens a
-// fresh client, issues the WriteParams, closes the client.
+// doWrite is the common path for service handlers (postFilterReset,
+// postFaultsReset) that still use the old write pattern. Task 6 will
+// migrate those handlers to recordingClient and remove doWrite.
 func (h *Handler) doWrite(ctx context.Context, name string, writes []breezy.ParamWrite) error {
 	client, err := h.dial(name)
 	if err != nil {
@@ -176,16 +183,18 @@ func (h *Handler) postPower(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'on' field (true/false)")
 		return
 	}
-	val := byte(0)
-	if *body.On {
-		val = 1
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
+		return
 	}
-	writes := []breezy.ParamWrite{{ID: 0x0001, Value: []byte{val}}}
-	if err := h.doWrite(r.Context(), name, writes); err != nil {
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.Power(ctx, rc, *body.On); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -206,41 +215,26 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &body) {
 		return
 	}
-
-	switch {
-	case body.Preset != nil:
-		if *body.Preset < 1 || *body.Preset > 3 {
-			writeErr(w, "bad_request", "preset must be 1, 2, or 3")
-			return
-		}
-		val := byte(*body.Preset)
-		writes := []breezy.ParamWrite{{ID: 0x0002, Value: []byte{val}}}
-		if err := h.doWrite(r.Context(), name, writes); err != nil {
-			writeErr(w, classifyClientErr(err), err.Error())
-			return
-		}
-		h.recordWrite(name, writes)
-
-	case body.Manual != nil:
-		if *body.Manual < 10 || *body.Manual > 100 {
-			writeErr(w, "bad_request", "manual percent must be ≥ 10 (firmware floor) and ≤ 100")
-			return
-		}
-		// Single packet: 0x44 = pct, 0x02 = 0xFF. Order matters per the
-		// vendor manual — set the percentage first so the firmware doesn't
-		// briefly use a stale value when interpreting the manual flag.
-		writes := []breezy.ParamWrite{
-			{ID: 0x0044, Value: []byte{byte(*body.Manual)}},
-			{ID: 0x0002, Value: []byte{0xFF}},
-		}
-		if err := h.doWrite(r.Context(), name, writes); err != nil {
-			writeErr(w, classifyClientErr(err), err.Error())
-			return
-		}
-		h.recordWrite(name, writes)
-
-	default:
-		writeErr(w, "bad_request", "set either 'preset' (1-3) or 'manual' (10-100)")
+	if (body.Preset == nil) == (body.Manual == nil) {
+		writeErr(w, "bad_request", "set exactly one of 'preset' (1-3) or 'manual' (10-100)")
+		return
+	}
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
+		return
+	}
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	var opErr error
+	if body.Preset != nil {
+		opErr = breezy.SetSpeedPreset(ctx, rc, *body.Preset)
+	} else {
+		opErr = breezy.SetSpeedManual(ctx, rc, *body.Manual)
+	}
+	if opErr != nil {
+		writeErr(w, classifyClientErr(opErr), opErr.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -257,26 +251,18 @@ func (h *Handler) postMode(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &body) {
 		return
 	}
-	var val byte
-	switch strings.ToLower(body.Mode) {
-	case "ventilation":
-		val = 0
-	case "regeneration":
-		val = 1
-	case "supply":
-		val = 2
-	case "extract":
-		val = 3
-	default:
-		writeErr(w, "bad_request", "mode must be one of: ventilation, regeneration, supply, extract")
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
 		return
 	}
-	writes := []breezy.ParamWrite{{ID: 0x00B7, Value: []byte{val}}}
-	if err := h.doWrite(r.Context(), name, writes); err != nil {
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetMode(ctx, rc, body.Mode); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -295,22 +281,24 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'on' field (true/false)")
 		return
 	}
-	val := byte(0)
-	if *body.On {
-		val = 1
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
+		return
 	}
-	writes := []breezy.ParamWrite{{ID: 0x0068, Value: []byte{val}}}
-	if err := h.doWrite(r.Context(), name, writes); err != nil {
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetHeater(ctx, rc, *body.On); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // postRTC sets both 0x6F (3-byte sec/min/hr) and 0x70 (4-byte day/dow/month/year)
-// in a single write packet. Day-of-week is computed from the parsed time
-// using the convention 1=Monday..7=Sunday (matches the vendor manual).
+// in a single write packet. Day-of-week and year range validation are
+// handled by breezy.SetRTC; parse errors from time.Parse are caught here.
 func (h *Handler) postRTC(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.requireDevice(w, name); !ok {
@@ -331,32 +319,17 @@ func (h *Handler) postRTC(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", fmt.Sprintf("parse time %q: %v", body.Time, err))
 		return
 	}
-
-	// 0x6F: [sec, min, hr]
-	timeBytes := []byte{byte(t.Second()), byte(t.Minute()), byte(t.Hour())}
-	// 0x70: [day, day_of_week, month, year-2000]
-	// time.Weekday: Sunday=0..Saturday=6; we want Mon=1..Sun=7.
-	dow := int(t.Weekday())
-	if dow == 0 {
-		dow = 7
-	}
-	year := t.Year() - 2000
-	if year < 0 || year > 255 {
-		writeErr(w, "bad_request", fmt.Sprintf("year %d out of range for RTC", t.Year()))
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, "internal", err.Error())
 		return
 	}
-	dateBytes := []byte{byte(t.Day()), byte(dow), byte(t.Month()), byte(year)}
-
-	writes := []breezy.ParamWrite{
-		{ID: 0x006F, Value: timeBytes},
-		{ID: 0x0070, Value: dateBytes},
-	}
-	if err := h.doWrite(r.Context(), name, writes); err != nil {
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetRTC(ctx, rc, t); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	// Neither RTC param is in fanWriteIDs, so notice() is a no-op for the
-	// poller; recordWrite still updates the cache and any test hook.
-	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
