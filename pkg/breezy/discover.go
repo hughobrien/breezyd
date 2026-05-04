@@ -57,16 +57,69 @@ type Found struct {
 	UnitType uint16
 }
 
+// localBroadcasts returns the directed-broadcast address for every
+// up, non-loopback IPv4 interface on the host, formatted as "a.b.c.d:4000".
+// These are appended to DefaultBroadcasts by Discover so that a host on
+// any subnet (not just 192.168.0/1.0/24) can reach its own LAN devices.
+// Errors enumerating interfaces are silently ignored — the caller always
+// has DefaultBroadcasts as a fallback.
+func localBroadcasts() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip4 := ipNet.IP.To4()
+			if ip4 == nil {
+				continue
+			}
+			// Compute directed broadcast: host bits all 1.
+			mask := ipNet.Mask
+			bcast := make(net.IP, 4)
+			for i := range 4 {
+				bcast[i] = ip4[i] | ^mask[i]
+			}
+			out = append(out, bcast.String()+":4000")
+		}
+	}
+	return out
+}
+
 // Discover broadcasts a wildcard read for parameters 0x007C (device ID)
-// and 0x00B9 (unit type) on UDP/4000 to DefaultBroadcasts and listens for
-// replies until ctx is done or ~2s elapses, whichever comes first. Each
-// distinct (IP, DeviceID) is returned once.
+// and 0x00B9 (unit type) on UDP/4000 to DefaultBroadcasts plus the
+// directed-broadcast address of every local IPv4 interface, and listens
+// for replies until ctx is done or ~2s elapses, whichever comes first.
+// Each distinct (IP, DeviceID) is returned once.
 //
 // The returned slice is empty (not nil-on-error) when no devices answered.
 // Errors only surface for socket-level failures (e.g. the local UDP listen
 // failed); per-target send/recv errors are non-fatal.
 func Discover(ctx context.Context) ([]Found, error) {
-	return discoverInternal(ctx, DefaultBroadcasts, true)
+	targets := append([]string(nil), DefaultBroadcasts...)
+	seen := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		seen[t] = struct{}{}
+	}
+	for _, t := range localBroadcasts() {
+		if _, dup := seen[t]; !dup {
+			targets = append(targets, t)
+			seen[t] = struct{}{}
+		}
+	}
+	return discoverInternal(ctx, targets, true)
 }
 
 // DiscoverAt is the test- and unicast-friendly variant of Discover: instead
