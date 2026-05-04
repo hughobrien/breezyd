@@ -39,7 +39,7 @@ Nix flake builds work too: `nix build`, `nix develop`, `nix run .#breezy -- ls`.
 Three artefacts from one Go module (`github.com/hughobrien/breezyd`):
 
 1. **`pkg/breezy`** — importable protocol library. Speaks the Vents Twinfresh FDFD/02 framed protocol over UDP/4000.
-2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`.
+2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`. Also serves an embedded single-page dashboard from `cmd/breezyd/ui/index.html` (HTML + inlined CSS/JS) at `GET /{$}` — the `{$}` anchor is load-bearing: a plain `GET /` pattern would catch every unmatched URL and silently turn API typos into HTML responses. The handler lives in `cmd/breezyd/ui.go` and is one `go:embed` plus 12 lines of `http.HandlerFunc`.
 3. **`cmd/breezy`** — thin CLI. Talks HTTP to the daemon for everything except `breezy discover`, which broadcasts on the LAN directly.
 
 `internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration test runs against it.
@@ -101,4 +101,4 @@ No schedule editing, no WiFi reconfig, no MQTT bridge, no Home Assistant compone
 ## Release plumbing
 
 - `goreleaser` builds cross-platform archives on tag pushes. Build metadata (`version`, `commit`, `date`) is injected via `-ldflags` into both binaries' `main` package. The Nix derivation deliberately omits `-X main.date=…` for reproducibility.
-- `nix/module.nix` exposes a NixOS service with hardened systemd settings; inline `settings` end up in the world-readable Nix store, so production deployments must use `configFile` with sops-nix/agenix for real device passwords.
+- `nix/module.nix` exposes a NixOS service with hardened systemd settings; inline `settings` end up in the world-readable Nix store, so production deployments must use `configFile` with sops-nix/agenix for real device passwords. The module has two opt-in integrations that mirror each other in shape: `services.breezyd.prometheus.{enable,jobName,scrapeInterval}` auto-registers a Prometheus scrape job when both services are enabled; `services.breezyd.nginx.{enable,virtualHost,basicAuthFile}` attaches a `proxy_pass` location to a named virtual host so the dashboard can be exposed on the LAN while the daemon stays loopback-bound.
