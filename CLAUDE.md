@@ -47,9 +47,9 @@ Three artefacts from one Go module (`github.com/hughobrien/breezyd`):
 
 1. **`pkg/breezy`** — importable protocol library. Speaks the Vents Twinfresh FDFD/02 framed protocol over UDP/4000.
 2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`. Also serves an embedded single-page dashboard from `cmd/breezyd/ui/index.html` (HTML + inlined CSS/JS) at `GET /{$}` — the `{$}` anchor is load-bearing: a plain `GET /` pattern would catch every unmatched URL and silently turn API typos into HTML responses. The handler lives in `cmd/breezyd/ui.go` and is one `go:embed` plus 12 lines of `http.HandlerFunc`.
-3. **`cmd/breezy`** — thin CLI. Talks HTTP to the daemon for everything except `breezy discover`, which broadcasts on the LAN directly.
+3. **`cmd/breezy`** — thin CLI. Talks HTTP to the daemon for everything except `breezy discover`, which broadcasts on the LAN directly. `Discover()` enumerates every up, non-loopback IPv4 interface and sends to its directed-broadcast address in addition to a static fallback list — relevant when a host isn't on `192.168.0/1.0/24`.
 
-`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration test runs against it.
+`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration Go test runs against it. `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that tests the embedded dashboard's HTTP-call contract via `page.route()` mocking — no real daemon involved. `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
 
 ### Why a daemon owns UDP
 
@@ -94,16 +94,22 @@ CLI exit codes: `0` success, `1` daemon/HTTP error (with the daemon's `{"error",
 
 `discovery` is one of `"on-start"`, `"off"`, or `"periodic:<duration>"`.
 
+**First-run bootstrap:** when `breezyd` is started against a config path that doesn't exist, it writes a sensible default at that path (mode 0600, parent dir at 0700 if missing) via atomic temp+rename, then exits non-zero with an "edit it" message. See `internal/config.WriteDefault` and the gate at the top of `cmd/breezyd/main.go`'s `run`. The bootstrap path is gated specifically on `errors.Is(err, os.ErrNotExist)` — other Load failures (bad TOML, wrong mode, etc.) still surface unchanged.
+
 ## Spec & design docs
 
-- `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md` — design doc covering protocol decisions, daemon architecture, error semantics, status-line format. The closest thing to a "why".
+- `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md` — v1.0 design doc covering protocol decisions, daemon architecture, error semantics, status-line format. The closest thing to a "why" for the core.
 - `docs/superpowers/specs/2026-05-03-param-map.md` — every parameter ID with type, units, observed values.
 - `docs/superpowers/specs/breezy-manual-vendor.pdf` — vendor protocol manual.
-- `docs/superpowers/plans/2026-05-03-twinfresh-cli.md` — original implementation plan; matches the v1 scope shipped in 1.0.0.
+- `docs/superpowers/specs/2026-05-04-basic-ui-design.md` — v1.1 design doc for the embedded dashboard, the bind-address tradeoff, and the optional NixOS-nginx reverse-proxy integration.
+- `docs/superpowers/specs/2026-05-04-justfile-migration-design.md` — design notes for the Make → just transition.
+- `docs/superpowers/specs/2026-05-04-discover-investigation.md` — analysis of the two unrelated causes behind `breezy discover` failures (the code defect, fixed in v1.1; and the QEMU-NAT environmental constraint, documented).
+- `docs/superpowers/plans/2026-05-03-twinfresh-cli.md` — original implementation plan; matches the v1.0 scope.
+- `docs/superpowers/plans/2026-05-04-basic-ui.md` — eight-task implementation plan executed for v1.1 (web UI, controls, nginx integration, docs, Playwright tests, screenshots, config bootstrap, discover diagnosis).
 
 ## Out of scope (deliberate, not bugs)
 
-No schedule editing, no WiFi reconfig, no MQTT bridge, no Home Assistant component, no web UI. The state cache is shaped so a bridge could be added without rewriting the core, but adding any of these is a v2 conversation, not a v1 fix.
+No schedule editing, no WiFi reconfig, no MQTT bridge, no Home Assistant component. The state cache is shaped so a bridge could be added without rewriting the core, but adding any of these is a separate conversation, not a fix to existing scope. (The web UI was originally on this list and got shipped in 1.1 — see CHANGELOG.md.)
 
 ## Release plumbing
 
