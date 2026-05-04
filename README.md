@@ -269,9 +269,28 @@ spec for the full rationale.
 - `docs/superpowers/specs/2026-05-03-param-map.md` — every parameter ID the
   device exposes, with type, units, observed values, and notes from Phase 0
   characterization.
-- `docs/superpowers/specs/breezy-manual-vendor.pdf` — vendor protocol manual
-  (the authoritative reference).
+- `docs/superpowers/specs/breezy-manual-vendor.pdf` — vendor protocol manual,
+  the authoritative reference for the wire protocol. Cached locally for offline
+  reading; the canonical copy is published by Vents at
+  <https://ventilation-system.com/download/breezy-manual-21433.pdf>.
 - `docs/superpowers/specs/breezy-datasheet-vendor.pdf` — hardware datasheet.
+  Canonical copy at
+  <https://ventilation-system.com/download/breezy-datasheet-21437.pdf>.
+
+## Credits
+
+This project would not have been possible without the published protocol
+documentation from **Ventilation Systems Ltd. (Vents)**. The Breezy / Breezy
+Eco connection-instruction manual at
+<https://ventilation-system.com/download/breezy-manual-21433.pdf> documents the
+full wire protocol, packet structure, function codes, and parameter table that
+this library implements. Reading the manual confirmed (and in places
+corrected) the empirical reverse-engineering captured during Phase 0 of this
+project. Thanks to Vents for publishing it openly.
+
+The bundled copies of the manual and datasheet under
+`docs/superpowers/specs/` are provided for convenience and remain © Vents.
+Refer to the canonical URLs above for the latest versions.
 
 ## License
 
