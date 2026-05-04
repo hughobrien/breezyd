@@ -210,15 +210,33 @@ device ID; copy them into the config file along with your protocol password.
 
 ## First run
 
+The daemon writes a default config on the first run if one doesn't exist
+yet, so the bootstrap flow is:
+
 ```sh
-mkdir -p ~/.config/breezy
-$EDITOR ~/.config/breezy/config.toml          # see example above
-chmod 600 ~/.config/breezy/config.toml
+./breezyd                                     # writes ~/.config/breezy/config.toml
+                                              # at mode 0600 with sensible [daemon]
+                                              # defaults + a commented-out
+                                              # [devices.playroom] block, then
+                                              # exits non-zero with a "edit it"
+                                              # message.
+
+$EDITOR ~/.config/breezy/config.toml          # uncomment + fill in your devices
+                                              # (run `breezy discover` first to
+                                              # find their IDs, if you can — see
+                                              # the discover note in
+                                              # docs/superpowers/specs/2026-05-04-discover-investigation.md
+                                              # for environments where broadcast
+                                              # discovery doesn't work)
 
 ./breezyd &                                   # starts on 127.0.0.1:9876
 ./breezy ls                                   # one-line summary per device
 ./breezy playroom status                      # full structured snapshot
 ```
+
+If you'd rather start from a config file you've prepared elsewhere (e.g.,
+sops-nix / agenix), point the daemon at it with `--config /path/to/file`.
+The loader still requires mode `0600`.
 
 The daemon logs to stderr. Stop it with SIGINT/SIGTERM; it shuts down within
 five seconds.
@@ -383,11 +401,21 @@ breezyd/
 ```sh
 just test                       # unit tests (uses fakedevice)
 just test-race                  # same, with -race (the CI command)
-just lint                       # go vet ./...
+just lint                       # go vet + gofmt-drift check
 just check                      # lint + fast tests (pre-commit gate)
+just check-all                  # check + test-race + Playwright UI suite
 ```
 
-Run a single package or test with raw `go`:
+UI tests are end-to-end Playwright specs under `tests/ui/` that mock the
+daemon's `/v1/...` endpoints via `page.route()` — no real `breezyd` needed:
+
+```sh
+just test-ui-install            # one-time: pnpm install + chromium download
+just test-ui                    # 11 specs, ~3 s
+just screenshot                 # re-render tests/ui/screenshots/*.png
+```
+
+Run a single Go package or test with raw `go`:
 
 ```sh
 go test ./pkg/breezy/...
@@ -449,9 +477,15 @@ spec for the full rationale.
 
 ## Pointers to deeper docs
 
-- `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md` — full design
+- `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md` — full v1 design
   doc: protocol decisions, daemon architecture, error semantics, status-line
   format, etc.
+- `docs/superpowers/specs/2026-05-04-basic-ui-design.md` — design doc for the
+  web dashboard, the bind-address tradeoff, and the optional NixOS-nginx
+  reverse-proxy integration.
+- `docs/superpowers/specs/2026-05-04-discover-investigation.md` — the two
+  causes behind `breezy discover` failures (a code defect, fixed; and the
+  QEMU-NAT environmental constraint, documented) with concrete next steps.
 - `docs/superpowers/specs/2026-05-03-param-map.md` — every parameter ID the
   device exposes, with type, units, observed values, and notes from Phase 0
   characterization.
