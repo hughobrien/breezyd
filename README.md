@@ -4,13 +4,29 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/hughobrien/breezyd.svg)](https://pkg.go.dev/github.com/hughobrien/breezyd)
 [![Release](https://img.shields.io/github/v/release/hughobrien/breezyd)](https://github.com/hughobrien/breezyd/releases)
 
-A Go library, daemon, and CLI for controlling [Vents Twinfresh
-Breezy](https://ventilation-system.com/) energy-recovery ventilators over the
-local network. It speaks the device's native UDP/4000 protocol directly — no
-cloud account, no MQTT broker, no vendor app, no Home Assistant integration.
-LAN only. The daemon polls every configured unit, caches state, exposes a
-JSON HTTP API plus Prometheus `/metrics`, and serializes UDP traffic so that
-concurrent requests don't corrupt each other.
+A Go library, daemon, and CLI for controlling [Vents
+Twinfresh](https://ventilation-system.com/) Breezy ductless heat-recovery
+ventilators over the local network. It speaks the device's native UDP/4000
+protocol directly — no cloud account, no MQTT broker, no vendor app, no Home
+Assistant integration. LAN only. The daemon polls every configured unit,
+caches state, exposes a JSON HTTP API plus Prometheus `/metrics`, and
+serializes UDP traffic so that concurrent requests don't corrupt each other.
+
+### Supported devices
+
+The same hardware ships under different model names depending on region. All
+of these report unit type `0xB9 = 17` and speak the protocol this project
+implements:
+
+| Region        | Product name                                           |
+|---------------|--------------------------------------------------------|
+| Europe        | Vents Twinfresh **Breezy 160** (also Breezy Eco 160)   |
+| North America | Vents Twinfresh **Elite 160 Pro** (ductless HRV)       |
+
+The vendor's smaller and larger siblings (Breezy 200, Twinfresh Elite 200 Pro,
+Breezy Eco 200) report different unit-type bytes (`20`, `22`, `24`) but use
+the same wire protocol; this project should work against them although it has
+only been tested against the 160 model.
 
 ## Status
 
