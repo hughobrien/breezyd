@@ -278,9 +278,9 @@ type Value interface {
 
 // Errors surfaced by Decode/Encode.
 var (
-	ErrSize         = errors.New("breezy: wrong byte length for parameter type")
+	ErrSize             = errors.New("breezy: wrong byte length for parameter type")
 	ErrCodecUnsupported = errors.New("breezy: codec not supported for this type")
-	ErrTypeMismatch = errors.New("breezy: value type does not match parameter")
+	ErrTypeMismatch     = errors.New("breezy: value type does not match parameter")
 )
 
 // Uint8Value is a single-byte unsigned integer.
@@ -332,10 +332,10 @@ func (v TimeOfDayValue) String() string {
 
 // DateValue is a 4-byte [day, day_of_week, month, year-2000] LE date.
 type DateValue struct {
-	Day        uint8
-	DayOfWeek  uint8 // 1..7
-	Month      uint8 // 1..12
-	Year       uint8 // year - 2000 (so 25 == 2025)
+	Day       uint8
+	DayOfWeek uint8 // 1..7
+	Month     uint8 // 1..12
+	Year      uint8 // year - 2000 (so 25 == 2025)
 }
 
 func (v DateValue) String() string {

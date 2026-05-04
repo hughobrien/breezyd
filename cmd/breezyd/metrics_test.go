@@ -33,39 +33,39 @@ func representativeSnapshot() Snapshot {
 		IP:       "192.168.1.10:4000",
 		LastPoll: time.Unix(1_700_000_000, 0),
 		Values: map[breezy.ParamID][]byte{
-			0x0001: {1},                      // power on
-			0x0002: {0xFF},                   // manual
-			0x0007: {1},                      // night mode
-			0x000B: {30, 5, 1},               // 1h05m30s = 3930s
-			0x000F: {1},                      // humidity sensor on
-			0x0011: {1},                      // co2 sensor on
-			0x0019: {60},                     // 60% humidity threshold
-			0x001A: {0xD0, 0x07},             // 2000 ppm
-			0x001F: {0xC8, 0x00},             // 200 -> 20.0 °C
-			0x0020: {0xE0, 0x00},             // 224 -> 22.4 °C
-			0x0021: {0xC8, 0x00},             // 20.0 °C
-			0x0022: {0xB4, 0x00},             // 18.0 °C
-			0x0024: {0xC4, 0x0B},             // 3012 mV -> 3.012 V
-			0x0025: {45},                     // humidity 45%
-			0x0027: {0xF4, 0x01},             // 500 ppm eCO2
-			0x0044: {50},                     // manual 50%
-			0x004A: {0x10, 0x27},             // 10000 rpm supply
-			0x004B: {0x20, 0x27},             // 10016 rpm extract
-			0x0063: {0xB4, 0x00},             // 180 days
-			0x0064: {30, 12, 0x10, 0x00},     // min=30, hr=12, days=16
-			0x0068: {0},                      // heater disabled
-			0x007E: {0, 6, 0x40, 0x01},       // motor odo: 320 days, 6h
-			0x0081: {1},                      // heater currently on
-			0x0083: {0},                      // no faults
-			0x0084: {0, 1, 0, 0, 0},          // co2 alert flag set
+			0x0001: {1},                        // power on
+			0x0002: {0xFF},                     // manual
+			0x0007: {1},                        // night mode
+			0x000B: {30, 5, 1},                 // 1h05m30s = 3930s
+			0x000F: {1},                        // humidity sensor on
+			0x0011: {1},                        // co2 sensor on
+			0x0019: {60},                       // 60% humidity threshold
+			0x001A: {0xD0, 0x07},               // 2000 ppm
+			0x001F: {0xC8, 0x00},               // 200 -> 20.0 °C
+			0x0020: {0xE0, 0x00},               // 224 -> 22.4 °C
+			0x0021: {0xC8, 0x00},               // 20.0 °C
+			0x0022: {0xB4, 0x00},               // 18.0 °C
+			0x0024: {0xC4, 0x0B},               // 3012 mV -> 3.012 V
+			0x0025: {45},                       // humidity 45%
+			0x0027: {0xF4, 0x01},               // 500 ppm eCO2
+			0x0044: {50},                       // manual 50%
+			0x004A: {0x10, 0x27},               // 10000 rpm supply
+			0x004B: {0x20, 0x27},               // 10016 rpm extract
+			0x0063: {0xB4, 0x00},               // 180 days
+			0x0064: {30, 12, 0x10, 0x00},       // min=30, hr=12, days=16
+			0x0068: {0},                        // heater disabled
+			0x007E: {0, 6, 0x40, 0x01},         // motor odo: 320 days, 6h
+			0x0081: {1},                        // heater currently on
+			0x0083: {0},                        // no faults
+			0x0084: {0, 1, 0, 0, 0},            // co2 alert flag set
 			0x0086: {0, 11, 21, 3, 0xE9, 0x07}, // fw 0.11 build 2025-03-21
-			0x0088: {0},                      // filter clean
-			0x00B7: {2},                      // supply mode
-			0x0129: {85},                     // 85% recovery efficiency
-			0x030B: {0},                      // frost protection inactive
-			0x0315: {1},                      // voc sensor on
-			0x031F: {0x96, 0x00},             // 150 voc threshold
-			0x0320: {100, 0},                 // 100 voc index
+			0x0088: {0},                        // filter clean
+			0x00B7: {2},                        // supply mode
+			0x0129: {85},                       // 85% recovery efficiency
+			0x030B: {0},                        // frost protection inactive
+			0x0315: {1},                        // voc sensor on
+			0x031F: {0x96, 0x00},               // 150 voc threshold
+			0x0320: {100, 0},                   // 100 voc index
 		},
 	}
 }

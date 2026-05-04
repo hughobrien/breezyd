@@ -395,13 +395,13 @@ func TestLs(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"devices": []map[string]any{
 				{
-					"name":      "playroom",
-					"id":        "0123456789ABCDEF",
-					"ip":        "192.168.1.148:4000",
-					"last_poll": "2026-05-03T10:00:00Z",
-					"power":     &on,
+					"name":         "playroom",
+					"id":           "0123456789ABCDEF",
+					"ip":           "192.168.1.148:4000",
+					"last_poll":    "2026-05-03T10:00:00Z",
+					"power":        &on,
 					"airflow_mode": "regeneration",
-					"reachable": true,
+					"reachable":    true,
 				},
 				{
 					"name": "office", "id": "OFFICE0000000001",

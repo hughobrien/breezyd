@@ -85,8 +85,8 @@ func newServerHandler(t *testing.T) (*Handler, *recordingPoller, string) {
 
 // recordingPoller records the (device, paramID) pairs reported via NoticeWrite.
 type recordingPoller struct {
-	mu       sync.Mutex
-	notices  []recordedNotice
+	mu      sync.Mutex
+	notices []recordedNotice
 }
 
 type recordedNotice struct {
@@ -152,35 +152,35 @@ func snapshotAllParams(t *testing.T) map[breezy.ParamID][]byte {
 	t.Helper()
 	// Hand-built from snapshot_148.json — the fields we exercise are stable.
 	return map[breezy.ParamID][]byte{
-		0x0001: {0x01},                   // power on
-		0x0002: {0xFF},                   // manual mode
-		0x0007: {0x00},                   // timer off
-		0x000B: {0x10, 0x06, 0x00},       // 06:16:??? remaining
-		0x0019: {0x46},                   // humidity threshold = 70
-		0x001A: {0x20, 0x03},             // co2 threshold = 800
-		0x001F: {0xD4, 0x00},             // outdoor 21.2C
-		0x0020: {0xD7, 0x00},             // supply 21.5C
-		0x0021: {0xCE, 0x00},             // exhaust inlet 20.6C
-		0x0022: {0xD3, 0x00},             // exhaust outlet 21.1C
-		0x0024: {0x16, 0x0D},             // 3350 mV
-		0x0025: {0x36},                   // humidity 54%
-		0x0027: {0x97, 0x04},             // eCO2 1175 ppm
-		0x0044: {0x64},                   // manual 100%
-		0x004A: {0x00, 0x00},             // supply RPM 0
-		0x004B: {0x18, 0x15},             // extract RPM 5400
-		0x0064: {0x1D, 0x0D, 0x59, 0x00}, // filter remaining
-		0x0068: {0x00},                   // heater off
-		0x0081: {0x00},                   // heater_running 0
-		0x0083: {0x00},                   // fault_indicator none
-		0x0084: {0x00, 0x00, 0x00, 0x00, 0x00}, // no alerts
+		0x0001: {0x01},                               // power on
+		0x0002: {0xFF},                               // manual mode
+		0x0007: {0x00},                               // timer off
+		0x000B: {0x10, 0x06, 0x00},                   // 06:16:??? remaining
+		0x0019: {0x46},                               // humidity threshold = 70
+		0x001A: {0x20, 0x03},                         // co2 threshold = 800
+		0x001F: {0xD4, 0x00},                         // outdoor 21.2C
+		0x0020: {0xD7, 0x00},                         // supply 21.5C
+		0x0021: {0xCE, 0x00},                         // exhaust inlet 20.6C
+		0x0022: {0xD3, 0x00},                         // exhaust outlet 21.1C
+		0x0024: {0x16, 0x0D},                         // 3350 mV
+		0x0025: {0x36},                               // humidity 54%
+		0x0027: {0x97, 0x04},                         // eCO2 1175 ppm
+		0x0044: {0x64},                               // manual 100%
+		0x004A: {0x00, 0x00},                         // supply RPM 0
+		0x004B: {0x18, 0x15},                         // extract RPM 5400
+		0x0064: {0x1D, 0x0D, 0x59, 0x00},             // filter remaining
+		0x0068: {0x00},                               // heater off
+		0x0081: {0x00},                               // heater_running 0
+		0x0083: {0x00},                               // fault_indicator none
+		0x0084: {0x00, 0x00, 0x00, 0x00, 0x00},       // no alerts
 		0x0086: {0x00, 0x0B, 0x15, 0x03, 0xE9, 0x07}, // 0.11, 2025-03-21
-		0x0088: {0x00},                   // filter clean
-		0x00B7: {0x03},                   // mode = extract (3)
-		0x031F: {0x96, 0x00},             // VOC threshold 150
-		0x0320: {0x5E, 0x01},             // VOC index 350
-		0x0129: {0x55},                   // recovery efficiency 85%
-		0x030B: {0x00},                   // frost protection inactive
-		0x007E: {0x1E, 0x0A, 0x00, 0x00}, // motor running hours
+		0x0088: {0x00},                               // filter clean
+		0x00B7: {0x03},                               // mode = extract (3)
+		0x031F: {0x96, 0x00},                         // VOC threshold 150
+		0x0320: {0x5E, 0x01},                         // VOC index 350
+		0x0129: {0x55},                               // recovery efficiency 85%
+		0x030B: {0x00},                               // frost protection inactive
+		0x007E: {0x1E, 0x0A, 0x00, 0x00},             // motor running hours
 	}
 }
 
@@ -923,4 +923,3 @@ func TestErrEnvelope_Shape(t *testing.T) {
 		t.Errorf("envelope JSON missing fields: %s", b)
 	}
 }
-
