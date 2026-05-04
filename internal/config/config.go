@@ -12,8 +12,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -166,4 +168,90 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// defaultConfigTemplate is the content WriteDefault writes for a fresh
+// install. It carries the same [daemon] values that Load defaults to
+// when fields are absent — duplicating them here is intentional, since
+// the file is meant to be a starting point the user reads and edits.
+//
+// The single example device block is commented out so the file passes
+// Load on the immediate next run without doing anything dangerous; the
+// user has to add at least one real device to get useful behaviour.
+const defaultConfigTemplate = `# breezyd configuration. See:
+#   https://github.com/hughobrien/breezyd#configuration
+#
+# This file must remain mode 0600 — the daemon refuses to start otherwise.
+
+[daemon]
+listen        = "127.0.0.1:9876"
+poll_interval = "30s"
+discovery     = "on-start"   # "on-start" | "off" | "periodic:<duration>"
+
+# One [devices.<name>] block per Breezy unit. Run ` + "`breezy discover`" + ` to
+# find device IDs on your LAN, then uncomment one of the blocks below
+# and fill in your values. The ip line is optional — if omitted, on-start
+# discovery resolves it.
+#
+# [devices.playroom]
+# id       = "BREEZY00000000A0"
+# password = "your-protocol-password"
+# ip       = "192.168.1.148"
+`
+
+// ErrConfigExists is returned by WriteDefault when the target path
+// already exists. Callers can use errors.Is to distinguish this from
+// other write failures and avoid clobbering a real config.
+var ErrConfigExists = errors.New("config: file already exists")
+
+// WriteDefault writes a starter config to path with mode 0600. The
+// parent directory is created (mode 0700) if missing. The write is
+// atomic: content is staged in a sibling tempfile and renamed into
+// place, so a crash mid-write doesn't leave a half-formed file that
+// the loader would reject.
+//
+// If path already exists, WriteDefault returns ErrConfigExists without
+// touching the existing file. Callers that want to overwrite must
+// handle that themselves.
+func WriteDefault(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%w: %s", ErrConfigExists, path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("config: stat %s: %w", path, err)
+	}
+
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("config: mkdir %s: %w", dir, err)
+		}
+	}
+
+	// Stage in a sibling temp file with the same dir so rename is atomic.
+	tmp, err := os.CreateTemp(dir, ".breezyd-config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("config: create temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+
+	if _, err := tmp.WriteString(defaultConfigTemplate); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return fmt.Errorf("config: write temp: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return fmt.Errorf("config: chmod temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("config: close temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		cleanup()
+		return fmt.Errorf("config: rename temp -> %s: %w", path, err)
+	}
+	return nil
 }
