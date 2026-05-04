@@ -34,8 +34,10 @@ only been tested against the 160 model.
 
 ## Status
 
-This is the v1 scope. It is feature-complete for the things it sets out to do,
-and intentionally does not try to do more.
+Feature-complete for the operator's stated workflow. v1.0 shipped the
+library + daemon + CLI + Prometheus surface; v1.1 added the embedded
+web dashboard and the optional NixOS-nginx integration. See `CHANGELOG.md`
+for the per-version breakdown.
 
 In scope:
 - Sensor metrics: humidity, eCO2, VOC, supply/extract/exhaust temperatures,
@@ -51,7 +53,7 @@ In scope:
   info, and the four high-level controls (power / mode / speed / heater).
 
 Out of scope (see "Known limitations" below):
-- No schedule editing. Scheduling is on-device and the v1 CLI does not poke at it.
+- No schedule editing. Scheduling is on-device and the CLI does not poke at it.
 - No WiFi reconfig.
 - No MQTT bridge or Home Assistant component.
 
@@ -457,14 +459,14 @@ the host running `breezyd` on the IoT VLAN with the units, and reach
 the dashboard from a workstation that is briefly granted access to
 that VLAN, rather than binding `breezyd` to your trusted LAN.
 
-## Known limitations (v1)
+## Known limitations
 
 These are deliberate omissions, not bugs. Each is a design choice; see the
 spec for the full rationale.
 
 - **No schedule editing.** The device's seven-day schedule is on-board; the
-  CLI exposes the live state but does not let you re-program it. Out of
-  scope for v1 — the operator's stated workflow uses the unit's own buttons.
+  CLI exposes the live state but does not let you re-program it — the
+  operator's stated workflow uses the unit's own buttons.
 - **No WiFi reconfig.** Changing the WiFi SSID/password from the CLI is
   technically possible but operationally hazardous (one bad write strands the
   unit). Use the vendor app for this.

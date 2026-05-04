@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-04
+
 ### Added
 
 - Single-page web dashboard at `GET /` on the daemon, embedded into the binary
@@ -102,4 +104,6 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.1.0
 [1.0.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.0.0
