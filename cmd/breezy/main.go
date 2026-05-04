@@ -53,6 +53,10 @@ var (
 	date    = "unknown"
 )
 
+// testBackend, when non-nil, overrides the backend that run() would
+// otherwise construct. Set by tests; nil in production.
+var testBackend backend
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -83,7 +87,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	daemonURL := resolveDaemonURL(*daemon)
-	b := newDaemonBackend(daemonURL)
+	var b backend
+	if testBackend != nil {
+		b = testBackend
+	} else {
+		b = newDaemonBackend(daemonURL)
+	}
 	defer b.Close()
 
 	// Globals.

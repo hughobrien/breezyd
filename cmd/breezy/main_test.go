@@ -17,10 +17,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hughobrien/breezyd/internal/config"
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 )
 
 // stub records what the test server received so the test can assert.
@@ -796,4 +799,118 @@ func TestRenderParams(t *testing.T) {
 		}
 		prev = idx
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Standalone (directBackend) tests
+// ---------------------------------------------------------------------------
+
+const (
+	standaloneTestDeviceID = "TESTID0000000001"
+	standaloneTestPassword = "1111"
+)
+
+// fakeSnapshotPath returns the absolute path to the in-tree fakedevice
+// snapshot used by the daemon's poller tests.
+func fakeSnapshotPath(t *testing.T) string {
+	t.Helper()
+	p, err := filepath.Abs("../../pkg/breezy/fakedevice/snapshot_148.json")
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	return p
+}
+
+// startFakeDevice brings up a fakedevice on an ephemeral UDP port and
+// ensures it gets closed via t.Cleanup.
+func startFakeDevice(t *testing.T) *fakedevice.Server {
+	t.Helper()
+	srv, err := fakedevice.NewServer(fakeSnapshotPath(t), standaloneTestDeviceID, standaloneTestPassword)
+	if err != nil {
+		t.Fatalf("fakedevice.NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	return srv
+}
+
+// runStandalone runs the CLI through a directBackend pointed at fake.
+// `devices` should contain at least one entry whose IP is fake.Addr().
+// Returns (exit code, stdout, stderr).
+func runStandalone(t *testing.T, fake *fakedevice.Server, devices map[string]config.Device, args ...string) (int, string, string) {
+	t.Helper()
+	d := newDirectBackend(devices)
+	prev := testBackend
+	testBackend = d
+	t.Cleanup(func() {
+		testBackend = prev
+		_ = d.Close()
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := run(args, &stdout, &stderr)
+	return code, stdout.String(), stderr.String()
+}
+
+func TestStandalonePower(t *testing.T) {
+	fake := startFakeDevice(t)
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, _, stderr := runStandalone(t, fake, devices, "playroom", "on")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	// Verify by reading 0x0001 back through a second CLI invocation.
+	code, stdout, stderr := runStandalone(t, fake, devices, "playroom", "get", "power")
+	if code != 0 {
+		t.Fatalf("get exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "= 1") && !strings.Contains(stdout, "1\n") {
+		t.Errorf("expected power=1 after Power(on), got: %q", stdout)
+	}
+}
+
+func TestStandaloneSpeedPreset(t *testing.T) {
+	fake := startFakeDevice(t)
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, _, stderr := runStandalone(t, fake, devices, "playroom", "speed", "2")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	code, stdout, stderr := runStandalone(t, fake, devices, "playroom", "get", "speed_mode")
+	if code != 0 {
+		t.Fatalf("get exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "2") {
+		t.Errorf("expected speed_mode=2 after speed 2, got: %q", stdout)
+	}
+}
+
+func TestStandaloneStatus(t *testing.T) {
+	fake := startFakeDevice(t)
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, stdout, stderr := runStandalone(t, fake, devices, "playroom", "status")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "playroom") {
+		t.Errorf("status output missing device name:\n%s", stdout)
+	}
+}
+
+func TestStandaloneFaults(t *testing.T) {
+	fake := startFakeDevice(t)
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, _, stderr := runStandalone(t, fake, devices, "playroom", "faults")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	// Output is either "no active faults" (snapshot has none) or a list.
+	// Either is fine — what matters is the call completed without error.
 }
