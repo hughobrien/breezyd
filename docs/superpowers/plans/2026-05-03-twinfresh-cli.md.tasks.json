@@ -32,7 +32,7 @@
     {
       "id": 4,
       "subject": "Task 4: Fake device server (pkg/breezy/fakedevice)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** In-process UDP server replaying snapshot_148.json from raw sweep.\n\n**Verify:** `go test -race ./pkg/breezy/fakedevice` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/fakedevice/fake.go\", \"pkg/breezy/fakedevice/fake_test.go\", \"pkg/breezy/fakedevice/snapshot_148.json\"], \"verifyCommand\": \"go test -race ./pkg/breezy/fakedevice\", \"acceptanceCriteria\": [\"replays read responses\", \"stores writes\", \"FD<id> for unknown\", \"clean shutdown\"]}\n```"
     },
