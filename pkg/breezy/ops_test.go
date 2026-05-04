@@ -224,3 +224,149 @@ func TestOps_SetRTC_YearOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+func TestOps_GetFirmware(t *testing.T) {
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			return map[ParamID][]byte{
+				0x0086: {1, 5, 0x0F, 0x05, 0xEA, 0x07}, // 1.05, 2026-05-15
+			}, nil
+		},
+	}
+	fw, err := GetFirmware(context.Background(), c)
+	if err != nil {
+		t.Fatalf("GetFirmware: %v", err)
+	}
+	if fw.Major != 1 || fw.Minor != 5 {
+		t.Errorf("version: want 1.5, got %d.%d", fw.Major, fw.Minor)
+	}
+	wantDate := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+	if !fw.Date.Equal(wantDate) {
+		t.Errorf("date: want %v, got %v", wantDate, fw.Date)
+	}
+}
+
+func TestOps_GetFirmware_Unsupported(t *testing.T) {
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			return map[ParamID][]byte{}, nil
+		},
+	}
+	_, err := GetFirmware(context.Background(), c)
+	if err == nil {
+		t.Fatal("expected error when 0x0086 is missing, got nil")
+	}
+}
+
+func TestOps_GetEfficiency(t *testing.T) {
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			return map[ParamID][]byte{0x0129: {72}}, nil
+		},
+	}
+	got, err := GetEfficiency(context.Background(), c)
+	if err != nil {
+		t.Fatalf("GetEfficiency: %v", err)
+	}
+	if got != 72 {
+		t.Errorf("efficiency: want 72, got %d", got)
+	}
+}
+
+func TestOps_GetFaults_PairsAndOddTrailing(t *testing.T) {
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			return map[ParamID][]byte{
+				// Three pairs (code, kind) + one odd trailing byte.
+				0x007F: {17, 0, 22, 1, 99, 5, 0xAA},
+			}, nil
+		},
+	}
+	got, err := GetFaults(context.Background(), c)
+	if err != nil {
+		t.Fatalf("GetFaults: %v", err)
+	}
+	want := []FaultCode{
+		{Code: 17, Kind: "alarm"},
+		{Code: 22, Kind: "warning"},
+		{Code: 99, Kind: "unknown(5)"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestOps_GetFaults_Empty(t *testing.T) {
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			return map[ParamID][]byte{0x007F: {}}, nil
+		},
+	}
+	got, err := GetFaults(context.Background(), c)
+	if err != nil {
+		t.Fatalf("GetFaults: %v", err)
+	}
+	if got == nil {
+		t.Errorf("GetFaults must return [], not nil, on empty fault list")
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty slice, got %v", got)
+	}
+}
+
+func TestOps_GetFaults_Missing(t *testing.T) {
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			return map[ParamID][]byte{}, nil
+		},
+	}
+	got, err := GetFaults(context.Background(), c)
+	if err != nil {
+		t.Fatalf("GetFaults: %v", err)
+	}
+	if got == nil {
+		t.Errorf("GetFaults must return [], not nil, when 0x007F absent")
+	}
+}
+
+func TestOps_GetStatus_RoundTrip(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x0001: {1},
+		0x0002: {0x01},
+		0x00B7: {1},
+		0x0025: {42},
+	}
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			out := map[ParamID][]byte{}
+			for _, id := range ids {
+				if v, ok := values[id]; ok {
+					out[id] = v
+				}
+			}
+			return out, nil
+		},
+	}
+	s, err := GetStatus(context.Background(), c, "playroom", "BREEZYID", "192.168.1.1")
+	if err != nil {
+		t.Fatalf("GetStatus: %v", err)
+	}
+	if s.Name != "playroom" || s.ID != "BREEZYID" || s.IP != "192.168.1.1" {
+		t.Errorf("identity fields wrong: %+v", s)
+	}
+	if s.Configured["power"] != true {
+		t.Errorf("power: want true, got %v", s.Configured["power"])
+	}
+	if s.Configured["speed_mode"] != "preset1" {
+		t.Errorf("speed_mode: want preset1, got %v", s.Configured["speed_mode"])
+	}
+	if s.Configured["airflow_mode"] != "regeneration" {
+		t.Errorf("airflow_mode: want regeneration, got %v", s.Configured["airflow_mode"])
+	}
+	if s.Sensors["humidity_pct"] != 42 {
+		t.Errorf("humidity_pct: want 42, got %v", s.Sensors["humidity_pct"])
+	}
+	if s.LastPoll != "" {
+		t.Errorf("LastPoll must be empty in standalone path, got %q", s.LastPoll)
+	}
+}
