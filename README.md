@@ -81,8 +81,32 @@ make test        # go test -race ./...
 make lint        # go vet ./...
 ```
 
-On this dev host `-race` requires `CGO_ENABLED=1 CC=clang` because the host
-gcc lacks the TSan runtime; `make test` honours environment overrides.
+On a dev host where `-race` needs cgo (e.g. clang on Linux without the gcc
+TSan runtime), set `CGO_ENABLED=1 CC=clang` before `make test`.
+
+## Run with Nix
+
+The repo is a Nix flake; if you have Nix with flakes enabled, you can run
+either binary directly without cloning anywhere persistent or installing Go:
+
+```sh
+# Run the daemon (defaults to ~/.config/breezy/config.toml)
+nix run github:hughobrien/breezyd
+
+# Run the CLI (subcommands of `breezy`)
+nix run github:hughobrien/breezyd#breezy -- ls
+nix run github:hughobrien/breezyd#breezy -- playroom status
+
+# Build standalone binaries into ./result/bin/
+nix build github:hughobrien/breezyd
+./result/bin/breezyd --version
+
+# Drop into a dev shell with Go, gopls, goreleaser, etc.
+nix develop github:hughobrien/breezyd
+```
+
+The flake exposes three packages (`breezyd`, `breezy`, `default = breezyd`)
+and three apps (`default`, `breezyd`, `breezy`) plus a `devShells.default`.
 
 ## Configuration
 
