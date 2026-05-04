@@ -250,6 +250,9 @@ func classifyClientErr(err error) string {
 	if errors.Is(err, breezy.ErrReadOnly) {
 		return "read_only"
 	}
+	if errors.Is(err, breezy.ErrInvalidArg) {
+		return "bad_request"
+	}
 	if errors.Is(err, breezy.ErrChecksum) {
 		return "device_unreachable"
 	}
@@ -286,6 +289,24 @@ func (h *Handler) dial(name string) (HandlerClient, error) {
 		return nil, errors.New("server: ClientFactory not configured")
 	}
 	return h.ClientFactory(name)
+}
+
+// dialRecording returns a recordingClient that wraps h.dial(name)'s
+// HandlerClient and fires h.recordWrite(name, writes) on every
+// successful write. Handlers that issue writes via pkg/breezy/ops
+// should use this instead of h.dial — the wrapper subsumes the
+// previous "call h.recordWrite at the end" pattern.
+//
+// Returns (wrapper, raw, err). The raw HandlerClient is exposed so the
+// caller can `defer raw.Close()` — the wrapper does not implement Close.
+func (h *Handler) dialRecording(name string) (*recordingClient, HandlerClient, error) {
+	raw, err := h.dial(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	return newRecordingClient(raw, func(ws []breezy.ParamWrite) {
+		h.recordWrite(name, ws)
+	}), raw, nil
 }
 
 // notice triggers fan-write settle suppression on the relevant poller after
