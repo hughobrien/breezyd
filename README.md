@@ -1,4 +1,8 @@
-# twinfresh
+# breezyd
+
+[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Go Reference](https://pkg.go.dev/badge/github.com/hughobrien/breezyd.svg)](https://pkg.go.dev/github.com/hughobrien/breezyd)
+[![Release](https://img.shields.io/github/v/release/hughobrien/breezyd)](https://github.com/hughobrien/breezyd/releases)
 
 A Go library, daemon, and CLI for controlling [Vents Twinfresh
 Breezy](https://ventilation-system.com/) energy-recovery ventilators over the
@@ -33,7 +37,23 @@ Security caveat: the device leaks its protocol password and WiFi credentials in
 cleartext to any LAN client that knows the device ID. Put these units on an
 IoT VLAN. Details in the [Security](#security) section.
 
-## Build
+## Install
+
+Pre-built binaries for Linux (amd64/arm64), macOS (amd64/arm64), and Windows
+(amd64) are published on the [GitHub Releases
+page](https://github.com/hughobrien/breezyd/releases). Download the archive
+for your platform and extract `breezyd` and `breezy` somewhere on `$PATH`:
+
+```sh
+# Linux amd64 example
+curl -sSL -o breezyd.tar.gz \
+  https://github.com/hughobrien/breezyd/releases/latest/download/breezyd_Linux_x86_64.tar.gz
+tar -xzf breezyd.tar.gz breezyd breezy
+sudo install -m 0755 breezyd breezy /usr/local/bin/
+breezyd --version
+```
+
+## Build from source
 
 Requires Go 1.22+ (developed on 1.26). No other system dependencies for the
 binaries themselves; building with `-race` (the default `make test`) needs a
@@ -164,7 +184,7 @@ the last successful read.
 ## Project layout
 
 ```
-twinfresh/
+breezyd/
 ├── pkg/breezy/                # protocol library (importable)
 │   ├── frame.go               # FDFD/02 packet codec
 │   ├── client.go              # UDP transport, retries, timeouts
@@ -252,3 +272,20 @@ spec for the full rationale.
 - `docs/superpowers/specs/breezy-manual-vendor.pdf` — vendor protocol manual
   (the authoritative reference).
 - `docs/superpowers/specs/breezy-datasheet-vendor.pdf` — hardware datasheet.
+
+## License
+
+Copyright (C) 2026 Hugh O'Brien
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version (`SPDX-License-Identifier: GPL-3.0-or-later`).
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the [LICENSE](LICENSE) file for the full text
+of the GNU General Public License v3.
+
+This project is not affiliated with or endorsed by Ventilation Systems Ltd.
+"Vents" and "Twinfresh" are trademarks of their respective owners.
