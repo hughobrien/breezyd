@@ -71,6 +71,11 @@ var (
 	// inside DATA blocks and silently corrupt traffic. No documented
 	// parameter uses this range; hitting it is a caller bug.
 	ErrReservedParamID = errors.New("breezy: parameter ID's low byte is in the reserved range 0xFC-0xFF")
+	// ErrUnexpectedFuncChange indicates the response DATA block contained an
+	// FC <new_func> marker. The protocol allows it but we've never observed
+	// real firmware emitting one. Callers can choose to treat it as an error
+	// or log it for diagnostics.
+	ErrUnexpectedFuncChange = errors.New("breezy: unexpected FC change-function marker in DATA")
 )
 
 // isReservedLowByte reports whether lo collides with the protocol's special
@@ -326,14 +331,21 @@ func ParseDataBlock(data []byte) ([]ParamValue, error) {
 			i = valEnd
 
 		case cmdChangeFunc:
-			// FC <new_func>: a packet may switch FUNC for the rest of
-			// its DATA. We have no way to surface that change in
-			// ParamValue results, so just consume and skip — callers
-			// that need to handle FC mid-block can post-process.
+			// FC <new_func>: the protocol allows a packet to switch FUNC
+			// for the rest of its DATA. We've never observed real firmware
+			// emitting this; surfacing it as an error means we'd hear about
+			// it if the assumption breaks. The decoded prefix (entries
+			// already in `out`) is returned alongside the error so callers
+			// can still see what came before the FC.
+			//
+			// TODO: if a real-world device is observed using FC, relax this
+			// to a "soft" sentinel (e.g. a flag on the returned slice) and
+			// teach Client.exec how to handle the function switch.
 			if i+1 >= len(data) {
-				return nil, fmt.Errorf("%w: FC without new func", ErrInvalidData)
+				return out, fmt.Errorf("%w: FC without new func", ErrInvalidData)
 			}
-			i += 2
+			return out, fmt.Errorf("%w: FC at offset %d switching to FUNC=0x%02x",
+				ErrUnexpectedFuncChange, i, data[i+1])
 
 		default:
 			// Implicit 1-byte value: <id_lo> <value>.
