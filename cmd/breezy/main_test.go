@@ -61,7 +61,7 @@ func runCLI(t *testing.T, server *httptest.Server, args ...string) (int, string,
 	t.Helper()
 	full := append([]string{"--daemon", server.URL}, args...)
 	var stdout, stderr bytes.Buffer
-	code := run(full, &stdout, &stderr)
+	code := run(full, &stdout, &stderr, nil)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -444,7 +444,7 @@ func TestLsEmpty(t *testing.T) {
 
 func TestDaemonURL(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--daemon", "http://x:1234", "daemon-url"}, &stdout, &stderr)
+	code := run([]string{"--daemon", "http://x:1234", "daemon-url"}, &stdout, &stderr, nil)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
@@ -455,7 +455,7 @@ func TestDaemonURL(t *testing.T) {
 
 func TestDaemonURLNormalizesBareHostPort(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--daemon", "127.0.0.1:9876", "daemon-url"}, &stdout, &stderr)
+	code := run([]string{"--daemon", "127.0.0.1:9876", "daemon-url"}, &stdout, &stderr, nil)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
@@ -672,7 +672,7 @@ func TestUsageNoArgs(t *testing.T) {
 
 func TestUnknownVerb(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"playroom", "barbecue"}, &stdout, &stderr)
+	code := run([]string{"playroom", "barbecue"}, &stdout, &stderr, nil)
 	if code != 2 {
 		t.Fatalf("exit=%d (want 2)", code)
 	}
@@ -683,7 +683,7 @@ func TestUnknownVerb(t *testing.T) {
 
 func TestParam(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"param"}, &stdout, &stderr)
+	code := run([]string{"param"}, &stdout, &stderr, nil)
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
@@ -833,21 +833,17 @@ func startFakeDevice(t *testing.T) *fakedevice.Server {
 	return srv
 }
 
-// runStandalone runs the CLI through a directBackend pointed at fake.
-// `devices` should contain at least one entry whose IP is fake.Addr().
+// runStandalone runs the CLI through a directBackend built from the
+// supplied device map. The caller's responsibility is to set each
+// device's IP to a fakedevice address.
 // Returns (exit code, stdout, stderr).
-func runStandalone(t *testing.T, fake *fakedevice.Server, devices map[string]config.Device, args ...string) (int, string, string) {
+func runStandalone(t *testing.T, devices map[string]config.Device, args ...string) (int, string, string) {
 	t.Helper()
 	d := newDirectBackend(devices)
-	prev := testBackend
-	testBackend = d
-	t.Cleanup(func() {
-		testBackend = prev
-		_ = d.Close()
-	})
+	t.Cleanup(func() { _ = d.Close() })
 
 	var stdout, stderr bytes.Buffer
-	code := run(args, &stdout, &stderr)
+	code := run(args, &stdout, &stderr, d)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -856,12 +852,12 @@ func TestStandalonePower(t *testing.T) {
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, stderr := runStandalone(t, fake, devices, "playroom", "on")
+	code, _, stderr := runStandalone(t, devices, "playroom", "on")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
 	}
 	// Verify by reading 0x0001 back through a second CLI invocation.
-	code, stdout, stderr := runStandalone(t, fake, devices, "playroom", "get", "power")
+	code, stdout, stderr := runStandalone(t, devices, "playroom", "get", "power")
 	if code != 0 {
 		t.Fatalf("get exit=%d stderr=%q", code, stderr)
 	}
@@ -875,15 +871,15 @@ func TestStandaloneSpeedPreset(t *testing.T) {
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, stderr := runStandalone(t, fake, devices, "playroom", "speed", "2")
+	code, _, stderr := runStandalone(t, devices, "playroom", "speed", "2")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
 	}
-	code, stdout, stderr := runStandalone(t, fake, devices, "playroom", "get", "speed_mode")
+	code, stdout, stderr := runStandalone(t, devices, "playroom", "get", "speed_mode")
 	if code != 0 {
 		t.Fatalf("get exit=%d stderr=%q", code, stderr)
 	}
-	if !strings.Contains(stdout, "2") {
+	if !strings.Contains(stdout, "= 2") {
 		t.Errorf("expected speed_mode=2 after speed 2, got: %q", stdout)
 	}
 }
@@ -893,7 +889,7 @@ func TestStandaloneStatus(t *testing.T) {
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, stdout, stderr := runStandalone(t, fake, devices, "playroom", "status")
+	code, stdout, stderr := runStandalone(t, devices, "playroom", "status")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
 	}
@@ -907,7 +903,7 @@ func TestStandaloneFaults(t *testing.T) {
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, stderr := runStandalone(t, fake, devices, "playroom", "faults")
+	code, _, stderr := runStandalone(t, devices, "playroom", "faults")
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
 	}

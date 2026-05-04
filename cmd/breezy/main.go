@@ -53,17 +53,19 @@ var (
 	date    = "unknown"
 )
 
-// testBackend, when non-nil, overrides the backend that run() would
-// otherwise construct. Set by tests; nil in production.
-var testBackend backend
-
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, nil))
 }
 
 // run is the testable entry point. It returns the process exit code so
 // tests can assert on stdout/stderr without intercepting os.Exit.
-func run(args []string, stdout, stderr io.Writer) int {
+//
+// If injected is non-nil, it overrides the backend that run() would
+// otherwise construct from flags + config. Tests pass a directBackend
+// pointed at a fakedevice; production passes nil. Plumbing the seam
+// through the parameter rather than a package-level variable keeps
+// run() safe to invoke from parallel tests in the future.
+func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	fs := flag.NewFlagSet("breezy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, usage) }
@@ -87,10 +89,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	daemonURL := resolveDaemonURL(*daemon)
-	var b backend
-	if testBackend != nil {
-		b = testBackend
-	} else {
+	b := injected
+	if b == nil {
 		b = newDaemonBackend(daemonURL)
 	}
 	defer b.Close()
