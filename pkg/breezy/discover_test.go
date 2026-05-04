@@ -207,6 +207,10 @@ func TestDiscoverAt_Concurrent(t *testing.T) {
 // supported surface for mutating fake state from external tests. The
 // caller supplies the server's deviceID and password so we can address
 // the fake correctly (NewClient pins both at construction time).
+//
+// Uses WriteParamsUnsafe so test fixtures can stuff arbitrary values
+// (including for params the registry marks read-only on real hardware,
+// e.g. 0x007C device_id_search) without tripping the safety gate.
 func writeServerParam(t *testing.T, srv *fakedevice.Server, deviceID, password string, id breezy.ParamID, val []byte) error {
 	t.Helper()
 	c, err := breezy.NewClient(srv.Addr(), deviceID, password,
@@ -217,5 +221,5 @@ func writeServerParam(t *testing.T, srv *fakedevice.Server, deviceID, password s
 	defer c.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	return c.WriteParam(ctx, id, val)
+	return c.WriteParamsUnsafe(ctx, []breezy.ParamWrite{{ID: id, Value: val}})
 }

@@ -379,6 +379,52 @@ func TestParseDataBlock_Errors(t *testing.T) {
 	}
 }
 
+// ----- Reserved low-byte param IDs (panic on FC/FD/FE/FF) -----
+
+func TestBuildReadDataBlock_PanicsOnReservedID(t *testing.T) {
+	cases := []ParamID{0x00FC, 0x00FD, 0x00FE, 0x00FF, 0x01FC, 0x03FF}
+	for _, id := range cases {
+		id := id
+		t.Run("read_"+hex.EncodeToString([]byte{byte(id >> 8), byte(id)}), func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("BuildReadDataBlock did not panic on reserved id 0x%04X", uint16(id))
+				}
+				msg, _ := r.(string)
+				if msg == "" {
+					return
+				}
+				if !bytes.Contains([]byte(msg), []byte("reserved")) {
+					t.Errorf("panic message %q lacks 'reserved'", msg)
+				}
+			}()
+			_ = BuildReadDataBlock([]ParamID{id})
+		})
+	}
+}
+
+func TestBuildWriteDataBlock_PanicsOnReservedID(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("BuildWriteDataBlock did not panic on reserved id")
+		}
+	}()
+	_ = BuildWriteDataBlock([]ParamWrite{{ID: 0x00FE, Value: []byte{0x01}}})
+}
+
+func TestBuildDataBlock_NoPanicOnNormalIDs(t *testing.T) {
+	// Sanity: high byte FF is fine, only the low byte matters.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic on legal IDs: %v", r)
+		}
+	}()
+	_ = BuildReadDataBlock([]ParamID{0xFF00, 0x00FB, 0xFF01})
+	_ = BuildWriteDataBlock([]ParamWrite{{ID: 0xFF00, Value: []byte{0x01}}})
+}
+
 // ----- Round-trip Build* + ParseDataBlock for write-style data -----
 
 func TestBuildAndParseWriteRoundtrip(t *testing.T) {

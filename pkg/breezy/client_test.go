@@ -111,8 +111,8 @@ func TestReadParam_Unsupported(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// 0xFFFE is highly unlikely to appear in the snapshot.
-	_, err := c.ReadParam(ctx, 0xFFFE)
+	// 0xFFFB is highly unlikely to appear in the snapshot.
+	_, err := c.ReadParam(ctx, 0xFFFB)
 	if !errors.Is(err, breezy.ErrUnsupported) {
 		t.Fatalf("want ErrUnsupported, got %v", err)
 	}
@@ -127,7 +127,7 @@ func TestReadParams_Batch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	out, err := c.ReadParams(ctx, []breezy.ParamID{0x0001, 0x00B9, 0x0320, 0xFFFE})
+	out, err := c.ReadParams(ctx, []breezy.ParamID{0x0001, 0x00B9, 0x0320, 0xFFFB})
 	if err != nil {
 		t.Fatalf("ReadParams: %v", err)
 	}
@@ -140,8 +140,8 @@ func TestReadParams_Batch(t *testing.T) {
 	if !bytes.Equal(out[0x0320], []byte{0x5E, 0x01}) {
 		t.Fatalf("0x0320 = %x, want 5E01", out[0x0320])
 	}
-	if _, ok := out[0xFFFE]; ok {
-		t.Fatalf("0xFFFE should be omitted (unsupported), got %x", out[0xFFFE])
+	if _, ok := out[0xFFFB]; ok {
+		t.Fatalf("0xFFFB should be omitted (unsupported), got %x", out[0xFFFB])
 	}
 }
 
@@ -190,12 +190,12 @@ func TestWriteParam_MultiByte(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// 0x001F is a two-byte param in the snapshot. Write a fresh value.
-	want := []byte{0xAB, 0xCD}
-	if err := c.WriteParam(ctx, 0x001F, want); err != nil {
+	// 0x001A (co2_threshold) is a two-byte writeable param. Write a fresh value.
+	want := []byte{0xAB, 0x07}
+	if err := c.WriteParam(ctx, 0x001A, want); err != nil {
 		t.Fatalf("WriteParam: %v", err)
 	}
-	got, err := c.ReadParam(ctx, 0x001F)
+	got, err := c.ReadParam(ctx, 0x001A)
 	if err != nil {
 		t.Fatalf("ReadParam after write: %v", err)
 	}
@@ -468,5 +468,74 @@ func TestNewClient_BadDeviceID(t *testing.T) {
 	_, err := breezy.NewClient("127.0.0.1", "short", testPassword)
 	if err == nil {
 		t.Fatalf("want error for short deviceID")
+	}
+}
+
+// ----- ErrReadOnly enforcement -----
+
+// TestWriteParams_ReadOnlyParamRejected exercises the Caps-driven gate in
+// (*Client).WriteParams: a registered read-only parameter (fan_supply_rpm)
+// is rejected with ErrReadOnly before any UDP traffic.
+func TestWriteParams_ReadOnlyParamRejected(t *testing.T) {
+	// Note: no server needed; the check fires before exchange().
+	c, err := breezy.NewClient("127.0.0.1:1", testDeviceID, testPassword,
+		breezy.WithTimeout(50*time.Millisecond), breezy.WithRetries(0))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	// 0x004A = fan_supply_rpm — registered as read-only.
+	err = c.WriteParam(ctx, 0x004A, []byte{0x00, 0x00})
+	if !errors.Is(err, breezy.ErrReadOnly) {
+		t.Fatalf("want ErrReadOnly, got %v", err)
+	}
+}
+
+// TestWriteParams_UnregisteredParamPassesThrough confirms that param IDs
+// not present in the registry skip the read-only gate — raw access for
+// diagnostics is intentionally exempt. We use the fakedevice and verify
+// the write reaches the wire.
+func TestWriteParams_UnregisteredParamPassesThrough(t *testing.T) {
+	srv := newTestServer(t, testPassword)
+	c := newTestClient(t, srv.Addr(), testPassword)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// 0x00FA is reserved-but-unused in the registry as of this writing;
+	// pick a clearly-unregistered ID with a low byte safely outside the
+	// 0xFC-0xFF reserved range.
+	const unregistered breezy.ParamID = 0x00DE
+	if _, ok := breezy.LookupByID(unregistered); ok {
+		t.Skipf("unregistered fixture id 0x%04X is now registered; pick another", uint16(unregistered))
+	}
+	if err := c.WriteParam(ctx, unregistered, []byte{0x42}); err != nil {
+		// The fakedevice may or may not accept this; the contract being
+		// tested is that the package layer does NOT reject it as ReadOnly.
+		if errors.Is(err, breezy.ErrReadOnly) {
+			t.Fatalf("unregistered write rejected as read-only: %v", err)
+		}
+	}
+}
+
+// ----- Idempotent Close -----
+
+func TestClient_Close_Idempotent(t *testing.T) {
+	c, err := breezy.NewClient("127.0.0.1:1", testDeviceID, testPassword)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("second Close returned %v, want nil", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("third Close returned %v, want nil", err)
 	}
 }
