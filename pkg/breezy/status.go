@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// Status is the structured per-device snapshot returned by the daemon's
-// HTTP API and consumed by the CLI's renderers. It is built from raw
+// Status is the structured per-device snapshot. It is built from raw
 // parameter bytes (as returned by Client.ReadParams or stored in the
-// daemon's cache) via BuildStatus. The JSON shape is part of the public
+// daemon's cache) via BuildStatus. The CLI uses it in both standalone
+// mode (returned directly by GetStatus) and daemon mode (decoded from
+// the daemon's JSON HTTP response). The JSON shape is part of the public
 // API of the daemon; do not change tag names or field types without
 // considering downstream consumers (including the embedded dashboard).
 type Status struct {

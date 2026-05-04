@@ -3,12 +3,12 @@
 // Package config loads and validates the Breezy daemon's TOML configuration.
 //
 // The config file lives at ~/.config/breezy/config.toml and is shared by both
-// the daemon (which reads everything) and the CLI (which only needs the
-// daemon's listen address). The loader enforces mode 0600 because the file
-// contains device passwords in plaintext — the underlying UDP protocol leaks
-// the password back over the LAN unauthenticated, so encrypting the config
-// would not improve the threat model, but at least we keep other local users
-// from reading it.
+// the daemon (which reads everything) and the CLI (which reads device entries
+// for standalone mode and [daemon].listen to detect whether daemon mode is
+// configured). The loader enforces mode 0600 because the file contains device
+// passwords in plaintext — the underlying UDP protocol leaks the password back
+// over the LAN unauthenticated, so encrypting the config would not improve the
+// threat model, but at least we keep other local users from reading it.
 package config
 
 import (
