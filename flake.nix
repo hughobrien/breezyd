@@ -72,6 +72,7 @@
             gotools
             go-tools
             goreleaser
+            just
           ];
         };
 
