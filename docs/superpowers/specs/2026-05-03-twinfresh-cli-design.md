@@ -6,7 +6,7 @@
 
 ## Summary
 
-A Go-based control plane for Vents Twinfresh Breezy ERV units on the local network. Three deliverables:
+A Go-based control plane for Vents Twinfresh Breezy ERV units on the local network. The same hardware is sold as **Breezy 160** in Europe and **Twinfresh Elite 160 Pro** in North America; both speak the protocol documented here. Three deliverables:
 
 1. `pkg/breezy` — protocol library (UDP/4000, FDFD/02 frame).
 2. `cmd/breezyd` — long-running daemon. Polls devices, caches state, exposes JSON HTTP API and Prometheus `/metrics`.
