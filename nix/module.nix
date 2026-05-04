@@ -115,9 +115,63 @@ in {
         description = "Scrape interval. Match or exceed the daemon's poll_interval.";
       };
     };
+
+    nginx = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          When true, attach a proxy_pass location to a named nginx
+          virtual host that forwards to the daemon's HTTP listener.
+          Requires services.nginx.enable = true and a non-null
+          services.breezyd.nginx.virtualHost.
+
+          Use this to expose the dashboard on the LAN while keeping the
+          daemon bound to the loopback default — nginx is the
+          network-facing service, the daemon's full /v1/... API stays
+          on 127.0.0.1.
+        '';
+      };
+
+      virtualHost = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "breezy.home.lan";
+        description = ''
+          Name of a nginx virtual host to attach the dashboard proxy to.
+          The module mounts the location at the vhost root ("/"), so use
+          a dedicated vhost (or one without an existing "/" location).
+          Sub-path mounting under a shared vhost is not supported by
+          this module — configure that yourself if needed.
+        '';
+      };
+
+      basicAuthFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        example = "/run/secrets/breezy-htpasswd";
+        description = ''
+          Optional path to an nginx-format htpasswd file. When set,
+          basic-auth gates access to the dashboard. Use sops-nix /
+          agenix to manage this file outside the world-readable Nix
+          store.
+        '';
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = !cfg.nginx.enable || cfg.nginx.virtualHost != null;
+        message = "services.breezyd.nginx.enable requires services.breezyd.nginx.virtualHost to be set (e.g. \"breezy.home.lan\").";
+      }
+      {
+        assertion = !cfg.nginx.enable || config.services.nginx.enable;
+        message = "services.breezyd.nginx.enable requires services.nginx.enable = true.";
+      }
+    ];
+
     users.users.${cfg.user} = {
       isSystemUser = true;
       group = cfg.group;
@@ -193,5 +247,18 @@ in {
           targets = [ (cfg.settings.daemon.listen or "127.0.0.1:9876") ];
         }];
       }];
+
+    # Optional nginx reverse-proxy integration. When enabled alongside
+    # services.nginx.enable, attach a proxy_pass location to the named
+    # virtual host. The daemon's listen address stays loopback-bound;
+    # nginx is the network-facing piece.
+    services.nginx.virtualHosts = lib.mkIf cfg.nginx.enable {
+      ${cfg.nginx.virtualHost} = {
+        locations."/" = {
+          proxyPass = "http://${cfg.settings.daemon.listen or "127.0.0.1:9876"}";
+          basicAuthFile = cfg.nginx.basicAuthFile;
+        };
+      };
+    };
   };
 }
