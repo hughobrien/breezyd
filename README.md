@@ -323,7 +323,7 @@ so per-device commands read naturally:
 | Command                              | What it does                                 |
 | ------------------------------------ | -------------------------------------------- |
 | `breezy ls`                          | one-line table of every configured device   |
-| `breezy discover`                    | LAN broadcast (bypasses daemon)             |
+| `breezy discover`                    | LAN broadcast (used during initial setup)   |
 | `breezy param`                       | list known parameters (id, type, unit, caps; use `name` with `get`/`set`) |
 | `breezy playroom status`             | full structured snapshot                     |
 | `breezy bedroom on` / `off`          | power                                        |

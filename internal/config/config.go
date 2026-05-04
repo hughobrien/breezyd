@@ -190,8 +190,8 @@ const defaultConfigTemplate = `# breezyd configuration. See:
 # the CLI talk to it over HTTP (enables caching, polling, /metrics, and
 # the embedded dashboard). Without it, the CLI talks UDP directly to
 # each configured device — that's the default and is fine for ad-hoc
-# use. The daemon block must remain commented in this file when you're
-# in standalone mode; the CLI uses its presence to choose the path.
+# use. The CLI checks whether [daemon] listen = "..." is set; if that
+# line is absent or commented, standalone mode is used automatically.
 #
 # [daemon]
 # listen        = "127.0.0.1:9876"

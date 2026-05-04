@@ -303,6 +303,7 @@ func TestWriteDefault_FreshTempDir(t *testing.T) {
 	got := string(body)
 	for _, want := range []string{
 		// [daemon] block is commented out so new users land in standalone mode.
+		`# [daemon]`,
 		`# listen        = "127.0.0.1:9876"`,
 		`# poll_interval = "30s"`,
 		`# discovery     = "on-start"`,
@@ -312,6 +313,16 @@ func TestWriteDefault_FreshTempDir(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("default config missing %q", want)
 		}
+	}
+	// Roundtrip: the bootstrap output must Load cleanly. This is the
+	// strongest single regression guard against a future template edit
+	// that breaks `breezyd` first-run.
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load on WriteDefault output failed: %v", err)
+	}
+	if cfg.Daemon.Listen != "" {
+		t.Errorf("Daemon.Listen = %q, want empty (standalone sentinel)", cfg.Daemon.Listen)
 	}
 }
 

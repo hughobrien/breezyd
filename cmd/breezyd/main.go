@@ -108,7 +108,7 @@ func run(parent context.Context) error {
 
 	listen := cfg.Daemon.Listen
 	if listen == "" {
-		listen = "127.0.0.1:9876" // default; user may override with --addr or [daemon].listen
+		listen = "127.0.0.1:9876" // hardcoded default when [daemon].listen is absent; --addr still overrides below
 	}
 	if *flagAddr != "" {
 		listen = *flagAddr
