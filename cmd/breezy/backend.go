@@ -328,6 +328,10 @@ var _ backend = (*daemonBackend)(nil)
 // each configured device via pkg/breezy/ops. Per-device clients are
 // lazy-opened on first use and reused for the rest of the CLI
 // invocation; Close releases every open client.
+//
+// devices is set at construction and treated as read-only thereafter,
+// so per-name lookups don't need the mutex. mu protects the clients
+// map: lazy-open and Close both acquire it.
 type directBackend struct {
 	devices map[string]config.Device
 
