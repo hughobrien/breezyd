@@ -1,0 +1,46 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-04-standalone-mode-phase-1-ops-extract.md",
+  "tasks": [
+    {
+      "id": 3,
+      "subject": "Task 1: Move snapshot/status types to pkg/breezy/status.go",
+      "status": "pending",
+      "description": "**Goal:** Lift `SnapshotResponse` (renamed `Status`), `buildSnapshot` (renamed `BuildStatus`), `uint8At`/`uint16At`/`int16At` (now exported `Uint8At`/`Uint16At`/`Int16At`), `computeInUserControl`, `decodeAlerts`, and the name decoders (`airflowModeName`/`specialModeName`/`faultLevelName`) out of `cmd/breezyd/` into `pkg/breezy/status.go`. Daemon imports them; JSON shape unchanged.\n\n**Files:** Create `pkg/breezy/status.go`, `pkg/breezy/status_test.go`. Delete `cmd/breezyd/snapshot.go` and `cmd/breezyd/decode.go`. Modify `cmd/breezyd/handlers_device.go` (getDevice call site), `cmd/breezyd/metrics.go` (call sites for the moved helpers).\n\n**Verify:** `just check-all` exits 0; existing daemon tests pass without modification beyond import updates.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/status.go\", \"pkg/breezy/status_test.go\", \"cmd/breezyd/snapshot.go\", \"cmd/breezyd/decode.go\", \"cmd/breezyd/handlers_device.go\", \"cmd/breezyd/metrics.go\"], \"verifyCommand\": \"just check-all\", \"acceptanceCriteria\": [\"pkg/breezy.Status with same JSON tags as old SnapshotResponse\", \"pkg/breezy.BuildStatus produces JSON byte-equal to old buildSnapshot\", \"Uint8At/Uint16At/Int16At over map[ParamID][]byte\", \"ComputeInUserControl/DecodeAlerts/AirflowModeName/SpecialModeName/FaultLevelName exported\", \"decode.go and snapshot.go removed\", \"metrics.go behaves identically\", \"just check-all passes\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 2: Add pkg/breezy/ops.go with write operations",
+      "status": "pending",
+      "description": "**Goal:** Introduce ops layer with eight write operations: Power, SetSpeedPreset, SetSpeedManual, SetMode, SetHeater, ResetFilter, ResetFaults, SetRTC. Each validates inputs (returns ErrInvalidArg sentinel on failure), builds the right []ParamWrite, calls Client. Critical invariant: SetSpeedManual emits 0x0044 BEFORE 0x0002=0xFF in one packet.\n\n**Files:** Create `pkg/breezy/ops.go`, `pkg/breezy/ops_test.go`.\n\n**Verify:** `go test ./pkg/breezy -run TestOps_ -v` → PASS for all 8 ops including packet-order tests.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/ops.go\", \"pkg/breezy/ops_test.go\"], \"verifyCommand\": \"go test ./pkg/breezy -run TestOps_ -v && just check-all\", \"acceptanceCriteria\": [\"Client interface declared\", \"ErrInvalidArg sentinel exists\", \"all 8 write ops with signatures matching plan\", \"SetSpeedManual emits 0x0044 then 0x0002=0xFF in one packet\", \"SetMode case-insensitive validation\", \"SetRTC writes 0x006F + 0x0070 in one packet with ISO dow\", \"validation failures return ErrInvalidArg without writing\", \"tests cover happy path + validation rejects\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 3: Add read operations to pkg/breezy/ops.go",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Append four read ops (GetFirmware, GetEfficiency, GetFaults, GetStatus) plus FaultCode struct and StatusParamIDs slice to ops.go. GetStatus reads StatusParamIDs in one batched call and returns BuildStatus(values, name, id, ip, nil). FaultCode is a new typed shape replacing the daemon's anonymous map. StatusParamIDs is a verbatim copy of cmd/breezyd/poller.go's defaultReadIDs.\n\n**Files:** Modify `pkg/breezy/ops.go`, `pkg/breezy/ops_test.go`.\n\n**Verify:** `go test ./pkg/breezy -run 'TestOps_Get' -v` → PASS for all 4 read ops including round-trip via GetStatus.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/ops.go\", \"pkg/breezy/ops_test.go\"], \"verifyCommand\": \"go test ./pkg/breezy -run TestOps_ -v && just check-all\", \"acceptanceCriteria\": [\"FaultCode struct {Code int, Kind string} with json tags\", \"StatusParamIDs verbatim from poller's defaultReadIDs\", \"GetFirmware decodes 0x0086 to FirmwareMetaValue\", \"GetEfficiency reads 0x0129\", \"GetFaults parses pairs ignoring odd trailing byte, returns [] not nil\", \"GetStatus calls BuildStatus with nil lastPoll\", \"tests cover round-trip decoding\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 4: Add cmd/breezyd recording_client.go wrapper",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** Add a recordingClient wrapper around breezy.Client that fires a per-write callback on success. Used by handlers in Tasks 5-6 to replace explicit `h.recordWrite(...)` calls. Reads pass through unchanged. Failed writes do NOT fire the callback.\n\n**Files:** Create `cmd/breezyd/recording_client.go`, `cmd/breezyd/recording_client_test.go`.\n\n**Verify:** `go test ./cmd/breezyd -run TestRecordingClient -v` → PASS for all four test cases.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/recording_client.go\", \"cmd/breezyd/recording_client_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd -run TestRecordingClient -v && just check\", \"acceptanceCriteria\": [\"recordingClient wraps breezy.Client\", \"WriteParams calls inner first, then callback only on success\", \"ReadParams pass-through (no recording)\", \"nil callback handled safely\", \"tests cover success/error/read/nil paths\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 5: Refactor cmd/breezyd/handlers_device.go to use ops",
+      "status": "pending",
+      "blockedBy": [3, 4, 6],
+      "description": "**Goal:** Rewrite postPower/postSpeed/postMode/postHeater/postRTC/postParam to call pkg/breezy/ops via a recordingClient (obtained through new helper `h.dialRecording(name)`). Each handler shrinks to ≤15 lines: parse JSON, dialRecording, call op, render. classifyClientErr maps breezy.ErrInvalidArg → bad_request. No handler calls h.recordWrite explicitly; the wrapper does it.\n\n**Files:** Modify `cmd/breezyd/handlers_device.go`, `cmd/breezyd/server.go` (add dialRecording helper, update classifyClientErr).\n\n**Verify:** `just check-all` passes. All existing tests in `cmd/breezyd/server_test.go` pass without modification.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_device.go\", \"cmd/breezyd/server.go\"], \"verifyCommand\": \"just check-all\", \"acceptanceCriteria\": [\"postPower calls breezy.Power\", \"postSpeed dispatches to SetSpeedPreset/Manual based on body\", \"postMode calls breezy.SetMode (validation moves to op)\", \"postHeater calls breezy.SetHeater\", \"postRTC calls breezy.SetRTC\", \"postParam writes raw bytes via rc.WriteParams\", \"h.dialRecording helper added to server.go\", \"classifyClientErr maps ErrInvalidArg to bad_request\", \"no explicit h.recordWrite calls in handlers\", \"all existing tests still pass\"]}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 6: Refactor cmd/breezyd/handlers_service.go to use ops + Status helpers",
+      "status": "pending",
+      "blockedBy": [3, 4, 5, 6],
+      "description": "**Goal:** postFilterReset and postFaultsReset use breezy.ResetFilter/ResetFaults. Read handlers (getFirmware/getEfficiency/getFaults) keep cache-only behavior but adopt typed shapes: getFirmware decodes via breezy.TypeFirmwareMeta, getEfficiency uses breezy.Uint8At, getFaults returns []breezy.FaultCode. JSON output unchanged.\n\n**Files:** Modify `cmd/breezyd/handlers_service.go`.\n\n**Verify:** `just check-all` passes; `grep \"h\\\\.recordWrite\\\\|h\\\\.notice\" cmd/breezyd/handlers_*.go` returns zero matches.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_service.go\"], \"verifyCommand\": \"just check-all && ! grep -q 'h\\\\.recordWrite\\\\|h\\\\.notice' cmd/breezyd/handlers_device.go cmd/breezyd/handlers_service.go\", \"acceptanceCriteria\": [\"postFilterReset uses breezy.ResetFilter via dialRecording\", \"postFaultsReset uses breezy.ResetFaults\", \"getFirmware decodes via breezy.Param{TypeFirmwareMeta}.Decode\", \"getEfficiency uses breezy.Uint8At\", \"getFaults returns []breezy.FaultCode\", \"no explicit h.recordWrite calls remain\", \"JSON output unchanged so all existing tests pass\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-04T19:42:08Z"
+}
