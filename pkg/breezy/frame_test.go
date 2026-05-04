@@ -381,6 +381,37 @@ func TestParseDataBlock_Errors(t *testing.T) {
 	}
 }
 
+// TestParseDataBlock_FCMarker verifies that an FC <new_func> marker
+// embedded mid-block surfaces ErrUnexpectedFuncChange, and that any
+// entries decoded *before* the FC are still returned. Real firmware has
+// never been observed emitting one; if that ever changes we want to hear
+// about it loudly rather than silently dropping the rest of the packet.
+func TestParseDataBlock_FCMarker(t *testing.T) {
+	// 01 02   -> param 0x0001 = 0x02   (one valid entry before FC)
+	// FC 03   -> change FUNC to 0x03   (the unexpected marker)
+	// 04 05   -> would-be param 0x0004 (never reached)
+	out, err := ParseDataBlock(mustHex(t, "0102fc030405"))
+	if !errors.Is(err, ErrUnexpectedFuncChange) {
+		t.Fatalf("expected ErrUnexpectedFuncChange, got %v", err)
+	}
+	if len(out) != 1 || out[0].ID != 0x0001 {
+		t.Fatalf("expected one entry for 0x0001 before the FC marker, got %+v", out)
+	}
+	if !bytes.Equal(out[0].Value, []byte{0x02}) {
+		t.Fatalf("entry value: want [02], got %x", out[0].Value)
+	}
+}
+
+// TestParseDataBlock_FCMarkerTruncated verifies that FC at the very end
+// of a block (without a following byte) still yields an error — but is
+// classified as malformed-data, not as a soft "unexpected FC" notice.
+func TestParseDataBlock_FCMarkerTruncated(t *testing.T) {
+	_, err := ParseDataBlock(mustHex(t, "fc"))
+	if !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("expected ErrInvalidData for truncated FC, got %v", err)
+	}
+}
+
 // ----- Reserved low-byte param IDs (panic on FC/FD/FE/FF) -----
 
 func TestBuildReadDataBlock_PanicsOnReservedID(t *testing.T) {
