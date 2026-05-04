@@ -129,7 +129,7 @@ async function bootstrap() {
 
 function showBanner(msg) {
   document.getElementById("banner").innerHTML =
-    `<div class="err-banner">${esc(msg)}</div>`;
+    `<div class="err-banner" role="alert">${esc(msg)}</div>`;
 }
 function clearBanner() {
   document.getElementById("banner").innerHTML = "";
@@ -305,7 +305,7 @@ function renderControls(name, snap, stale) {
         aria-pressed="${power ? "true" : "false"}">
         Power ${power ? "● on" : "○ off"}
       </button>
-      ${t.power ? `<div class="toast">${esc(t.power)}</div>` : ""}
+      ${t.power ? `<div class="toast" role="alert">${esc(t.power)}</div>` : ""}
     </div>
 
     <div class="ctrl">
@@ -316,7 +316,7 @@ function renderControls(name, snap, stale) {
         ${modeBtn("sup",   "supply")}
         ${modeBtn("ext",   "extract")}
       </div>
-      ${t.mode ? `<div class="toast">${esc(t.mode)}</div>` : ""}
+      ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
     </div>
 
     <div class="ctrl">
@@ -333,7 +333,7 @@ function renderControls(name, snap, stale) {
           data-action="manual-slider" data-name="${esc(name)}" ${sliderDis}>
         <span class="val">${manualPct}%</span>
       </div>
-      ${t.speed ? `<div class="toast">${esc(t.speed)}</div>` : ""}
+      ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
 
     <div class="ctrl">
@@ -341,7 +341,7 @@ function renderControls(name, snap, stale) {
         aria-pressed="${heater ? "true" : "false"}">
         Heater ${heater ? "● on" : "○ off"}
       </button>
-      ${t.heater ? `<div class="toast">${esc(t.heater)}</div>` : ""}
+      ${t.heater ? `<div class="toast" role="alert">${esc(t.heater)}</div>` : ""}
     </div>
   </div>`;
 }
