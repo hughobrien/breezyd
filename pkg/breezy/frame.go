@@ -63,7 +63,21 @@ var (
 	ErrInvalidData = errors.New("breezy: malformed data block")
 	ErrIDMismatch  = errors.New("breezy: response device ID does not match request")
 	ErrPwdMismatch = errors.New("breezy: response password does not match request")
+	// ErrReservedParamID is returned (via panic in the builders) when a
+	// caller passes a ParamID whose low byte is in the protocol's reserved
+	// special-command range 0xFC-0xFF. Such IDs would alias to FC/FD/FE/FF
+	// inside DATA blocks and silently corrupt traffic. No documented
+	// parameter uses this range; hitting it is a caller bug.
+	ErrReservedParamID = errors.New("breezy: parameter ID's low byte is in the reserved range 0xFC-0xFF")
 )
+
+// isReservedLowByte reports whether lo collides with the protocol's special
+// command bytes (FC change-func, FD not-supported, FE size-prefix,
+// FF change-page). The high byte is unrestricted because page switches use
+// FF <hi>, which never aliases to a value byte.
+func isReservedLowByte(lo byte) bool {
+	return lo >= cmdChangeFunc // 0xFC..0xFF
+}
 
 // EncodeRequest builds a complete FDFD/02 request packet. deviceID must
 // be exactly 16 ASCII characters and password must be 0..8 ASCII bytes
@@ -175,6 +189,11 @@ func DecodeResponse(raw []byte, deviceID, password string) (byte, []byte, error)
 // with FF <hi> commands as needed. The default page at packet start is
 // 0x00 — an FF prefix is emitted for the first ID iff its high byte is
 // non-zero.
+//
+// Panics with ErrReservedParamID if any id's low byte is in the reserved
+// 0xFC-0xFF range (such IDs would alias to the protocol's special-command
+// bytes inside DATA and silently corrupt traffic). No documented parameter
+// uses this range; the panic surfaces caller bugs loudly.
 func BuildReadDataBlock(ids []ParamID) []byte {
 	if len(ids) == 0 {
 		return nil
@@ -185,6 +204,9 @@ func BuildReadDataBlock(ids []ParamID) []byte {
 	for _, id := range ids {
 		hi := byte(id >> 8)
 		lo := byte(id & 0xFF)
+		if isReservedLowByte(lo) {
+			panic(fmt.Sprintf("%s: 0x%04X", ErrReservedParamID.Error(), uint16(id)))
+		}
 		if first || hi != curHi {
 			if hi != curHi || (first && hi != 0x00) {
 				out = append(out, cmdChangeHighByte, hi)
@@ -201,6 +223,9 @@ func BuildReadDataBlock(ids []ParamID) []byte {
 // 1-byte values, emits <id_low> <value>. For multi-byte values, emits
 // FE <size> <id_low> <bytes...>. Pages are switched transparently as
 // in BuildReadDataBlock.
+//
+// Panics with ErrReservedParamID if any write's ID has a low byte in the
+// reserved 0xFC-0xFF range — see BuildReadDataBlock for the rationale.
 func BuildWriteDataBlock(writes []ParamWrite) []byte {
 	if len(writes) == 0 {
 		return nil
@@ -211,6 +236,9 @@ func BuildWriteDataBlock(writes []ParamWrite) []byte {
 	for _, w := range writes {
 		hi := byte(w.ID >> 8)
 		lo := byte(w.ID & 0xFF)
+		if isReservedLowByte(lo) {
+			panic(fmt.Sprintf("%s: 0x%04X", ErrReservedParamID.Error(), uint16(w.ID)))
+		}
 		if first || hi != curHi {
 			if hi != curHi || (first && hi != 0x00) {
 				out = append(out, cmdChangeHighByte, hi)

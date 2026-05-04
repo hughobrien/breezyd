@@ -20,6 +20,13 @@ import (
 // signals the same condition by omitting the ID from its result map.
 var ErrUnsupported = errors.New("breezy: parameter unsupported by device")
 
+// ErrReadOnly is returned by WriteParam / WriteParams when the caller
+// targets a registered parameter whose Caps mark it read-only. Unregistered
+// parameter IDs are exempt from this check — raw access is sometimes
+// useful for diagnostics, and the caller is signalling they know what
+// they're doing.
+var ErrReadOnly = errors.New("breezy: parameter is read-only")
+
 // Defaults applied by NewClient when no matching Option is supplied.
 const (
 	defaultPort    = 4000
@@ -72,6 +79,9 @@ type Client struct {
 
 	mu   sync.Mutex // serialises exchange()
 	conn *net.UDPConn
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewClient dials a UDP "connection" (in the connect(2) sense — UDP is
@@ -115,10 +125,15 @@ func NewClient(addr, deviceID, password string, opts ...Option) (*Client, error)
 	return c, nil
 }
 
-// Close closes the underlying socket. After Close, all subsequent calls
-// return an error. Close is idempotent.
+// Close closes the underlying socket. After Close, in-flight reads/writes
+// unblock and any subsequent Read/Write returns an error. Close is
+// idempotent: a second call returns nil rather than the underlying
+// "use of closed network connection" wrapper.
 func (c *Client) Close() error {
-	return c.conn.Close()
+	c.closeOnce.Do(func() {
+		c.closeErr = c.conn.Close()
+	})
+	return c.closeErr
 }
 
 // ReadParam reads a single parameter and returns the device's value bytes
@@ -172,7 +187,39 @@ func (c *Client) WriteParam(ctx context.Context, id ParamID, value []byte) error
 // WriteParams batches multiple writes into one packet. Uses FUNC=0x03
 // (write-with-response) so we can detect transport-level failures: if no
 // reply arrives, the retry/timeout machinery kicks in.
+//
+// Targets that are registered in the parameter table AND lack CapWrite are
+// rejected with ErrReadOnly before any UDP traffic is generated. Targets
+// not present in the registry are passed through unchanged — raw access
+// callers explicitly opt out of registry-driven safety checks.
+//
+// To intentionally bypass the read-only gate (e.g. for test fixtures that
+// drive a fake device, or operator tools that override a registry entry
+// flagged as read-only by mistake), use WriteParamsUnsafe.
 func (c *Client) WriteParams(ctx context.Context, writes []ParamWrite) error {
+	if len(writes) == 0 {
+		return nil
+	}
+	for _, w := range writes {
+		if p, ok := LookupByID(w.ID); ok && !p.Caps.CanWrite() {
+			return fmt.Errorf("%w: %s (0x%04X)", ErrReadOnly, p.Name, uint16(w.ID))
+		}
+	}
+	_, err := c.exchange(ctx, FuncWriteWithReply, BuildWriteDataBlock(writes))
+	return err
+}
+
+// WriteParamsUnsafe is like WriteParams but skips the registry-driven
+// read-only check. It exists for two narrow use cases:
+//
+//   - test fixtures that drive a fake device and need to seed values for
+//     parameters the registry marks as read-only on real hardware;
+//   - operator tooling that knows the registry is wrong for a particular
+//     ID (firmware variant, custom build) and wants to override.
+//
+// Production code should prefer WriteParams. Reserved-low-byte panics still
+// fire — those are caller bugs at the protocol layer, not registry policy.
+func (c *Client) WriteParamsUnsafe(ctx context.Context, writes []ParamWrite) error {
 	if len(writes) == 0 {
 		return nil
 	}
