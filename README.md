@@ -105,8 +105,56 @@ nix build github:hughobrien/breezyd
 nix develop github:hughobrien/breezyd
 ```
 
-The flake exposes three packages (`breezyd`, `breezy`, `default = breezyd`)
-and three apps (`default`, `breezyd`, `breezy`) plus a `devShells.default`.
+The flake exposes three packages (`breezyd`, `breezy`, `default = breezyd`),
+three apps (`default`, `breezyd`, `breezy`), a `devShells.default`, and a
+`nixosModules.default` for running the daemon as a NixOS service.
+
+### NixOS service
+
+Add the flake as an input and import its module:
+
+```nix
+{
+  inputs.breezyd.url = "github:hughobrien/breezyd";
+
+  outputs = { self, nixpkgs, breezyd, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        breezyd.nixosModules.default
+        ({ pkgs, ... }: {
+          services.breezyd = {
+            enable = true;
+            package = breezyd.packages.${pkgs.system}.default;
+
+            # Inline settings render to a 0600 TOML at /run/breezyd/breezyd.toml.
+            # Note: anything in `settings` ends up readable in the world-readable
+            # Nix store. Use `configFile` with sops-nix / agenix for real device
+            # passwords.
+            settings = {
+              daemon = {
+                listen = "127.0.0.1:9876";
+                poll_interval = "30s";
+                discovery = "on-start";
+              };
+              devices.playroom = {
+                id = "BREEZY00000000A0";
+                password = "your-protocol-password";
+              };
+            };
+          };
+        })
+      ];
+    };
+  };
+}
+```
+
+The module creates a `breezyd` system user, runs `breezyd` under
+systemd with hardening (`NoNewPrivileges`, `ProtectSystem=strict`,
+`PrivateTmp`, `MemoryDenyWriteExecute`, etc.), and starts after
+`network-online.target`. Set `services.breezyd.openFirewall = true` if
+you bind the listener to a non-loopback address.
 
 ## Configuration
 
