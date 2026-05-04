@@ -1,0 +1,117 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-03-twinfresh-cli.md",
+  "lastUpdated": "2026-05-03T17:30:00Z",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 0: Bootstrap Go module and skeleton",
+      "status": "pending",
+      "description": "**Goal:** go.mod, layout dirs (pkg/breezy, cmd/breezyd, cmd/breezy, internal/config, tools), .gitignore, Makefile.\n\n**Verify:** `go test ./...` exits 0.\n\n```json:metadata\n{\"files\": [\"go.mod\", \".gitignore\", \"Makefile\"], \"verifyCommand\": \"go test ./...\", \"acceptanceCriteria\": [\"go mod tidy succeeds\", \"go test ./... exits 0\", \"Makefile targets exist\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: Phase 0 probe tool (Python)",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** tools/probe.py — interactive read/write of any param. Safety-locked credential and network params.\n\n**Verify:** `python3 tools/probe.py --ip 192.168.1.148 --id BREEZY00000000A0 read 0xB9` prints unit-type 17.\n\n```json:metadata\n{\"files\": [\"tools/probe.py\", \"tools/README.md\"], \"verifyCommand\": \"python3 tools/probe.py --ip 192.168.1.148 --id BREEZY00000000A0 read 0xB9\", \"acceptanceCriteria\": [\"read by hex id\", \"read all sweeps\", \"write+reread\", \"refuses safety-locked params\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Phase 0 - interactive param characterization",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** docs/superpowers/specs/2026-05-03-param-map.md. INTERACTIVE — operator-driven.\n\n**Verify:** ≥60 rows; control params have confirmed write effects.\n\n```json:metadata\n{\"files\": [\"docs/superpowers/specs/2026-05-03-param-map.md\"], \"verifyCommand\": \"wc -l docs/superpowers/specs/2026-05-03-param-map.md\", \"acceptanceCriteria\": [\"all responsive params have rows\", \"control params confirmed via write+observe\", \"credential/network marked NEVER\"], \"interactive\": true}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Frame codec (pkg/breezy/frame.go)",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** EncodeRequest, DecodeResponse with checksum/header validation. TDD with golden frames.\n\n**Verify:** `go test -race -v ./pkg/breezy -run Frame` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/frame.go\", \"pkg/breezy/frame_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run Frame\", \"acceptanceCriteria\": [\"golden encode round-trip\", \"ErrChecksum\", \"ErrBadHeader\", \"round-trip property test\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Fake device server (pkg/breezy/fakedevice)",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** In-process UDP server replaying snapshot_148.json from raw sweep.\n\n**Verify:** `go test -race ./pkg/breezy/fakedevice` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/fakedevice/fake.go\", \"pkg/breezy/fakedevice/fake_test.go\", \"pkg/breezy/fakedevice/snapshot_148.json\"], \"verifyCommand\": \"go test -race ./pkg/breezy/fakedevice\", \"acceptanceCriteria\": [\"replays read responses\", \"stores writes\", \"FD<id> for unknown\", \"clean shutdown\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: UDP client (pkg/breezy/client.go)",
+      "status": "pending",
+      "blockedBy": [3, 4],
+      "description": "**Goal:** Client with ReadParam/WriteParam, retries, timeouts, context.\n\n**Verify:** `go test -race -v ./pkg/breezy -run Client` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/client.go\", \"pkg/breezy/client_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run Client\", \"acceptanceCriteria\": [\"happy read/write\", \"ErrUnsupported on FD\", \"context cancel\", \"exponential backoff\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Param registry (pkg/breezy/params.go)",
+      "status": "pending",
+      "blockedBy": [2],
+      "description": "**Goal:** Typed registry from param-map.md. Lookup by ID/name. Value decoders.\n\n**Verify:** `go test -race -v ./pkg/breezy -run 'Params|Lookup|Value'` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/params.go\", \"pkg/breezy/params_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run 'Params|Lookup|Value'\", \"acceptanceCriteria\": [\"LookupByID/Name\", \"Value.String per type\", \"Value.Float64 numeric\", \"Writable mirrors map\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Discovery (pkg/breezy/discover.go)",
+      "status": "pending",
+      "blockedBy": [3, 4],
+      "description": "**Goal:** Broadcast 0x7C, collect (IP, deviceID). DiscoverAddrs for tests.\n\n**Verify:** `go test -race -v ./pkg/breezy -run Discover` passes with 2 fake servers.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/discover.go\", \"pkg/breezy/discover_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run Discover\", \"acceptanceCriteria\": [\"broadcasts to 255.255.255.255 + 192.168.1.255\", \"extracts deviceID from header\", \"deduplicates\", \"context timeout\"]}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Config loader (internal/config)",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** TOML parse, mode-0600 enforcement, reserved-name rejection, defaults.\n\n**Verify:** `go test -race -v ./internal/config` passes.\n\n```json:metadata\n{\"files\": [\"internal/config/config.go\", \"internal/config/config_test.go\"], \"verifyCommand\": \"go test -race -v ./internal/config\", \"acceptanceCriteria\": [\"happy parse\", \"rejects ls/discover/daemon-url\", \"rejects world-readable\", \"applies defaults\"]}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: State cache (cmd/breezyd/state.go)",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** Thread-safe per-device snapshot cache.\n\n**Verify:** `go test -race -v ./cmd/breezyd -run State` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/state.go\", \"cmd/breezyd/state_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezyd -run State\", \"acceptanceCriteria\": [\"RWMutex-guarded\", \"Get returns copy\", \"Devices() sorted\", \"-race clean\"]}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: Poller (cmd/breezyd/poller.go)",
+      "status": "pending",
+      "blockedBy": [5, 6, 9],
+      "description": "**Goal:** Per-device polling goroutine; classifies errors via OnError hook.\n\n**Verify:** `go test -race -v ./cmd/breezyd -run Poller` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/poller.go\", \"cmd/breezyd/poller_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezyd -run Poller\", \"acceptanceCriteria\": [\"ticks at interval\", \"populates cache\", \"classifies timeout/checksum/auth\", \"stops on cancel\"]}\n```"
+    },
+    {
+      "id": 11,
+      "subject": "Task 11: HTTP server (cmd/breezyd/server.go)",
+      "status": "pending",
+      "blockedBy": [5, 6, 8, 9],
+      "description": "**Goal:** All spec routes; cache reads, UDP writes, error envelopes.\n\n**Verify:** `go test -race -v ./cmd/breezyd -run Server` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/server.go\", \"cmd/breezyd/server_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezyd -run Server\", \"acceptanceCriteria\": [\"all routes work\", \"error envelopes with codes\", \"rejects writes to read-only params\"]}\n```"
+    },
+    {
+      "id": 12,
+      "subject": "Task 12: Metrics + breezyd main",
+      "status": "pending",
+      "blockedBy": [7, 8, 9, 10, 11],
+      "description": "**Goal:** Prometheus metrics; main wires everything; graceful shutdown.\n\n**Verify:** `go test -race ./...` and `make build`.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/metrics.go\", \"cmd/breezyd/metrics_test.go\", \"cmd/breezyd/main.go\"], \"verifyCommand\": \"go test -race ./... && make build\", \"acceptanceCriteria\": [\"metrics labeled device/id\", \"position label on temps\", \"PollErrors hooked\", \"signal shutdown\", \"discovery on-start\"]}\n```"
+    },
+    {
+      "id": 13,
+      "subject": "Task 13: CLI (cmd/breezy)",
+      "status": "pending",
+      "blockedBy": [11],
+      "description": "**Goal:** Thin HTTP CLI; verbs are device-name-first.\n\n**Verify:** `go test -race -v ./cmd/breezy` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezy/main.go\", \"cmd/breezy/main_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezy\", \"acceptanceCriteria\": [\"<name> verb structure\", \"globals ls/discover/daemon-url\", \"--daemon flag\", \"non-zero on error\"]}\n```"
+    },
+    {
+      "id": 14,
+      "subject": "Task 14: Live integration tests",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**Goal:** Build-tagged integration tests against real device.\n\n**Verify:** `BREEZY_INTEGRATION=1 ... go test -tags integration ./pkg/breezy`.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/integration_test.go\"], \"verifyCommand\": \"BREEZY_INTEGRATION=1 BREEZY_TEST_DEVICE_IP=192.168.1.148:4000 BREEZY_TEST_DEVICE_ID=BREEZY00000000A0 BREEZY_TEST_DEVICE_PASSWORD=1111 go test -v -tags integration ./pkg/breezy -run Integration\", \"acceptanceCriteria\": [\"build tag integration\", \"skips without env\", \"reads unit-type\", \"speed round-trip 1/2/3\"]}\n```"
+    },
+    {
+      "id": 15,
+      "subject": "Task 15: README + end-to-end smoke",
+      "status": "pending",
+      "blockedBy": [12, 13],
+      "description": "**Goal:** README and full-stack smoke against real .148/.152.\n\n**Verify:** Manual; follow README steps.\n\n```json:metadata\n{\"files\": [\"README.md\"], \"verifyCommand\": \"manual: follow README steps end-to-end\", \"acceptanceCriteria\": [\"README covers install/config/CLI/Prom\", \"breezy ls shows real devices\", \"speed change audible\", \"/metrics has gauges\"]}\n```"
+    }
+  ]
+}
