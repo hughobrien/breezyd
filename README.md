@@ -12,6 +12,10 @@ Assistant integration. LAN only. The daemon polls every configured unit,
 caches state, exposes a JSON HTTP API plus Prometheus `/metrics`, and
 serializes UDP traffic so that concurrent requests don't corrupt each other.
 
+![breezy dashboard — three Breezy units on the LAN](tests/ui/screenshots/dashboard-3col.png)
+
+The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state.
+
 ### Supported devices
 
 The same hardware ships under different model names depending on region. All
