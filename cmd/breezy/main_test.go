@@ -678,6 +678,36 @@ func TestUnknownVerb(t *testing.T) {
 	}
 }
 
+func TestParam(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"param"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+
+	// Header.
+	for _, h := range []string{"ID", "NAME", "TYPE", "UNIT", "CAPS", "DESCRIPTION"} {
+		if !strings.Contains(out, h) {
+			t.Errorf("missing header %q in output:\n%s", h, out)
+		}
+	}
+
+	// Spot-check known params.
+	for _, sub := range []string{"0x0001", "power", "0x0044", "speed_manual_pct"} {
+		if !strings.Contains(out, sub) {
+			t.Errorf("missing %q in output:\n%s", sub, out)
+		}
+	}
+
+	// Row count = registered params + 1 header.
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	want := len(breezy.AllParams()) + 1
+	if len(lines) != want {
+		t.Errorf("got %d lines, want %d (header + %d params)", len(lines), want, want-1)
+	}
+}
+
 // Ensure our test stub produces what we think; quick sanity check that
 // the recordingHandler unmarshals empty bodies without crashing.
 func TestRecordingHandlerNoBody(t *testing.T) {
