@@ -55,6 +55,7 @@ tidy:
 clean:
 	rm -f ./breezy ./breezyd
 	go clean -testcache
+	rm -rf tests/ui/test-results tests/ui/playwright-report
 
 # run daemon from source
 run-daemon *ARGS:
