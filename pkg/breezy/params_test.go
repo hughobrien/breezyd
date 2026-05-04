@@ -431,6 +431,13 @@ func TestEncode_RoundTrip(t *testing.T) {
 		{"ipv4", 0x00A3, []byte{192, 168, 1, 148}},
 		{"ascii", 0x007D, []byte("testpwd")},
 		{"duration", 0x0302, []byte{0x00, 0x08}},
+		// Time-of-day at 0x006F (rtc_time): [sec, min, hr] = 30, 36, 22.
+		{"time_of_day", 0x006F, []byte{0x1E, 0x24, 0x16}},
+		// Date at 0x0070 (rtc_calendar): [day, dow, month, year-2000] = 3, 7, 5, 26.
+		{"date", 0x0070, []byte{0x03, 0x07, 0x05, 0x1A}},
+		// RemainingTime at 0x0064 (filter_remaining): [min, hr, day_lo, day_hi].
+		{"remaining_time_small", 0x0064, []byte{0x1D, 0x0D, 0x59, 0x00}},
+		{"remaining_time_big_days", 0x0064, []byte{0x00, 0x00, 0x00, 0x01}}, // 256 days
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -454,8 +461,10 @@ func TestEncode_RoundTrip(t *testing.T) {
 }
 
 func TestEncode_RefusesNonRoundTrippable(t *testing.T) {
-	// firmware_metadata, alert_bitmap, write_only, raw, time_of_day,
-	// date, remaining_time should refuse to encode for safety.
+	// firmware_metadata, alert_bitmap, write_only, raw should refuse to
+	// encode for safety. (TimeOfDay/Date/RemainingTime are now supported
+	// — see TestEncode_RoundTrip — because rtc_time/rtc_calendar are
+	// CapReadWrite and the daemon's RTC handler needs a working encode.)
 	cases := []struct {
 		id ParamID
 		v  Value
@@ -464,9 +473,6 @@ func TestEncode_RefusesNonRoundTrippable(t *testing.T) {
 		{0x0084, AlertBitmapValue{}},
 		{0x0065, Uint8Value(1)}, // write-only param: not encodable via Encode (caller should use raw byte path)
 		{0x007F, RawValue{0x01}},
-		{0x000B, TimeOfDayValue{}},
-		{0x0070, DateValue{}},
-		{0x0064, RemainingTimeValue{}},
 	}
 	for _, tc := range cases {
 		p, ok := LookupByID(tc.id)

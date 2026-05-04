@@ -87,7 +87,7 @@ func run(parent context.Context) error {
 		listen = *flagAddr
 	}
 
-	devices := buildDeviceMap(cfg)
+	devices := NewDeviceRegistry(buildDeviceMap(cfg))
 
 	if cfg.Daemon.Discovery == "on-start" {
 		if err := runDiscovery(parent, devices); err != nil {
@@ -102,7 +102,15 @@ func run(parent context.Context) error {
 	rootCtx, rootCancel := context.WithCancel(parent)
 	defer rootCancel()
 
-	pollers := startPollers(rootCtx, devices, cfg.Daemon.PollInterval, state, metrics)
+	pollers, pollersWg := startPollers(rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval, state, metrics)
+
+	// Periodic discovery: parse "periodic:<duration>" and tick a goroutine
+	// that refreshes IPs when devices move on the network. on-start is
+	// already done above; off is a no-op; anything else has been validated
+	// by the config loader.
+	if d, ok := parsePeriodicDiscovery(cfg.Daemon.Discovery); ok {
+		go runPeriodicDiscovery(rootCtx, devices, d)
+	}
 
 	handler := &Handler{
 		State:         state,
@@ -154,7 +162,21 @@ func run(parent context.Context) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("http server shutdown error", "err", err)
 	}
+	// Cancel pollers and wait synchronously for them to drain. This used
+	// to be a fire-and-forget goroutine, which let main return while
+	// pollers were still mid-tick and (under -race) racey against the
+	// global slog state at process teardown.
 	rootCancel()
+	pollersDone := make(chan struct{})
+	go func() {
+		pollersWg.Wait()
+		close(pollersDone)
+	}()
+	select {
+	case <-pollersDone:
+	case <-time.After(shutdownTimeout):
+		slog.Warn("pollers did not exit within shutdown deadline; abandoning")
+	}
 	return runErr
 }
 
@@ -178,11 +200,10 @@ func buildDeviceMap(cfg *config.Config) map[string]DeviceConfig {
 }
 
 // startPollers launches one goroutine per configured device with an
-// IP, returning a name->Poller map for the HTTP handler's
-// NoticeWrite plumbing. Devices without an IP are logged and skipped
-// — they'll come online if periodic discovery later finds them
-// (currently main only does on-start discovery; periodic is a
-// near-term TODO that just needs a ticker).
+// IP, returning a name->Poller map for the HTTP handler's NoticeWrite
+// plumbing and a *sync.WaitGroup the caller blocks on at shutdown.
+// Devices without an IP are logged and skipped — they'll come online
+// when (and if) periodic discovery finds them.
 //
 // We pass `parent` rather than spawning fresh goroutines per device
 // from main() so a top-level cancel propagates to every poller.
@@ -192,9 +213,9 @@ func startPollers(
 	interval time.Duration,
 	state *State,
 	metrics *Metrics,
-) map[string]*Poller {
+) (map[string]*Poller, *sync.WaitGroup) {
 	pollers := map[string]*Poller{}
-	var wg sync.WaitGroup
+	wg := &sync.WaitGroup{}
 
 	for name, d := range devices {
 		if d.IP == "" {
@@ -227,23 +248,16 @@ func startPollers(
 		}()
 	}
 
-	// Detach a goroutine that just waits for everyone to exit; the
-	// returned wait isn't useful to the caller (main blocks on
-	// rootCancel + shutdown anyway). Keeping wg here is a safety net
-	// in case future code wants per-Poller lifecycle reporting.
-	go func() { wg.Wait() }()
-
-	return pollers
+	return pollers, wg
 }
 
 // makeClientFactory returns the ClientFactory the HTTP handler hands
-// to each per-request UDP dial. We close over a pointer to the
-// devices map so future discovery-driven IP updates are picked up;
-// for now devices is read-only after main() finishes startup, but
-// keeping the indirection avoids re-plumbing later.
-func makeClientFactory(devices map[string]DeviceConfig) func(name string) (HandlerClient, error) {
+// to each per-request UDP dial. The registry is consulted on every
+// request so periodic-discovery IP updates take effect immediately
+// without bouncing the connection.
+func makeClientFactory(devices *DeviceRegistry) func(name string) (HandlerClient, error) {
 	return func(name string) (HandlerClient, error) {
-		d, ok := devices[name]
+		d, ok := devices.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("unknown device %q", name)
 		}
@@ -262,7 +276,7 @@ func makeClientFactory(devices map[string]DeviceConfig) func(name string) (Handl
 // This is deliberately cheap: Update() is a few map lookups and gauge
 // sets per device, dwarfed by the protobuf encode promhttp does
 // afterward.
-func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices map[string]DeviceConfig) http.Handler {
+func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices *DeviceRegistry) http.Handler {
 	inner := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, name := range state.Devices() {
@@ -270,7 +284,7 @@ func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices 
 			if !ok {
 				continue
 			}
-			d, ok := devices[name]
+			d, ok := devices.Get(name)
 			if !ok {
 				// Device removed since last poll; skip rather than
 				// emit a series with an empty id label.
@@ -282,26 +296,43 @@ func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices 
 	})
 }
 
+// discoverFunc is the shape of the discovery probe. main wires
+// breezy.Discover; tests inject a stub via runDiscoveryWith. Keeping the
+// indirection here keeps runDiscovery testable without standing up a
+// real UDP fake on each test.
+type discoverFunc func(ctx context.Context) ([]breezy.Found, error)
+
+// defaultDiscover is the production discoverFunc.
+var defaultDiscover discoverFunc = breezy.Discover
+
 // runDiscovery sends one wildcard probe and updates the IP of any
 // configured device that answers. Unknown responders are logged at
-// INFO so the operator sees them once on next startup (the firmware
-// also lets the user check the device's screen for the ID, but
-// surfacing it via the daemon log saves a trip to the appliance).
-//
-// Errors from net.ListenPacket are returned; per-target errors and
-// "no devices answered" are silently OK.
-func runDiscovery(parent context.Context, devices map[string]DeviceConfig) error {
+// INFO so the operator sees them once on next startup. Errors from
+// net.ListenPacket are returned; per-target errors and "no devices
+// answered" are silently OK.
+func runDiscovery(parent context.Context, devices *DeviceRegistry) error {
+	return runDiscoveryWith(parent, devices, defaultDiscover)
+}
+
+// runDiscoveryWith is runDiscovery's testable form: tests inject a stub
+// discover that returns deterministic Found values without UDP.
+func runDiscoveryWith(parent context.Context, devices *DeviceRegistry, discover discoverFunc) error {
+	if discover == nil {
+		discover = defaultDiscover
+	}
 	slog.Info("running discovery", "timeout", discoveryTimeout)
 	ctx, cancel := context.WithTimeout(parent, discoveryTimeout)
 	defer cancel()
 
-	found, err := breezy.Discover(ctx)
+	found, err := discover(ctx)
 	if err != nil {
 		return err
 	}
 
+	// Snapshot by-ID map under the registry lock once.
+	snap := devices.Snapshot()
 	knownByID := map[string]string{}
-	for name, d := range devices {
+	for name, d := range snap {
 		knownByID[d.ID] = name
 	}
 
@@ -312,18 +343,52 @@ func runDiscovery(parent context.Context, devices map[string]DeviceConfig) error
 				"id", f.DeviceID, "ip", f.IP, "type", f.UnitType)
 			continue
 		}
-		d := devices[name]
 		newIP := fmt.Sprintf("%s:4000", f.IP)
-		if d.IP == newIP {
+		prev, _ := devices.UpdateIP(name, newIP)
+		if prev == newIP {
 			slog.Debug("device already at known IP", "name", name, "ip", f.IP)
 		} else {
-			slog.Info("discovered configured device", "name", name, "ip", f.IP, "previous", d.IP)
-			d.IP = newIP
-			devices[name] = d
+			slog.Info("discovered configured device", "name", name, "ip", f.IP, "previous", prev)
 		}
 	}
 	slog.Info("discovery complete", "found", len(found))
 	return nil
+}
+
+// parsePeriodicDiscovery returns the duration encoded in a
+// "periodic:<go-duration>" config value. Returns (0, false) for any other
+// shape — the config loader has already validated the format, so a
+// false here just means the operator chose "on-start" or "off".
+func parsePeriodicDiscovery(s string) (time.Duration, bool) {
+	const prefix = "periodic:"
+	if !strings.HasPrefix(s, prefix) {
+		return 0, false
+	}
+	d, err := time.ParseDuration(s[len(prefix):])
+	if err != nil {
+		return 0, false
+	}
+	return d, true
+}
+
+// runPeriodicDiscovery ticks every interval, calling runDiscovery.
+// Cancellation via ctx exits cleanly. Errors from each tick are logged
+// at WARN; the loop continues so a transient network issue doesn't
+// permanently disable IP refresh.
+func runPeriodicDiscovery(ctx context.Context, devices *DeviceRegistry, interval time.Duration) {
+	slog.Info("periodic discovery enabled", "interval", interval)
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := runDiscovery(ctx, devices); err != nil {
+				slog.Warn("periodic discovery tick failed", "err", err)
+			}
+		}
+	}
 }
 
 // defaultReadIDs is the set of params each poller reads on every
@@ -343,7 +408,7 @@ func defaultReadIDs() []breezy.ParamID {
 		0x0024, 0x0025, 0x0027,
 		0x0044, 0x004A, 0x004B,
 		0x0063, 0x0064, 0x0068,
-		0x007E, 0x0081, 0x0083, 0x0084, 0x0086, 0x0088,
+		0x007E, 0x007F, 0x0081, 0x0083, 0x0084, 0x0086, 0x0088,
 		0x00B7, 0x00B9,
 		// Page 1.
 		0x0129,

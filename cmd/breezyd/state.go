@@ -77,6 +77,47 @@ func (s *State) RecordPoll(name string, snap Snapshot) {
 	s.Set(name, snap)
 }
 
+// WriteThrough merges the supplied writes into the cached snapshot for
+// name, preserving LastPoll and LastErr. This implements the design spec's
+// "writes always issue UDP and update the cache on success" rule, so a GET
+// after a successful POST sees the new value without waiting for the next
+// poll tick.
+//
+// If no snapshot exists for name yet, one is created carrying just the
+// supplied values plus the IP from the existing entry (if any). The byte
+// slices are deep-copied so the caller is free to reuse buffers.
+func (s *State) WriteThrough(name string, writes []breezy.ParamWrite) {
+	if len(writes) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snap, ok := s.snaps[name]
+	if !ok {
+		snap = Snapshot{}
+	}
+	if snap.Values == nil {
+		snap.Values = make(map[breezy.ParamID][]byte, len(writes))
+	} else {
+		// Copy-on-write: clone the existing map so any concurrent reader
+		// that captured a reference via Get() still sees its own snapshot.
+		// Get() already returns a deep copy, so callers don't share, but
+		// future readers of the same Snapshot value would otherwise see
+		// our mutation. Defensive at low cost.
+		cloned := make(map[breezy.ParamID][]byte, len(snap.Values)+len(writes))
+		for k, v := range snap.Values {
+			cloned[k] = v
+		}
+		snap.Values = cloned
+	}
+	for _, w := range writes {
+		cp := make([]byte, len(w.Value))
+		copy(cp, w.Value)
+		snap.Values[w.ID] = cp
+	}
+	s.snaps[name] = snap
+}
+
 // Devices returns a sorted snapshot of the device names currently in the
 // cache. The returned slice is independent of internal state and safe to
 // iterate without holding the lock.

@@ -60,9 +60,9 @@ func newServerHandler(t *testing.T) (*Handler, *recordingPoller, string) {
 
 	h := &Handler{
 		State: state,
-		Devices: map[string]DeviceConfig{
+		Devices: NewDeviceRegistry(map[string]DeviceConfig{
 			"playroom": {ID: srvDeviceID, Password: srvPassword, IP: addr},
-		},
+		}),
 		Pollers: map[string]*Poller{
 			// We replace the real poller with a stub via Notice(); see below.
 		},
@@ -71,7 +71,7 @@ func newServerHandler(t *testing.T) (*Handler, *recordingPoller, string) {
 		NoticeFunc: rp.Notice,
 	}
 	h.ClientFactory = func(name string) (HandlerClient, error) {
-		d, ok := h.Devices[name]
+		d, ok := h.Devices.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("unknown device %q", name)
 		}
@@ -136,8 +136,9 @@ func doRequest(t *testing.T, h http.Handler, method, target string, body any) *h
 // endpoints that don't go to the device on every call.
 func seedSnapshot(t *testing.T, h *Handler, name string, values map[breezy.ParamID][]byte) {
 	t.Helper()
+	d, _ := h.Devices.Get(name)
 	h.State.Set(name, Snapshot{
-		IP:       h.Devices[name].IP,
+		IP:       d.IP,
 		Values:   values,
 		LastPoll: time.Date(2026, 5, 3, 22, 36, 0, 0, time.UTC),
 	})
@@ -329,17 +330,35 @@ func TestHandler_GetDevice_InUserControlFalseOnAlert(t *testing.T) {
 	}
 }
 
-func TestHandler_GetDevice_InUserControlFalseOnHeater(t *testing.T) {
+// TestHandler_GetDevice_InUserControl_HeaterToggleStillUser confirms that
+// the user toggling the heater on is configuration, NOT an override.
+// in_user_control should remain true. The override signal for unexpected
+// heater behavior is frost-protection (0x030B), tested separately below.
+func TestHandler_GetDevice_InUserControl_HeaterToggleStillUser(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
-	v[0x0068] = []byte{0x01} // heater enabled
+	v[0x0068] = []byte{0x01} // user asked for heat — that's configuration
+	seedSnapshot(t, h, "playroom", v)
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
+	var resp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	live := resp["live"].(map[string]any)
+	if live["in_user_control"] != true {
+		t.Errorf("in_user_control = %v, want true (heater_control=1 is user configuration, not override)", live["in_user_control"])
+	}
+}
+
+func TestHandler_GetDevice_InUserControlFalseOnFrostProtection(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	v := snapshotAllParams(t)
+	v[0x030B] = []byte{0x01} // frost protection actively running
 	seedSnapshot(t, h, "playroom", v)
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	live := resp["live"].(map[string]any)
 	if live["in_user_control"] != false {
-		t.Errorf("in_user_control = %v, want false (heater on)", live["in_user_control"])
+		t.Errorf("in_user_control = %v, want false (frost protection active)", live["in_user_control"])
 	}
 }
 
@@ -739,12 +758,68 @@ func TestHandler_PostParam_BadHex(t *testing.T) {
 }
 
 // ------------------------------------------------------------------------
+// Write-through cache (POST updates cache without waiting for next poll)
+// ------------------------------------------------------------------------
+
+func TestHandler_PostPower_WriteThroughVisibleInGetDevice(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	// Seed cache with power=off.
+	v := snapshotAllParams(t)
+	v[0x0001] = []byte{0x00}
+	seedSnapshot(t, h, "playroom", v)
+
+	// Confirm the cache currently shows power=off.
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
+	var pre map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &pre)
+	if cfg, _ := pre["configured"].(map[string]any); cfg["power"] != false {
+		t.Fatalf("pre-write power = %v, want false; body=%s", cfg["power"], rec.Body.String())
+	}
+
+	// Issue the write.
+	rec2 := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": true})
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("POST status=%d body=%s", rec2.Code, rec2.Body.String())
+	}
+
+	// GET should reflect the new value immediately, without a poll tick.
+	rec3 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
+	var post map[string]any
+	_ = json.Unmarshal(rec3.Body.Bytes(), &post)
+	cfg, _ := post["configured"].(map[string]any)
+	if cfg["power"] != true {
+		t.Errorf("post-write power = %v, want true (write-through); body=%s", cfg["power"], rec3.Body.String())
+	}
+}
+
+func TestHandler_PostSpeed_WriteThroughManual(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"manual": 42})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
+	var resp map[string]any
+	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
+	cfg, _ := resp["configured"].(map[string]any)
+	if v, _ := cfg["manual_pct"].(float64); v != 42 {
+		t.Errorf("manual_pct = %v, want 42 (write-through); body=%s", cfg["manual_pct"], rec2.Body.String())
+	}
+	if cfg["speed_mode"] != "manual" {
+		t.Errorf("speed_mode = %v, want manual (write-through); body=%s", cfg["speed_mode"], rec2.Body.String())
+	}
+}
+
+// ------------------------------------------------------------------------
 // Error-path: auth_failed and device_unreachable
 // ------------------------------------------------------------------------
 
 func TestHandler_AuthFailed(t *testing.T) {
 	h, _, addr := newServerHandler(t)
-	h.Devices["playroom"] = DeviceConfig{ID: srvDeviceID, Password: "WRONG", IP: addr}
+	h.Devices.Set("playroom", DeviceConfig{ID: srvDeviceID, Password: "WRONG", IP: addr})
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": true})
 	if rec.Code != http.StatusBadGateway {
@@ -760,7 +835,7 @@ func TestHandler_AuthFailed(t *testing.T) {
 func TestHandler_DeviceUnreachable(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	// 192.0.2.0/24 is the TEST-NET-1 range — guaranteed unrouteable.
-	h.Devices["playroom"] = DeviceConfig{ID: srvDeviceID, Password: srvPassword, IP: "192.0.2.1:4000"}
+	h.Devices.Set("playroom", DeviceConfig{ID: srvDeviceID, Password: srvPassword, IP: "192.0.2.1:4000"})
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": true})
 	if rec.Code != http.StatusBadGateway {

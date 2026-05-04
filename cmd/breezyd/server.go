@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hughobrien/twinfresh/pkg/breezy"
@@ -51,16 +52,93 @@ type DeviceConfig struct {
 	IP       string // host[:port]; default port is 4000 if absent
 }
 
+// DeviceRegistry holds the current per-device configuration with safe
+// concurrent access. Periodic discovery (when enabled) mutates entries
+// while HTTP request goroutines read them; without synchronisation that's
+// a data race. The registry's Get/Names methods take an RLock; UpdateIP
+// takes the write lock. Tests that built a Handler with a static config
+// can call NewDeviceRegistry(map) once and never mutate again.
+type DeviceRegistry struct {
+	mu      sync.RWMutex
+	devices map[string]DeviceConfig
+}
+
+// NewDeviceRegistry returns a registry seeded with the given devices.
+// The supplied map is copied; the caller is free to mutate it afterward.
+func NewDeviceRegistry(devices map[string]DeviceConfig) *DeviceRegistry {
+	r := &DeviceRegistry{devices: make(map[string]DeviceConfig, len(devices))}
+	for k, v := range devices {
+		r.devices[k] = v
+	}
+	return r
+}
+
+// Get returns the configuration for name, or zero+false if absent.
+func (r *DeviceRegistry) Get(name string) (DeviceConfig, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	d, ok := r.devices[name]
+	return d, ok
+}
+
+// Names returns a copy of the device names registered, in unsorted order.
+// The returned slice is independent of internal state.
+func (r *DeviceRegistry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, 0, len(r.devices))
+	for k := range r.devices {
+		out = append(out, k)
+	}
+	return out
+}
+
+// Snapshot returns a deep-ish copy of the entire registry. Useful for
+// callers that want to iterate without holding the read lock.
+func (r *DeviceRegistry) Snapshot() map[string]DeviceConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]DeviceConfig, len(r.devices))
+	for k, v := range r.devices {
+		out[k] = v
+	}
+	return out
+}
+
+// Set replaces the entry for name. Used by tests to swap a device's
+// password/IP after registry construction.
+func (r *DeviceRegistry) Set(name string, d DeviceConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.devices[name] = d
+}
+
+// UpdateIP atomically updates the IP for name, leaving ID and Password
+// untouched. Returns the previous IP and whether the entry existed.
+// Periodic discovery uses this when a device's address changes.
+func (r *DeviceRegistry) UpdateIP(name, ip string) (prev string, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.devices[name]
+	if !ok {
+		return "", false
+	}
+	prev = d.IP
+	d.IP = ip
+	r.devices[name] = d
+	return prev, true
+}
+
 // Handler implements the daemon's HTTP API.
 type Handler struct {
 	// State is the in-memory cache of the most recent poll for each device.
 	// Cache-driven endpoints (full snapshot, firmware, efficiency, faults)
-	// read here. Writes do not update the cache directly — the next poll
-	// picks up the change.
+	// read here. Writes update the cache via WriteThrough on success.
 	State *State
 	// Devices is the per-name configuration. Routes that target a device
-	// 404 if name isn't a key here.
-	Devices map[string]DeviceConfig
+	// 404 if name isn't a key here. Use a *DeviceRegistry so periodic
+	// discovery can update IPs while HTTP requests are in flight.
+	Devices *DeviceRegistry
 	// Pollers, if non-nil, is consulted for NoticeWrite on successful
 	// writes to fan-affecting params. NoticeFunc takes precedence; this
 	// is provided for the production wiring where main.go owns the pollers.
@@ -173,7 +251,11 @@ func classifyClientErr(err error) string {
 // requireDevice looks up name in h.Devices and writes a 404 if missing.
 // Returns the config and ok=true on success.
 func (h *Handler) requireDevice(w http.ResponseWriter, name string) (DeviceConfig, bool) {
-	d, ok := h.Devices[name]
+	if h.Devices == nil {
+		writeErr(w, "not_found", fmt.Sprintf("device %q not configured", name))
+		return DeviceConfig{}, false
+	}
+	d, ok := h.Devices.Get(name)
 	if !ok {
 		writeErr(w, "not_found", fmt.Sprintf("device %q not configured", name))
 		return DeviceConfig{}, false
@@ -192,14 +274,34 @@ func (h *Handler) dial(name string) (HandlerClient, error) {
 }
 
 // notice triggers fan-write settle suppression on the relevant poller after
-// a successful write. Either NoticeFunc (for tests) or Pollers (for prod)
-// can supply it; both are tolerated.
+// a successful write.
+//
+// In production the Handler has Pollers wired and NoticeFunc nil; tests
+// inject NoticeFunc on a Handler whose Pollers is empty. To keep the two
+// paths from double-firing on a Handler that happens to have both set
+// (uncommon, but possible in a hybrid test), NoticeFunc takes precedence:
+// when present, it suppresses the Pollers path so a single notice doesn't
+// fire twice.
 func (h *Handler) notice(name string, id breezy.ParamID) {
 	if h.NoticeFunc != nil {
 		h.NoticeFunc(name, id)
+		return
 	}
 	if p, ok := h.Pollers[name]; ok && p != nil {
 		p.NoticeWrite(id)
+	}
+}
+
+// recordWrite is the standard "post-successful-write" hook for handlers:
+// it updates the cache (write-through, per the design spec) and notifies
+// the poller to suppress fan-RPM reads during settle. Pass every write
+// that just succeeded on the wire — the cache mirrors the device.
+func (h *Handler) recordWrite(name string, writes []breezy.ParamWrite) {
+	if h.State != nil {
+		h.State.WriteThrough(name, writes)
+	}
+	for _, w := range writes {
+		h.notice(name, w.ID)
 	}
 }
 
@@ -267,7 +369,11 @@ func (h *Handler) listDevices(w http.ResponseWriter, r *http.Request) {
 		Reachable bool  `json:"reachable"`
 	}
 	out := []entry{}
-	for name, cfg := range h.Devices {
+	var devices map[string]DeviceConfig
+	if h.Devices != nil {
+		devices = h.Devices.Snapshot()
+	}
+	for name, cfg := range devices {
 		e := entry{Name: name, ID: cfg.ID, IP: cfg.IP, Reachable: true}
 		if snap, ok := h.State.Get(name); ok {
 			if !snap.LastPoll.IsZero() {
@@ -474,18 +580,21 @@ func (h *Handler) buildSnapshot(name string, cfg DeviceConfig, snap Snapshot) Sn
 	return resp
 }
 
-// computeInUserControl returns true when the device is doing what the
-// user asked: no special-mode timer is active (0x07 == 0), the heater is
-// off (0x68 == 0), AND no sensor-alert byte is set (0x84 all-zero).
+// computeInUserControl returns true when the device is behaving according
+// to user configuration, false when a firmware-driven override is in
+// effect (sensor alert, special-mode timer, frost protection).
 //
-// Any one of those being non-zero means a firmware-driven override is in
-// effect — the fan/heater state may differ from the configured values,
-// and the CLI should warn the user.
+// "User in control" means none of these are true:
+//   - 0x07 != 0       — a special mode (night/turbo) is running
+//   - any byte of 0x84 != 0 — at least one sensor crossed its threshold
+//   - 0x030B == 1     — frost protection is energising the heater
+//
+// Note that 0x0068 (heater_control, the user's own toggle) does NOT
+// downgrade in_user_control: the user *asking for* heat is configuration,
+// not override. The override signal for heat is 0x030B (frost protection
+// engaging the reheater autonomously even when the user has it off).
 func computeInUserControl(snap Snapshot) bool {
 	if b, ok := uint8At(snap, 0x0007); ok && b != 0 {
-		return false
-	}
-	if b, ok := uint8At(snap, 0x0068); ok && b != 0 {
 		return false
 	}
 	if raw, ok := snap.Values[0x0084]; ok {
@@ -494,6 +603,9 @@ func computeInUserControl(snap Snapshot) bool {
 				return false
 			}
 		}
+	}
+	if b, ok := uint8At(snap, 0x030B); ok && b == 1 {
+		return false
 	}
 	return true
 }
@@ -736,11 +848,12 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.doWrite(r.Context(), name, []breezy.ParamWrite{{ID: id, Value: val}}); err != nil {
+	writes := []breezy.ParamWrite{{ID: id, Value: val}}
+	if err := h.doWrite(r.Context(), name, writes); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.notice(name, id)
+	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -784,11 +897,12 @@ func (h *Handler) postPower(w http.ResponseWriter, r *http.Request) {
 	if *body.On {
 		val = 1
 	}
-	if err := h.doWrite(r.Context(), name, []breezy.ParamWrite{{ID: 0x0001, Value: []byte{val}}}); err != nil {
+	writes := []breezy.ParamWrite{{ID: 0x0001, Value: []byte{val}}}
+	if err := h.doWrite(r.Context(), name, writes); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.notice(name, 0x0001)
+	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -817,11 +931,12 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		val := byte(*body.Preset)
-		if err := h.doWrite(r.Context(), name, []breezy.ParamWrite{{ID: 0x0002, Value: []byte{val}}}); err != nil {
+		writes := []breezy.ParamWrite{{ID: 0x0002, Value: []byte{val}}}
+		if err := h.doWrite(r.Context(), name, writes); err != nil {
 			writeErr(w, classifyClientErr(err), err.Error())
 			return
 		}
-		h.notice(name, 0x0002)
+		h.recordWrite(name, writes)
 
 	case body.Manual != nil:
 		if *body.Manual < 10 || *body.Manual > 100 {
@@ -839,8 +954,7 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, classifyClientErr(err), err.Error())
 			return
 		}
-		h.notice(name, 0x0044)
-		h.notice(name, 0x0002)
+		h.recordWrite(name, writes)
 
 	default:
 		writeErr(w, "bad_request", "set either 'preset' (1-3) or 'manual' (10-100)")
@@ -874,11 +988,12 @@ func (h *Handler) postMode(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "mode must be one of: ventilation, regeneration, supply, extract")
 		return
 	}
-	if err := h.doWrite(r.Context(), name, []breezy.ParamWrite{{ID: 0x00B7, Value: []byte{val}}}); err != nil {
+	writes := []breezy.ParamWrite{{ID: 0x00B7, Value: []byte{val}}}
+	if err := h.doWrite(r.Context(), name, writes); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.notice(name, 0x00B7)
+	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -901,11 +1016,12 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 	if *body.On {
 		val = 1
 	}
-	if err := h.doWrite(r.Context(), name, []breezy.ParamWrite{{ID: 0x0068, Value: []byte{val}}}); err != nil {
+	writes := []breezy.ParamWrite{{ID: 0x0068, Value: []byte{val}}}
+	if err := h.doWrite(r.Context(), name, writes); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.notice(name, 0x0068)
+	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -914,11 +1030,12 @@ func (h *Handler) postFilterReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	if err := h.doWrite(r.Context(), name, []breezy.ParamWrite{{ID: 0x0065, Value: []byte{1}}}); err != nil {
+	writes := []breezy.ParamWrite{{ID: 0x0065, Value: []byte{1}}}
+	if err := h.doWrite(r.Context(), name, writes); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.notice(name, 0x0065)
+	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -927,11 +1044,12 @@ func (h *Handler) postFaultsReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	if err := h.doWrite(r.Context(), name, []breezy.ParamWrite{{ID: 0x0080, Value: []byte{1}}}); err != nil {
+	writes := []breezy.ParamWrite{{ID: 0x0080, Value: []byte{1}}}
+	if err := h.doWrite(r.Context(), name, writes); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
-	h.notice(name, 0x0080)
+	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -983,8 +1101,7 @@ func (h *Handler) postRTC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Neither RTC param is in fanWriteIDs, so notice() is a no-op for the
-	// poller, but we still record the writes for any test/debug hook.
-	h.notice(name, 0x006F)
-	h.notice(name, 0x0070)
+	// poller; recordWrite still updates the cache and any test hook.
+	h.recordWrite(name, writes)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
