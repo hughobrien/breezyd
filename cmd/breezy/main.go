@@ -20,19 +20,15 @@
 //     decoded and rendered as `error: <msg> (<code>)`)
 //   - 2 local usage error (bad args, validation failure before HTTP)
 //
-// This file holds only flag parsing, dispatch, and HTTP envelope
-// plumbing. Per-verb cmd* functions live in commands.go; the
-// human-friendly renderers live in render.go.
+// This file holds only flag parsing, dispatch, and backend construction.
+// Per-verb cmd* functions live in commands.go; the human-friendly
+// renderers live in render.go; backend implementations live in backend.go.
 package main
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,11 +40,6 @@ import (
 // defaultDaemonURL is the fall-back when no --daemon flag is given and
 // no config file exists or the file lacks a [daemon].listen entry.
 const defaultDaemonURL = "http://127.0.0.1:9876"
-
-// httpTimeout bounds every HTTP request the CLI issues. The daemon
-// itself bounds its UDP work to ~5 s, so 10 s leaves headroom for
-// OS-level retries without making a hung daemon look like a hang.
-const httpTimeout = 10 * time.Second
 
 // discoverTimeout bounds the LAN broadcast in `breezy discover`.
 const discoverTimeout = 3 * time.Second
@@ -92,15 +83,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	daemonURL := resolveDaemonURL(*daemon)
+	b := newDaemonBackend(daemonURL)
+	defer b.Close()
 
 	// Globals.
 	switch rest[0] {
 	case "ls":
-		return cmdLs(daemonURL, stdout, stderr)
+		return cmdLs(b, stdout, stderr)
 	case "discover":
 		return cmdDiscover(stdout, stderr)
 	case "daemon-url":
-		fmt.Fprintln(stdout, daemonURL)
+		fmt.Fprintln(stdout, b.DaemonURLString())
 		return 0
 	case "param":
 		return cmdParam(stdout)
@@ -122,33 +115,33 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	switch verb {
 	case "status":
-		return cmdStatus(daemonURL, name, stdout, stderr)
+		return cmdStatus(b, name, stdout, stderr)
 	case "on":
-		return cmdPower(daemonURL, name, true, stdout, stderr)
+		return cmdPower(b, name, true, stdout, stderr)
 	case "off":
-		return cmdPower(daemonURL, name, false, stdout, stderr)
+		return cmdPower(b, name, false, stdout, stderr)
 	case "speed":
-		return cmdSpeed(daemonURL, name, vargs, stdout, stderr)
+		return cmdSpeed(b, name, vargs, stdout, stderr)
 	case "mode":
-		return cmdMode(daemonURL, name, vargs, stdout, stderr)
+		return cmdMode(b, name, vargs, stdout, stderr)
 	case "heater":
-		return cmdHeater(daemonURL, name, vargs, stdout, stderr)
+		return cmdHeater(b, name, vargs, stdout, stderr)
 	case "reset-filter":
-		return cmdResetFilter(daemonURL, name, stdout, stderr)
+		return cmdResetFilter(b, name, stdout, stderr)
 	case "reset-faults":
-		return cmdResetFaults(daemonURL, name, stdout, stderr)
+		return cmdResetFaults(b, name, stdout, stderr)
 	case "faults":
-		return cmdFaults(daemonURL, name, stdout, stderr)
+		return cmdFaults(b, name, stdout, stderr)
 	case "firmware":
-		return cmdFirmware(daemonURL, name, stdout, stderr)
+		return cmdFirmware(b, name, stdout, stderr)
 	case "efficiency":
-		return cmdEfficiency(daemonURL, name, stdout, stderr)
+		return cmdEfficiency(b, name, stdout, stderr)
 	case "rtc":
-		return cmdRtc(daemonURL, name, vargs, stdout, stderr)
+		return cmdRtc(b, name, vargs, stdout, stderr)
 	case "get":
-		return cmdGet(daemonURL, name, vargs, stdout, stderr)
+		return cmdGet(b, name, vargs, stdout, stderr)
 	case "set":
-		return cmdSet(daemonURL, name, vargs, stdout, stderr)
+		return cmdSet(b, name, vargs, stdout, stderr)
 	}
 
 	fmt.Fprintf(stderr, "unknown verb: %s\n", verb)
@@ -216,89 +209,4 @@ func normalizeURL(addr string) string {
 		return addr
 	}
 	return "http://" + addr
-}
-
-// ----------------------------------------------------------------------------
-// HTTP plumbing
-// ----------------------------------------------------------------------------
-
-// httpJSON issues method url with body (if non-nil) marshalled as JSON,
-// reads the entire response, and returns the status + raw bytes. The
-// caller decodes success/error envelopes — we don't try to be clever
-// about non-2xx here so unit tests can assert on whatever shape comes
-// back.
-func httpJSON(method, url string, body any) (int, []byte, error) {
-	var buf bytes.Buffer
-	if body != nil {
-		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			return 0, nil, fmt.Errorf("encode body: %w", err)
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, url, &buf)
-	if err != nil {
-		return 0, nil, err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, nil, err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return resp.StatusCode, raw, err
-	}
-	return resp.StatusCode, raw, nil
-}
-
-// errEnvelope mirrors the daemon's standard error shape.
-type errEnvelope struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
-// renderErr prints an error to stderr in the canonical
-// `error: <msg> (<code>)` form and returns exit code 1. It tolerates
-// non-envelope responses (raw HTML, empty body, etc.) by falling back
-// to "HTTP <status>".
-func renderErr(stderr io.Writer, status int, raw []byte, transportErr error) int {
-	if transportErr != nil {
-		fmt.Fprintf(stderr, "error: %s\n", transportErr)
-		return 1
-	}
-	var e errEnvelope
-	if json.Unmarshal(raw, &e) == nil && e.Error != "" {
-		if e.Code == "" {
-			fmt.Fprintf(stderr, "error: %s\n", e.Error)
-		} else {
-			fmt.Fprintf(stderr, "error: %s (%s)\n", e.Error, e.Code)
-		}
-		return 1
-	}
-	body := strings.TrimSpace(string(raw))
-	if body == "" {
-		fmt.Fprintf(stderr, "error: HTTP %d\n", status)
-	} else {
-		fmt.Fprintf(stderr, "error: HTTP %d: %s\n", status, body)
-	}
-	return 1
-}
-
-// doSimple is the common path for verbs that POST a JSON body and
-// expect either an `{"ok":true}` ack or an error envelope. On success
-// it prints a short "ok" line; on failure it routes through renderErr.
-func doSimple(method, url string, body any, ack string, stdout, stderr io.Writer) int {
-	status, raw, err := httpJSON(method, url, body)
-	if err != nil {
-		return renderErr(stderr, status, raw, err)
-	}
-	if status >= 400 {
-		return renderErr(stderr, status, raw, nil)
-	}
-	fmt.Fprintln(stdout, ack)
-	return 0
 }

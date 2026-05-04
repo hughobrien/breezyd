@@ -18,26 +18,11 @@ import (
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
-// snapshotResp mirrors the daemon's SnapshotResponse JSON. Each block
-// is map[string]any so we don't have to enumerate every possible field
-// — the renderer probes for what it knows about and ignores the rest.
-type snapshotResp struct {
-	Name       string         `json:"name"`
-	ID         string         `json:"id"`
-	IP         string         `json:"ip"`
-	LastPoll   string         `json:"last_poll"`
-	Configured map[string]any `json:"configured"`
-	Live       map[string]any `json:"live"`
-	Sensors    map[string]any `json:"sensors"`
-	Service    map[string]any `json:"service"`
-	Firmware   map[string]any `json:"firmware"`
-}
-
 // renderStatus writes the multi-line per-device snapshot to w. The
 // header line includes firmware + last_poll relative; subsequent lines
 // cover power, mode, speed, sensors, service. Sensor-override warning
 // is printed on its own line just below the header when applicable.
-func renderStatus(w io.Writer, s snapshotResp) {
+func renderStatus(w io.Writer, s breezy.Status) {
 	// Header: "<name> @ <ip>  (firmware X.YY, last poll Ns ago)".
 	fwStr := ""
 	if v, ok := s.Firmware["version"].(string); ok {
@@ -174,15 +159,9 @@ func renderLs(w io.Writer, rows []lsRow) {
 	}
 }
 
-// fault is one row of the daemon's faults response.
-type fault struct {
-	Code int    `json:"code"`
-	Kind string `json:"kind"`
-}
-
 // renderFaults pretty-prints a faults list. Empty list yields the
 // "no active faults" line (with newline).
-func renderFaults(w io.Writer, faults []fault) {
+func renderFaults(w io.Writer, faults []breezy.FaultCode) {
 	if len(faults) == 0 {
 		fmt.Fprintln(w, "no active faults")
 		return
