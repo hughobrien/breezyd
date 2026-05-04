@@ -184,6 +184,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /{$}", h.getIndex)
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /v1/devices", h.listDevices)
 	mux.HandleFunc("GET /v1/devices/{name}", h.getDevice)
