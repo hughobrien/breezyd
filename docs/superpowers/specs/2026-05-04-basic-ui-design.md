@@ -201,6 +201,28 @@ Mitigation, in priority order:
 
 The spec adds a section to README's "Security" block (and CLAUDE.md) describing the LAN-bind tradeoff, with a pointer to the VLAN segmentation recommendation already there.
 
+## Optional reverse-proxy integration (NixOS module)
+
+The NixOS module (`nix/module.nix`) gains an opt-in `nginx` block that mirrors the existing `prometheus` integration: a small group of options that, when enabled alongside `services.nginx.enable`, attaches a `proxy_pass` location to a named virtual host. This is the production-shaped path for "expose the dashboard on the LAN" — the daemon stays loopback-bound, nginx is the LAN-facing piece, and basic auth (sourced from a sops-nix / agenix-managed htpasswd file) is one option away.
+
+New options:
+
+```nix
+services.breezyd.nginx = {
+  enable = ...;          # bool, default false
+  virtualHost = ...;     # nullOr str, required when enabled
+  basicAuthFile = ...;   # nullOr path, optional
+};
+```
+
+Behaviour:
+- `enable = true` requires both `services.nginx.enable = true` and `nginx.virtualHost != null`. The module emits assertions for each so a misconfigured deploy fails at build time, not run time.
+- The module injects `services.nginx.virtualHosts.<virtualHost>.locations."/" = { proxyPass = "http://<daemon listen>"; basicAuthFile = <optional>; }`. The proxy target is read from `cfg.settings.daemon.listen` with the same fallback the firewall code already uses (`127.0.0.1:9876`).
+- The location is mounted at the vhost root (`/`). A user who wants the dashboard at a sub-path under a shared vhost handles that themselves with their own nginx config — the module supports the dedicated-vhost case only (e.g., `breezy.home.lan`). Sub-path mounting would require either path-stripping in nginx or making the UI's fetch paths prefix-aware, both of which are more nuance than "very basic" warrants for v1.
+- The daemon's `openFirewall` option is not auto-flipped by enabling the nginx integration. The whole point of the integration is that the daemon stays loopback-bound while nginx is the network-facing service; opening the daemon's port would defeat that.
+
+This is the recommended deployment for any home where the dashboard is reached from devices other than the host running `breezyd`. The "edit `[daemon].listen` to `0.0.0.0:9876`" path documented elsewhere remains supported but is the less-defended option (no auth, full API exposed on the LAN).
+
 ## Out of scope (deliberate, mirroring v1's "no" list)
 
 - Schedule editing — still on-device only.
