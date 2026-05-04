@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package breezy implements the Vents Twinfresh Breezy ERV's UDP/4000
 // FDFD/02 protocol. This file contains the wire-frame codec and the
 // DATA-block composition / parsing helpers. No I/O happens here — the

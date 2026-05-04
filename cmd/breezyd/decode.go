@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 package main
 
 // Snapshot decode helpers shared by server.go (HTTP JSON shape) and

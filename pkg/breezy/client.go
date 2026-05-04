@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // UDP client for the FDFD/02 protocol. Wraps the codec in a goroutine-safe
 // Client that owns a single UDP socket and serialises request/response
 // cycles via a mutex. Per-request timeout, exponential-backoff retries, and

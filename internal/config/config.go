@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package config loads and validates the Breezy daemon's TOML configuration.
 //
 // The config file lives at ~/.config/breezy/config.toml and is shared by both

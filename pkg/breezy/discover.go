@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Local-network discovery for Vents Twinfresh Breezy ERVs. Per the vendor
 // manual, sending any FDFD/02 request whose deviceID field is the literal
 // "DEFAULT_DEVICEID" causes the device to respond regardless of the password

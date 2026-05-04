@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // breezyd is the long-running daemon that owns the UDP/4000 conversation
 // with each Vents Breezy ERV. main() wires together:
 //

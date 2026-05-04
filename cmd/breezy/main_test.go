@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Tests for the breezy CLI. Each verb gets a table case that spins up
 // an httptest.Server stubbing the daemon side: we verify the request
 // shape the CLI sends (method, path, body), then we verify the CLI's
