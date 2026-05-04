@@ -53,14 +53,14 @@
     {
       "id": 7,
       "subject": "Task 7: Discovery (pkg/breezy/discover.go)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3, 4],
       "description": "**Goal:** Broadcast 0x7C, collect (IP, deviceID). DiscoverAddrs for tests.\n\n**Verify:** `go test -race -v ./pkg/breezy -run Discover` passes with 2 fake servers.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/discover.go\", \"pkg/breezy/discover_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run Discover\", \"acceptanceCriteria\": [\"broadcasts to 255.255.255.255 + 192.168.1.255\", \"extracts deviceID from header\", \"deduplicates\", \"context timeout\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Config loader (internal/config)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "**Goal:** TOML parse, mode-0600 enforcement, reserved-name rejection, defaults.\n\n**Verify:** `go test -race -v ./internal/config` passes.\n\n```json:metadata\n{\"files\": [\"internal/config/config.go\", \"internal/config/config_test.go\"], \"verifyCommand\": \"go test -race -v ./internal/config\", \"acceptanceCriteria\": [\"happy parse\", \"rejects ls/discover/daemon-url\", \"rejects world-readable\", \"applies defaults\"]}\n```"
     },
