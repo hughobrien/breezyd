@@ -25,7 +25,7 @@ In scope:
 
 Out of scope:
 - CI workflow changes. `.github/workflows/test.yml` and `release.yml` already use raw `go` and `goreleaser`; nothing references `make`.
-- Editing `docs/superpowers/plans/2026-05-03-twinfresh-cli.md`. That file is a dated implementation-plan artifact; preserving its `make build` references keeps the historical record accurate.
+- Editing `docs/superpowers/plans/2026-05-03-twinfresh-cli.md` or its accompanying `.tasks.json`. Those are dated implementation-plan artifacts; preserving their `make build` references keeps the historical record accurate.
 - `goimports` in place of `gofmt`. Extra dep, marginal gain.
 - Pulling integration-test parameters from `~/.config/breezy/config.toml`. Implicit device targeting from a config file is exactly the kind of magic that causes accidental writes to the wrong unit; positional args keep the call site self-documenting.
 
