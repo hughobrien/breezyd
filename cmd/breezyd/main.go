@@ -150,9 +150,17 @@ func run(parent context.Context) error {
 	mux.Handle("/", handler)
 
 	srv := &http.Server{
-		Addr:              listen,
-		Handler:           mux,
+		Addr:    listen,
+		Handler: mux,
+		// Bound every phase of the request lifecycle. Every endpoint we
+		// serve is short-lived (cache-backed JSON, a small HTML page, or
+		// a small Prometheus dump), so generous-but-finite timeouts both
+		// protect against slow-loris-style misuse and ensure a wedged
+		// connection eventually frees its goroutine.
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)
