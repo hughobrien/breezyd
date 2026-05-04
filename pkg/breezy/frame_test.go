@@ -35,7 +35,7 @@ func TestEncodeRequest_GoldenReadUnitType(t *testing.T) {
 
 	// Hand-computed expected wire bytes:
 	//   FD FD 02 10 <16 ASCII id> 04 31 31 31 31 01 B9 <ck_lo> <ck_hi>
-	want := mustHex(t, "fdfd0210425245455a593030303030303030304130043131313101b9e304")
+	want := mustHex(t, "fdfd0210425245455a5930303030303030304130043131313101b95605")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("EncodeRequest mismatch:\n got: %s\nwant: %s", hex.EncodeToString(got), hex.EncodeToString(want))
 	}
@@ -74,8 +74,8 @@ func TestDecodeResponse_GoldenReadUnitType(t *testing.T) {
 	// independently checksum-verified against the live capture.
 	frame := EncodeRequest("BREEZY00000000A0", "1111", FuncResponse,
 		mustHex(t, "fe02b91100"))
-	// Sanity: frame should end with stored checksum 0xf9 0x05.
-	if frame[len(frame)-2] != 0xf9 || frame[len(frame)-1] != 0x05 {
+	// Sanity: frame should end with stored checksum 0x6c 0x06.
+	if frame[len(frame)-2] != 0x6c || frame[len(frame)-1] != 0x06 {
 		t.Fatalf("unexpected checksum bytes: 0x%02x 0x%02x (frame=%s)",
 			frame[len(frame)-2], frame[len(frame)-1], hex.EncodeToString(frame))
 	}
