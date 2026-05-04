@@ -254,12 +254,12 @@ func cmdRtcShow(b backend, name string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	timeBytes, _, _, _, err := b.GetParam(ctx, name, 0x006F)
+	timeBytes, err := b.GetParam(ctx, name, 0x006F)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: read rtc_time: %s\n", err)
 		return 1
 	}
-	dateBytes, _, _, _, err := b.GetParam(ctx, name, 0x0070)
+	dateBytes, err := b.GetParam(ctx, name, 0x0070)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: read rtc_calendar: %s\n", err)
 		return 1
@@ -294,30 +294,26 @@ func cmdGet(b backend, name string, args []string, stdout, stderr io.Writer) int
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	rawBytes, pName, _, pValue, herr := b.GetParam(ctx, name, id)
+	rawBytes, herr := b.GetParam(ctx, name, id)
 	if herr != nil {
 		fmt.Fprintf(stderr, "error: %s\n", herr)
 		return 1
 	}
 
-	// Prefer the registry's typed Decode for a cleaner display when we
-	// know the param; otherwise fall through to whatever the backend
-	// offered.
+	// Prefer the registry's typed Decode when the param is known;
+	// fall back to raw hex for unknown IDs.
 	rawHex := hex.EncodeToString(rawBytes)
-	display := pValue
-	if ok && rawHex != "" {
+	display := rawHex
+	if ok {
 		if v, dErr := p.Decode(rawBytes); dErr == nil {
 			display = v.String()
 		}
 	}
-	if display == "" {
-		display = rawHex
-	}
 
 	idStr := fmt.Sprintf("0x%04X", uint16(id))
 	label := idStr
-	if pName != "" {
-		label = fmt.Sprintf("%s (%s)", pName, idStr)
+	if ok && p.Name != "" {
+		label = fmt.Sprintf("%s (%s)", p.Name, idStr)
 	}
 	unit := ""
 	if ok && p.Unit != "" {
