@@ -1,17 +1,17 @@
 {
   "planPath": "docs/superpowers/plans/2026-05-03-twinfresh-cli.md",
-  "lastUpdated": "2026-05-03T17:30:00Z",
+  "lastUpdated": "2026-05-03T19:58:00Z",
   "tasks": [
     {
       "id": 0,
       "subject": "Task 0: Bootstrap Go module and skeleton",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** go.mod, layout dirs (pkg/breezy, cmd/breezyd, cmd/breezy, internal/config, tools), .gitignore, Makefile.\n\n**Verify:** `go test ./...` exits 0.\n\n```json:metadata\n{\"files\": [\"go.mod\", \".gitignore\", \"Makefile\"], \"verifyCommand\": \"go test ./...\", \"acceptanceCriteria\": [\"go mod tidy succeeds\", \"go test ./... exits 0\", \"Makefile targets exist\"]}\n```"
     },
     {
       "id": 1,
       "subject": "Task 1: Phase 0 probe tool (Python)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "**Goal:** tools/probe.py — interactive read/write of any param. Safety-locked credential and network params.\n\n**Verify:** `python3 tools/probe.py --ip 192.168.1.148 --id BREEZY00000000A0 read 0xB9` prints unit-type 17.\n\n```json:metadata\n{\"files\": [\"tools/probe.py\", \"tools/README.md\"], \"verifyCommand\": \"python3 tools/probe.py --ip 192.168.1.148 --id BREEZY00000000A0 read 0xB9\", \"acceptanceCriteria\": [\"read by hex id\", \"read all sweeps\", \"write+reread\", \"refuses safety-locked params\"]}\n```"
     },
