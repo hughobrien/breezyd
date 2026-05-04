@@ -410,6 +410,18 @@ func TestHandler_Firmware(t *testing.T) {
 	}
 }
 
+func TestHandler_Firmware_BadBytes(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	v := snapshotAllParams(t)
+	v[0x0086] = []byte{0x01, 0x02} // wrong length: 2 bytes, decoder wants 6
+	seedSnapshot(t, h, "playroom", v)
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/firmware", nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandler_Efficiency(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
