@@ -16,8 +16,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/hughobrien/breezyd/internal/config"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
@@ -318,3 +320,210 @@ func (d *daemonBackend) Devices(ctx context.Context) ([]lsRow, error) {
 	}
 	return rows, nil
 }
+
+// Compile-time check that daemonBackend satisfies backend.
+var _ backend = (*daemonBackend)(nil)
+
+// directBackend implements backend by opening UDP clients directly to
+// each configured device via pkg/breezy/ops. Per-device clients are
+// lazy-opened on first use and reused for the rest of the CLI
+// invocation; Close releases every open client.
+type directBackend struct {
+	devices map[string]config.Device
+
+	mu      sync.Mutex
+	clients map[string]*breezy.Client
+}
+
+func newDirectBackend(devices map[string]config.Device) *directBackend {
+	return &directBackend{
+		devices: devices,
+		clients: map[string]*breezy.Client{},
+	}
+}
+
+func (d *directBackend) DaemonURLString() string { return "" }
+
+func (d *directBackend) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var firstErr error
+	for _, c := range d.clients {
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	d.clients = map[string]*breezy.Client{}
+	return firstErr
+}
+
+// dial returns a *breezy.Client for the named device, opening one and
+// caching it on first call. The client is reused for subsequent calls
+// within the same CLI invocation.
+func (d *directBackend) dial(name string) (*breezy.Client, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if c, ok := d.clients[name]; ok {
+		return c, nil
+	}
+	cfg, ok := d.devices[name]
+	if !ok {
+		return nil, fmt.Errorf("device %q not configured", name)
+	}
+	if cfg.IP == "" {
+		return nil, fmt.Errorf("device %q has no IP configured (run `breezy discover` to find it)", name)
+	}
+	c, err := breezy.NewClient(cfg.IP, cfg.ID, cfg.Password)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s: %w", name, err)
+	}
+	d.clients[name] = c
+	return c, nil
+}
+
+func (d *directBackend) Status(ctx context.Context, name string) (breezy.Status, error) {
+	c, err := d.dial(name)
+	if err != nil {
+		return breezy.Status{}, err
+	}
+	cfg := d.devices[name]
+	return breezy.GetStatus(ctx, c, name, cfg.ID, cfg.IP)
+}
+
+func (d *directBackend) Power(ctx context.Context, name string, on bool) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.Power(ctx, c, on)
+}
+
+func (d *directBackend) SpeedPreset(ctx context.Context, name string, preset int) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.SetSpeedPreset(ctx, c, preset)
+}
+
+func (d *directBackend) SpeedManual(ctx context.Context, name string, pct int) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.SetSpeedManual(ctx, c, pct)
+}
+
+func (d *directBackend) Mode(ctx context.Context, name, mode string) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.SetMode(ctx, c, mode)
+}
+
+func (d *directBackend) Heater(ctx context.Context, name string, on bool) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.SetHeater(ctx, c, on)
+}
+
+func (d *directBackend) ResetFilter(ctx context.Context, name string) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.ResetFilter(ctx, c)
+}
+
+func (d *directBackend) ResetFaults(ctx context.Context, name string) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.ResetFaults(ctx, c)
+}
+
+func (d *directBackend) Faults(ctx context.Context, name string) ([]breezy.FaultCode, error) {
+	c, err := d.dial(name)
+	if err != nil {
+		return nil, err
+	}
+	return breezy.GetFaults(ctx, c)
+}
+
+func (d *directBackend) Firmware(ctx context.Context, name string) (string, string, error) {
+	c, err := d.dial(name)
+	if err != nil {
+		return "", "", err
+	}
+	fw, err := breezy.GetFirmware(ctx, c)
+	if err != nil {
+		return "", "", err
+	}
+	return fmt.Sprintf("%d.%02d", fw.Major, fw.Minor), fw.Date.Format("2006-01-02"), nil
+}
+
+func (d *directBackend) Efficiency(ctx context.Context, name string) (int, error) {
+	c, err := d.dial(name)
+	if err != nil {
+		return 0, err
+	}
+	return breezy.GetEfficiency(ctx, c)
+}
+
+func (d *directBackend) GetParam(ctx context.Context, name string, id breezy.ParamID) ([]byte, error) {
+	c, err := d.dial(name)
+	if err != nil {
+		return nil, err
+	}
+	out, err := c.ReadParams(ctx, []breezy.ParamID{id})
+	if err != nil {
+		return nil, err
+	}
+	val, ok := out[id]
+	if !ok {
+		return nil, fmt.Errorf("device replied 'unsupported' for param 0x%04X", uint16(id))
+	}
+	return val, nil
+}
+
+func (d *directBackend) SetParam(ctx context.Context, name string, id breezy.ParamID, value []byte) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return c.WriteParams(ctx, []breezy.ParamWrite{{ID: id, Value: value}})
+}
+
+func (d *directBackend) SetRTC(ctx context.Context, name string, t time.Time) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.SetRTC(ctx, c, t)
+}
+
+// Devices returns one row per configured device. Power/Mode/LastPoll are
+// zero-valued because standalone has no cache; renderLs already maps
+// those to "?" / "never".
+func (d *directBackend) Devices(ctx context.Context) ([]lsRow, error) {
+	rows := make([]lsRow, 0, len(d.devices))
+	for name, cfg := range d.devices {
+		rows = append(rows, lsRow{
+			Name:      name,
+			ID:        cfg.ID,
+			IP:        cfg.IP,
+			LastPoll:  "",
+			Power:     nil,
+			Mode:      "",
+			Reachable: false,
+		})
+	}
+	return rows, nil
+}
+
+// Compile-time check that directBackend satisfies backend.
+var _ backend = (*directBackend)(nil)
