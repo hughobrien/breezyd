@@ -139,6 +139,7 @@ func run(parent context.Context) error {
 	mux.Handle("/healthz", handler)
 	mux.Handle("/v1/", handler)
 	mux.Handle("/metrics", metricsHandler(reg, metrics, state, devices))
+	mux.Handle("/", handler)
 
 	srv := &http.Server{
 		Addr:              listen,

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>breezy</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    margin: 0; padding: 1rem;
+    color: #111; background: #f6f6f6;
+  }
+  header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 1rem;
+  }
+  h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  .meta { color: #666; font-size: 0.85rem; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: #fff; border: 1px solid #ccc; border-radius: 6px;
+    padding: 1rem;
+    transition: opacity 0.3s;
+  }
+  .card.stale { opacity: 0.5; }
+  .card h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+  .card .ip { color: #666; font-size: 0.85rem; }
+  .ts { font-size: 0.85rem; color: #666; }
+  .ts.red { color: #c00; }
+  .power-on { color: #383; }
+  .power-off { color: #c00; }
+  .row { display: flex; justify-content: space-between; padding: 0.1rem 0; }
+  .k { color: #666; }
+  .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
+  .block h3 {
+    margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
+    color: #333; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .warn { color: #b07000; font-size: 0.85rem; margin-top: 0.4rem; }
+  .err-banner {
+    background: #fee; border: 1px solid #c66; padding: 0.75rem;
+    border-radius: 6px; margin-bottom: 1rem; color: #800;
+  }
+  .fw { font-size: 0.75rem; color: #888; margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>breezy</h1>
+    <span class="meta" id="meta">loading…</span>
+  </header>
+  <div id="banner"></div>
+  <div class="grid" id="grid"></div>
+<script>
+"use strict";
+
+const POLL_INTERVAL_MS = 5000;
+const STALE_THRESHOLD_MS = 90 * 1000;
+
+let deviceNames = [];
+const lastSnapshots = {}; // name -> {snapshot fields, _fetchedAt}
+
+async function bootstrap() {
+  try {
+    const r = await fetch("/v1/devices");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    deviceNames = (data.devices || []).map(d => d.name).sort();
+    clearBanner();
+    render();
+    await refreshAll();
+    setInterval(refreshAll, POLL_INTERVAL_MS);
+    setInterval(updateMeta, 1000);
+  } catch (e) {
+    showBanner(`cannot reach daemon — is breezyd running? (${e.message})`);
+    setTimeout(bootstrap, POLL_INTERVAL_MS);
+  }
+}
+
+function showBanner(msg) {
+  document.getElementById("banner").innerHTML =
+    `<div class="err-banner">${esc(msg)}</div>`;
+}
+function clearBanner() {
+  document.getElementById("banner").innerHTML = "";
+}
+
+async function refreshAll() {
+  const results = await Promise.allSettled(
+    deviceNames.map(n =>
+      fetch(`/v1/devices/${encodeURIComponent(n)}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+        .then(snap => ({ name: n, snap }))
+    )
+  );
+  for (const res of results) {
+    if (res.status === "fulfilled") {
+      lastSnapshots[res.value.name] = { ...res.value.snap, _fetchedAt: Date.now() };
+    }
+  }
+  render();
+}
+
+function render() {
+  document.getElementById("grid").innerHTML =
+    deviceNames.map(name => renderCard(name, lastSnapshots[name])).join("");
+  updateMeta();
+}
+
+function updateMeta() {
+  const meta = document.getElementById("meta");
+  const last = Math.max(0, ...Object.values(lastSnapshots).map(s => s._fetchedAt || 0));
+  meta.textContent = last === 0 ? "no data yet" : `refreshed ${humanAgo(Date.now() - last)} ago`;
+}
+
+function renderCard(name, snap) {
+  if (!snap) {
+    return `<div class="card stale">
+      <h2>${esc(name)}</h2>
+      <div class="ts">no data</div>
+    </div>`;
+  }
+  const lastPollMs = snap.last_poll ? new Date(snap.last_poll).getTime() : 0;
+  const ageMs = lastPollMs ? Date.now() - lastPollMs : Infinity;
+  const stale = ageMs > STALE_THRESHOLD_MS;
+  const power = snap.configured?.power;
+  const powerLabel = power === true ? "on" : power === false ? "off" : "?";
+  const powerCls  = power === true ? "power-on" : "power-off";
+
+  return `<div class="card${stale ? " stale" : ""}">
+    <div class="row">
+      <h2>${esc(name)}</h2>
+      <span class="${powerCls}">● ${powerLabel}</span>
+    </div>
+    <div class="row">
+      <span class="ip">${esc(snap.ip || "?")}</span>
+      <span class="ts${stale ? " red" : ""}">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span>
+    </div>
+
+    <div class="block">
+      <h3>Sensors</h3>
+      ${kv("RH",       fmt(snap.sensors?.humidity_pct, "—", "%"))}
+      ${kv("eCO₂",     fmt(snap.sensors?.eco2_ppm, "—", " ppm"))}
+      ${kv("VOC",      fmt(snap.sensors?.voc_index, "—"))}
+      ${kv("outdoor",  tempC(snap.sensors?.temp_outdoor_c))}
+      ${kv("supply",   tempC(snap.sensors?.temp_supply_c))}
+      ${kv("recovery", fmt(snap.sensors?.recovery_efficiency_pct, "—", "%"))}
+    </div>
+
+    <div class="block">
+      <h3>Fans</h3>
+      ${kv("supply",   fmt(snap.live?.fan_supply_rpm, "—", " rpm"))}
+      ${kv("extract",  fmt(snap.live?.fan_extract_rpm, "—", " rpm"))}
+      ${overrideLine(snap.live)}
+    </div>
+
+    <div class="block">
+      <h3>Service</h3>
+      ${kv("filter",  filterStatus(snap.service))}
+      ${kv("motor",   humanSeconds(snap.service?.motor_lifetime_seconds))}
+      ${kv("RTC",     fmt(snap.service?.rtc_battery_volts, "—", " V"))}
+      ${kv("faults",  fmt(snap.service?.fault_level, "—"))}
+    </div>
+
+    ${snap.firmware ? `<div class="fw">fw ${esc(snap.firmware.version || "?")} · ${esc(snap.firmware.build_date || "?")}</div>` : ""}
+  </div>`;
+}
+
+function kv(k, v) {
+  return `<div class="row"><span class="k">${esc(k)}</span><span>${v}</span></div>`;
+}
+
+function tempC(v) {
+  return (v === null || v === undefined) ? "—" : `${v.toFixed(1)} °C`;
+}
+
+function fmt(v, fallback, suffix) {
+  if (v === null || v === undefined) return fallback;
+  return `${esc(String(v))}${suffix || ""}`;
+}
+
+function filterStatus(svc) {
+  if (!svc) return "—";
+  const status = svc.filter_status || "—";
+  const remaining = svc.filter_remaining_seconds;
+  if (remaining === undefined) return esc(status);
+  const days = Math.floor(remaining / 86400);
+  return `${esc(status)} (${days}d)`;
+}
+
+function overrideLine(live) {
+  if (!live || live.in_user_control !== false) return "";
+  const alerts = live.sensor_alerts || {};
+  const reasons = ["humidity", "co2", "voc"].filter(k => alerts[k]);
+  const reasonText = reasons.length ? ` (${reasons.join(", ")})` : "";
+  return `<div class="warn">⚠ sensor override${reasonText} — fan above setting</div>`;
+}
+
+function humanAgo(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function humanSeconds(secs) {
+  if (secs === null || secs === undefined) return "—";
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+bootstrap();
+</script>
+</body>
+</html>
