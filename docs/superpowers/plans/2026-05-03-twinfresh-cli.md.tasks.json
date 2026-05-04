@@ -39,7 +39,7 @@
     {
       "id": 5,
       "subject": "Task 5: UDP client (pkg/breezy/client.go)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3, 4],
       "description": "**Goal:** Client with ReadParam/WriteParam, retries, timeouts, context.\n\n**Verify:** `go test -race -v ./pkg/breezy -run Client` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/client.go\", \"pkg/breezy/client_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run Client\", \"acceptanceCriteria\": [\"happy read/write\", \"ErrUnsupported on FD\", \"context cancel\", \"exponential backoff\"]}\n```"
     },
