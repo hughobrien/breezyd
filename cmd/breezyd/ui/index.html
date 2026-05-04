@@ -25,7 +25,12 @@
     transition: opacity 0.3s;
   }
   .card.stale { opacity: 0.5; }
-  .card h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+  .card h2 {
+    margin: 0; font-size: 1rem; font-weight: 600;
+    /* Long device names shouldn't push the on/off indicator off-card. */
+    max-width: 65%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .card .ip { color: #666; font-size: 0.85rem; }
   .ts { font-size: 0.85rem; color: #666; }
   .ts.red { color: #c00; }
@@ -52,28 +57,23 @@
   .ctrl { margin: 0.4rem 0; }
   .ctrl-label { color: #666; font-size: 0.75rem; margin-bottom: 0.15rem; display: block; }
   .seg { display: flex; gap: 0.25rem; flex-wrap: wrap; }
-  .seg button {
+  .seg button, .toggle {
     font-family: inherit; font-size: 0.85rem;
     padding: 0.3rem 0.5rem;
     border: 1px solid #aaa; background: #fafafa;
     border-radius: 4px; cursor: pointer;
-    flex: 1 1 auto;
   }
-  .seg button[aria-pressed="true"] {
-    background: #4a7; color: #fff; border-color: #383;
-  }
-  .seg button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .toggle {
-    font-family: inherit; font-size: 0.85rem;
-    padding: 0.3rem 0.6rem;
-    border: 1px solid #aaa; background: #fafafa;
-    border-radius: 4px; cursor: pointer;
-    width: 100%;
-  }
-  .toggle[aria-pressed="true"] {
-    background: #4a7; color: #fff; border-color: #383;
-  }
-  .toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+  .seg button { flex: 1 1 auto; }
+  .toggle    { padding: 0.3rem 0.6rem; width: 100%; }
+  .seg button:hover:not(:disabled),
+  .toggle:hover:not(:disabled) { background: #eee; border-color: #888; }
+  .seg button:focus-visible,
+  .toggle:focus-visible        { outline: 2px solid #36c; outline-offset: 1px; }
+  /* #276 (vs the lighter #4a7) clears WCAG AA contrast against white. */
+  .seg button[aria-pressed="true"],
+  .toggle[aria-pressed="true"] { background: #276; color: #fff; border-color: #154; }
+  .seg button:disabled,
+  .toggle:disabled             { opacity: 0.5; cursor: not-allowed; }
   .slider-row { display: flex; gap: 0.5rem; align-items: center; }
   .slider-row input[type=range] { flex: 1; }
   .slider-row .val { min-width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
