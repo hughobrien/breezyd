@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Single-page web dashboard at `GET /` on the daemon, embedded into the binary
+  via `go:embed`. Three columns of cards (one per configured device) with live
+  sensors, fan RPMs, service info, firmware, and the four high-level controls
+  (power / airflow mode / speed / heater). Auto-refreshes every 5 s; cards
+  desaturate when the last poll is more than 90 s old; sensor-override warning
+  fires when `live.in_user_control` is false.
+- NixOS module integration `services.breezyd.nginx.{enable, virtualHost,
+  basicAuthFile}` for fronting the daemon with nginx (with optional basic auth
+  via a sops-managed htpasswd file). Mirrors the existing
+  `services.breezyd.prometheus` shape; the daemon stays loopback-bound while
+  nginx is the LAN-facing service.
+- First-run config bootstrap: when `breezyd` is started against a missing
+  config file, it writes a sensible default at the requested path (mode 0600,
+  parent directory created at 0700 if missing) and exits with a friendly
+  "edit it" message. Atomic write (temp + rename); refuses to clobber existing
+  files.
+- Playwright end-to-end tests under `tests/ui/` (pnpm-managed) covering the
+  UI's HTTP-call contract via `page.route()` mocking. `just test-ui-install`
+  + `just test-ui` run the suite.
+- `just screenshot` recipe + committed PNGs of the dashboard in 3-col and
+  1-col viewports under `tests/ui/screenshots/`. The dashboard screenshot is
+  embedded near the top of the README and re-renders on each `just screenshot`
+  run.
+- `just lint` (and CI) now fails on `gofmt` drift in addition to running
+  `go vet`.
+
+### Fixed
+
+- `Discover()` now enumerates every up, non-loopback IPv4 interface and sends
+  to its directed-broadcast address in addition to the static list. Previously
+  hosts on subnets other than `192.168.0.0/24` or `192.168.1.0/24` could never
+  see their own LAN devices.
+- `Handler.mux` lazy-initialisation in `cmd/breezyd/server.go` was a data race
+  on the first burst of concurrent requests after start. Switched to
+  `sync.Once`.
+
+### Documentation
+
+- `docs/superpowers/specs/2026-05-04-discover-investigation.md` captures the
+  two-cause analysis behind the discover fix (code defect + the QEMU-NAT
+  environmental constraint that's invisible to the breezyd library).
+- README has a new Web UI section (with a "Behind nginx (NixOS)" subsection),
+  the dashboard screenshot near the top, and a new Security paragraph
+  covering the listener-exposure tradeoff.
+
 ## [1.0.0] - 2026-05-03
 
 Initial public release.
