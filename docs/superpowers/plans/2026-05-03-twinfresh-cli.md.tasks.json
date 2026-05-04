@@ -109,7 +109,7 @@
     {
       "id": 15,
       "subject": "Task 15: README + end-to-end smoke",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [12, 13],
       "description": "**Goal:** README and full-stack smoke against real .148/.152.\n\n**Verify:** Manual; follow README steps.\n\n```json:metadata\n{\"files\": [\"README.md\"], \"verifyCommand\": \"manual: follow README steps end-to-end\", \"acceptanceCriteria\": [\"README covers install/config/CLI/Prom\", \"breezy ls shows real devices\", \"speed change audible\", \"/metrics has gauges\"]}\n```"
     }
