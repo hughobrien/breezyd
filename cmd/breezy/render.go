@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // snapshotResp mirrors the daemon's SnapshotResponse JSON. Each block
@@ -386,5 +388,72 @@ func humanRemaining(d time.Duration) string {
 		return fmt.Sprintf("%dh", hours)
 	default:
 		return fmt.Sprintf("%dm", mins)
+	}
+}
+
+// capsString renders a Capabilities bitmask as a fixed-order letter
+// concatenation: R, W, I, D. Read-only -> "R", common writable -> "RW",
+// fully capable -> "RWID", write-only triggers -> "W".
+func capsString(c breezy.Capabilities) string {
+	var b strings.Builder
+	if c.CanRead() {
+		b.WriteByte('R')
+	}
+	if c.CanWrite() {
+		b.WriteByte('W')
+	}
+	if c.CanInc() {
+		b.WriteByte('I')
+	}
+	if c.CanDec() {
+		b.WriteByte('D')
+	}
+	return b.String()
+}
+
+// renderParams writes the parameter-registry table to w. Columns:
+// ID (4-digit hex), NAME, TYPE, UNIT (empty -> "-"), CAPS, DESCRIPTION.
+// Two-space gutters; last column unpadded. Rows are emitted in input
+// order — the caller is expected to sort if it cares (breezy.AllParams
+// already returns sorted-by-ID).
+func renderParams(w io.Writer, params []breezy.Param) {
+	const (
+		hID, hName, hType, hUnit, hCaps, hDesc = "ID", "NAME", "TYPE", "UNIT", "CAPS", "DESCRIPTION"
+	)
+	wID, wName, wType, wUnit, wCaps := len(hID), len(hName), len(hType), len(hUnit), len(hCaps)
+
+	cells := make([][6]string, 0, len(params))
+	for _, p := range params {
+		idStr := fmt.Sprintf("0x%04X", uint16(p.ID))
+		typeStr := p.Type.String()
+		unit := p.Unit
+		if unit == "" {
+			unit = "-"
+		}
+		caps := capsString(p.Caps)
+		row := [6]string{idStr, p.Name, typeStr, unit, caps, p.Description}
+		if len(idStr) > wID {
+			wID = len(idStr)
+		}
+		if len(p.Name) > wName {
+			wName = len(p.Name)
+		}
+		if len(typeStr) > wType {
+			wType = len(typeStr)
+		}
+		if len(unit) > wUnit {
+			wUnit = len(unit)
+		}
+		if len(caps) > wCaps {
+			wCaps = len(caps)
+		}
+		cells = append(cells, row)
+	}
+
+	fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
+		wID, hID, wName, hName, wType, hType, wUnit, hUnit, wCaps, hCaps, hDesc)
+	for _, r := range cells {
+		fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
+			wID, r[0], wName, r[1], wType, r[2], wUnit, r[3], wCaps, r[4], r[5])
 	}
 }
