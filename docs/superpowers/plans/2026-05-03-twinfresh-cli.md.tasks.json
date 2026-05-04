@@ -88,7 +88,7 @@
     {
       "id": 12,
       "subject": "Task 12: Metrics + breezyd main",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7, 8, 9, 10, 11],
       "description": "**Goal:** Prometheus metrics; main wires everything; graceful shutdown.\n\n**Verify:** `go test -race ./...` and `make build`.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/metrics.go\", \"cmd/breezyd/metrics_test.go\", \"cmd/breezyd/main.go\"], \"verifyCommand\": \"go test -race ./... && make build\", \"acceptanceCriteria\": [\"metrics labeled device/id\", \"position label on temps\", \"PollErrors hooked\", \"signal shutdown\", \"discovery on-start\"]}\n```"
     },
