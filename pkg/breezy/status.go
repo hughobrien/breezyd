@@ -2,19 +2,18 @@
 
 package breezy
 
-// Status is the structured per-device snapshot returned by the daemon's
-// HTTP API and consumed by the CLI's renderers. It is built from raw
-// parameter bytes (as returned by Client.ReadParams or stored in the
-// daemon's cache) via BuildStatus. The JSON shape is part of the public
-// API of the daemon; do not change tag names or field types without
-// considering downstream consumers (including the embedded dashboard).
-
 import (
 	"encoding/binary"
 	"fmt"
 	"time"
 )
 
+// Status is the structured per-device snapshot returned by the daemon's
+// HTTP API and consumed by the CLI's renderers. It is built from raw
+// parameter bytes (as returned by Client.ReadParams or stored in the
+// daemon's cache) via BuildStatus. The JSON shape is part of the public
+// API of the daemon; do not change tag names or field types without
+// considering downstream consumers (including the embedded dashboard).
 type Status struct {
 	Name       string         `json:"name"`
 	ID         string         `json:"id"`
