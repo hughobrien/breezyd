@@ -67,14 +67,14 @@
     {
       "id": 9,
       "subject": "Task 9: State cache (cmd/breezyd/state.go)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "**Goal:** Thread-safe per-device snapshot cache.\n\n**Verify:** `go test -race -v ./cmd/breezyd -run State` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/state.go\", \"cmd/breezyd/state_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezyd -run State\", \"acceptanceCriteria\": [\"RWMutex-guarded\", \"Get returns copy\", \"Devices() sorted\", \"-race clean\"]}\n```"
     },
     {
       "id": 10,
       "subject": "Task 10: Poller (cmd/breezyd/poller.go)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5, 6, 9],
       "description": "**Goal:** Per-device polling goroutine; classifies errors via OnError hook.\n\n**Verify:** `go test -race -v ./cmd/breezyd -run Poller` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/poller.go\", \"cmd/breezyd/poller_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezyd -run Poller\", \"acceptanceCriteria\": [\"ticks at interval\", \"populates cache\", \"classifies timeout/checksum/auth\", \"stops on cancel\"]}\n```"
     },
