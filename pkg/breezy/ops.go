@@ -97,6 +97,104 @@ func ResetFaults(ctx context.Context, c DeviceClient) error {
 	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0080, Value: []byte{1}}})
 }
 
+// FaultCode is a single entry in the device's active fault list. Code is
+// the raw fault number; Kind is "alarm" (level 0), "warning" (level 1),
+// or "unknown(<n>)" for unrecognised severity bytes.
+type FaultCode struct {
+	Code int    `json:"code"`
+	Kind string `json:"kind"`
+}
+
+// StatusParamIDs is the canonical set of parameter IDs that GetStatus
+// reads in one batched ReadParams call. Mirrors the daemon poller's
+// defaultReadIDs() in cmd/breezyd/main.go; keep them in sync until the
+// daemon migrates to this constant.
+var StatusParamIDs = []ParamID{
+	// Page 0 (most params).
+	0x0001, 0x0002, 0x0007, 0x000B,
+	0x000F, 0x0011, 0x0019, 0x001A,
+	0x001F, 0x0020, 0x0021, 0x0022,
+	0x0024, 0x0025, 0x0027,
+	0x0044, 0x004A, 0x004B,
+	0x0063, 0x0064, 0x0068,
+	0x007E, 0x007F, 0x0081, 0x0083, 0x0084, 0x0086, 0x0088,
+	0x00B7, 0x00B9,
+	// Page 1.
+	0x0129,
+	// Page 3.
+	0x030B, 0x0315, 0x031F, 0x0320,
+}
+
+// GetFirmware reads 0x0086 and decodes it as a FirmwareMetaValue.
+func GetFirmware(ctx context.Context, c DeviceClient) (FirmwareMetaValue, error) {
+	out, err := c.ReadParams(ctx, []ParamID{0x0086})
+	if err != nil {
+		return FirmwareMetaValue{}, err
+	}
+	raw, ok := out[0x0086]
+	if !ok {
+		return FirmwareMetaValue{}, fmt.Errorf("ops.GetFirmware: device replied unsupported for 0x0086")
+	}
+	v, err := decodeValue(TypeFirmwareMeta, raw)
+	if err != nil {
+		return FirmwareMetaValue{}, fmt.Errorf("ops.GetFirmware: %w", err)
+	}
+	return v.(FirmwareMetaValue), nil
+}
+
+// GetEfficiency reads 0x0129 and returns it as an int (0..100).
+func GetEfficiency(ctx context.Context, c DeviceClient) (int, error) {
+	out, err := c.ReadParams(ctx, []ParamID{0x0129})
+	if err != nil {
+		return 0, err
+	}
+	raw, ok := out[0x0129]
+	if !ok || len(raw) != 1 {
+		return 0, fmt.Errorf("ops.GetEfficiency: missing or wrong-sized 0x0129")
+	}
+	return int(raw[0]), nil
+}
+
+// GetFaults reads 0x007F and decodes pairs of (code, kind). An odd
+// trailing byte is ignored (matches the daemon's existing parsing).
+// Returns an empty slice (not nil) when the parameter is absent.
+func GetFaults(ctx context.Context, c DeviceClient) ([]FaultCode, error) {
+	out, err := c.ReadParams(ctx, []ParamID{0x007F})
+	if err != nil {
+		return nil, err
+	}
+	faults := []FaultCode{}
+	raw, ok := out[0x007F]
+	if !ok {
+		return faults, nil
+	}
+	for i := 0; i+1 < len(raw); i += 2 {
+		var kind string
+		switch raw[i+1] {
+		case 0:
+			kind = "alarm"
+		case 1:
+			kind = "warning"
+		default:
+			kind = fmt.Sprintf("unknown(%d)", raw[i+1])
+		}
+		faults = append(faults, FaultCode{Code: int(raw[i]), Kind: kind})
+	}
+	return faults, nil
+}
+
+// GetStatus issues one batched ReadParams for the canonical status set
+// and returns the decoded Status. lastPoll is nil — callers that want a
+// timestamp (the daemon, building from a cached snapshot) should call
+// BuildStatus directly with their own values + last-poll time.
+func GetStatus(ctx context.Context, c DeviceClient, name, id, ip string) (Status, error) {
+	values, err := c.ReadParams(ctx, StatusParamIDs)
+	if err != nil {
+		return Status{}, err
+	}
+	return BuildStatus(values, name, id, ip, nil), nil
+}
+
 // SetRTC sets the device's wall clock and calendar from t. Writes
 // 0x006F (time_of_day, [sec, min, hr]) and 0x0070 (date,
 // [day, dow, month, year-2000]) in one packet. Day-of-week follows
