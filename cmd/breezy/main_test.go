@@ -685,6 +685,7 @@ func TestUsageNoArgs(t *testing.T) {
 }
 
 func TestUnknownVerb(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // hermetic: no real ~/.config/breezy/config.toml
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"playroom", "barbecue"}, &stdout, &stderr, nil)
 	if code != 2 {
@@ -696,6 +697,7 @@ func TestUnknownVerb(t *testing.T) {
 }
 
 func TestParam(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // hermetic: no real ~/.config/breezy/config.toml
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"param"}, &stdout, &stderr, nil)
 	if code != 0 {
