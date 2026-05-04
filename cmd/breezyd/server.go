@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -324,18 +323,35 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-// parseParamID accepts "0001", "0x0001", "1", "0xB7" — anything strconv
-// can interpret as a uint16.
+// parseParamID interprets a {id} URL segment as a Breezy ParamID.
+//
+// IMPORTANT — bare numeric strings are interpreted as HEX, not decimal.
+// This matches how the protocol and the param-map document address
+// parameters (everything in the spec is "0x0044", "0x00B7", etc.) and
+// how operators tend to think when copy-pasting from the manual.
+//
+// Concretely:
+//
+//	"0x0044"  ->  0x0044  (66)
+//	"0044"    ->  0x0044  (66) — bare numeric is hex
+//	"44"      ->  0x0044  (66) — STILL HEX; "44" is NOT decimal 44
+//	"B7"      ->  0x00B7  (183)
+//	"10"      ->  0x0010  (16) — surprising if you expected decimal 10!
+//
+// To pass a true decimal you must use "0x0A" or the hex-equivalent. The
+// CLI and operators almost always use named identifiers (e.g. "power",
+// "speed_manual_pct") via /v1/devices/{name}/params/{id} resolved in the
+// registry, so the ambiguity rarely bites in practice — but it has to be
+// documented so a passing reader doesn't assume "10" means ten.
 func parseParamID(s string) (breezy.ParamID, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, errors.New("empty param id")
 	}
 	// strconv.ParseUint with base=0 honours the 0x prefix; without one it's
-	// decimal. We want hex-by-default for readability, so explicitly try
-	// base=16 first when there's no prefix.
+	// decimal. We want hex-by-default for readability (see docstring), so
+	// explicitly try base=16 first when there's no prefix.
 	if !strings.HasPrefix(strings.ToLower(s), "0x") {
-		// try hex
 		if n, err := strconv.ParseUint(s, 16, 16); err == nil {
 			return breezy.ParamID(n), nil
 		}
@@ -625,34 +641,6 @@ func decodeAlerts(snap Snapshot) map[string]any {
 	return out
 }
 
-// uint8At returns the single byte stored at id, or (0,false) if the value
-// is missing or wrong-sized.
-func uint8At(snap Snapshot, id breezy.ParamID) (uint8, bool) {
-	raw, ok := snap.Values[id]
-	if !ok || len(raw) != 1 {
-		return 0, false
-	}
-	return raw[0], true
-}
-
-// uint16At returns the LE 2-byte value at id.
-func uint16At(snap Snapshot, id breezy.ParamID) (uint16, bool) {
-	raw, ok := snap.Values[id]
-	if !ok || len(raw) != 2 {
-		return 0, false
-	}
-	return binary.LittleEndian.Uint16(raw), true
-}
-
-// int16At returns the LE 2-byte signed value at id.
-func int16At(snap Snapshot, id breezy.ParamID) (int16, bool) {
-	v, ok := uint16At(snap, id)
-	if !ok {
-		return 0, false
-	}
-	return int16(v), true
-}
-
 // airflowModeName decodes 0xB7. Anything outside 0..3 falls through to a
 // debug-only string so we don't lose data on a future firmware addition.
 func airflowModeName(b uint8) string {
@@ -765,6 +753,10 @@ func (h *Handler) getFaults(w http.ResponseWriter, r *http.Request) {
 
 // getParam issues a fresh UDP read, bypassing the cache. The result is the
 // hex of the LE bytes the device returned, plus the registry name when known.
+//
+// The {id} segment is parsed as hex (see parseParamID): "0x44", "44", and
+// "0044" all mean param 0x0044. Operators almost always use the named
+// route via the registry; bare-numeric is for interactive debugging.
 func (h *Handler) getParam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.requireDevice(w, name); !ok {

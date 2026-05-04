@@ -19,7 +19,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/hughobrien/twinfresh/pkg/breezy"
@@ -409,29 +408,10 @@ func boolish(b byte) float64 {
 	return 1
 }
 
-// metricUint8 / metricUint16 / metricInt16 are local copies of the
-// helpers in server.go, kept package-private here because the
-// snapshot decode shape isn't part of any public API.
-func metricUint8(snap Snapshot, id breezy.ParamID) (uint8, bool) {
-	raw, ok := snap.Values[id]
-	if !ok || len(raw) != 1 {
-		return 0, false
-	}
-	return raw[0], true
-}
-
-func metricUint16(snap Snapshot, id breezy.ParamID) (uint16, bool) {
-	raw, ok := snap.Values[id]
-	if !ok || len(raw) != 2 {
-		return 0, false
-	}
-	return binary.LittleEndian.Uint16(raw), true
-}
-
-func metricInt16(snap Snapshot, id breezy.ParamID) (int16, bool) {
-	v, ok := metricUint16(snap, id)
-	if !ok {
-		return 0, false
-	}
-	return int16(v), true
-}
+// metricUint8 / metricUint16 / metricInt16 are thin aliases over the
+// shared decode helpers in decode.go, kept here so the metrics call
+// sites read consistently. The aliases let any future "treat the
+// metric pipeline differently" tweak land in one place.
+func metricUint8(snap Snapshot, id breezy.ParamID) (uint8, bool)  { return uint8At(snap, id) }
+func metricUint16(snap Snapshot, id breezy.ParamID) (uint16, bool) { return uint16At(snap, id) }
+func metricInt16(snap Snapshot, id breezy.ParamID) (int16, bool)  { return int16At(snap, id) }
