@@ -81,8 +81,11 @@ password = "testpwd"
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Daemon.Listen != "127.0.0.1:9876" {
-		t.Errorf("Listen default = %q, want 127.0.0.1:9876", cfg.Daemon.Listen)
+	// Listen is intentionally NOT defaulted by Load — the CLI uses the
+	// empty string to mean "no daemon configured → standalone mode". The
+	// daemon applies its own default after Load returns.
+	if cfg.Daemon.Listen != "" {
+		t.Errorf("Listen default = %q, want empty (no-daemon sentinel)", cfg.Daemon.Listen)
 	}
 	if cfg.Daemon.PollInterval != 30*time.Second {
 		t.Errorf("PollInterval default = %v, want 30s", cfg.Daemon.PollInterval)
@@ -299,9 +302,10 @@ func TestWriteDefault_FreshTempDir(t *testing.T) {
 	}
 	got := string(body)
 	for _, want := range []string{
-		`listen        = "127.0.0.1:9876"`,
-		`poll_interval = "30s"`,
-		`discovery     = "on-start"`,
+		// [daemon] block is commented out so new users land in standalone mode.
+		`# listen        = "127.0.0.1:9876"`,
+		`# poll_interval = "30s"`,
+		`# discovery     = "on-start"`,
 		`# [devices.playroom]`,
 		`breezy discover`,
 	} {

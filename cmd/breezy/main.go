@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// breezy is the operator CLI for the breezyd daemon. It speaks HTTP to
-// the daemon for everything except `discover`, which performs a real
-// LAN broadcast for first-time setup.
+// breezy is the operator CLI for Vents Twinfresh Breezy ERVs. By
+// default it talks UDP directly to each configured device (standalone
+// mode). When the user opts in via --daemon URL or [daemon].listen in
+// ~/.config/breezy/config.toml, it talks HTTP to the breezyd daemon
+// instead. `discover` always performs a LAN broadcast directly,
+// independent of mode.
 //
 // The CLI surface is "subject before verb" so per-device verbs read
 // naturally:
@@ -16,9 +19,11 @@
 //
 // Exit codes:
 //   - 0 success
-//   - 1 HTTP / daemon error (the daemon's {"error","code"} envelope is
-//     decoded and rendered as `error: <msg> (<code>)`)
-//   - 2 local usage error (bad args, validation failure before HTTP)
+//   - 1 backend error: in daemon mode this is an HTTP error (the
+//     daemon's {"error","code"} envelope is decoded and rendered as
+//     `error: <msg> (<code>)`); in standalone mode it's a UDP /
+//     protocol error rendered as `error: <msg>`.
+//   - 2 local usage error (bad args, validation failure before any I/O)
 //
 // This file holds only flag parsing, dispatch, and backend construction.
 // Per-verb cmd* functions live in commands.go; the human-friendly
@@ -163,7 +168,7 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	return 2
 }
 
-const usage = `breezy: control Vents Twinfresh Breezy ERVs via the breezyd daemon
+const usage = `breezy: control Vents Twinfresh Breezy ERVs
 
 Usage:
   breezy [--daemon URL] <name> <verb> [args]
@@ -188,7 +193,7 @@ Per-device verbs:
 
 Globals:
   ls                    one-line summary of every configured device
-  discover              LAN broadcast (bypasses daemon)
+  discover              LAN broadcast (used during initial setup)
   daemon-url            print the URL the CLI would use
   param                 list known parameters (id, type, unit, caps)
 `

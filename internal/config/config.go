@@ -114,9 +114,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Defaults.
-	if cfg.Daemon.Listen == "" {
-		cfg.Daemon.Listen = "127.0.0.1:9876"
-	}
+	// NOTE: Listen is intentionally NOT defaulted here. The CLI uses the
+	// empty-string sentinel to mean "no daemon configured → use standalone
+	// mode". The daemon applies its own default after Load returns.
 	if cfg.Daemon.Discovery == "" {
 		cfg.Daemon.Discovery = "on-start"
 	}
@@ -172,27 +172,36 @@ func Load(path string) (*Config, error) {
 }
 
 // defaultConfigTemplate is the content WriteDefault writes for a fresh
-// install. It carries the same [daemon] values that Load defaults to
-// when fields are absent — duplicating them here is intentional, since
-// the file is meant to be a starting point the user reads and edits.
+// install. The [daemon] block is commented out so new users land in
+// standalone mode (CLI talks UDP directly to each device) without
+// needing to run breezyd first. Uncomment the block to enable daemon
+// mode (polling, caching, /metrics, the web dashboard).
 //
-// The single example device block is commented out so the file passes
-// Load on the immediate next run without doing anything dangerous; the
-// user has to add at least one real device to get useful behaviour.
+// The single example device block is also commented out so the file
+// passes Load on the immediate next run without doing anything
+// dangerous; the user has to add at least one real device to get
+// useful behaviour.
 const defaultConfigTemplate = `# breezyd configuration. See:
 #   https://github.com/hughobrien/breezyd#configuration
 #
 # This file must remain mode 0600 — the daemon refuses to start otherwise.
 
-[daemon]
-listen        = "127.0.0.1:9876"
-poll_interval = "30s"
-discovery     = "on-start"   # "on-start" | "off" | "periodic:<duration>"
+# Uncomment the [daemon] block below to run the breezyd daemon and have
+# the CLI talk to it over HTTP (enables caching, polling, /metrics, and
+# the embedded dashboard). Without it, the CLI talks UDP directly to
+# each configured device — that's the default and is fine for ad-hoc
+# use. The daemon block must remain commented in this file when you're
+# in standalone mode; the CLI uses its presence to choose the path.
+#
+# [daemon]
+# listen        = "127.0.0.1:9876"
+# poll_interval = "30s"
+# discovery     = "on-start"   # "on-start" | "off" | "periodic:<duration>"
 
 # One [devices.<name>] block per Breezy unit. Run ` + "`breezy discover`" + ` to
 # find device IDs on your LAN, then uncomment one of the blocks below
-# and fill in your values. The ip line is optional — if omitted, on-start
-# discovery resolves it.
+# and fill in your values. The ip line is optional in daemon mode (on-
+# start discovery resolves it); in standalone mode the ip is required.
 #
 # [devices.playroom]
 # id       = "BREEZY00000000A0"
