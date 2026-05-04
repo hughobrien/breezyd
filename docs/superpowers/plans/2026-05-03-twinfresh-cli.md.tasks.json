@@ -95,14 +95,14 @@
     {
       "id": 13,
       "subject": "Task 13: CLI (cmd/breezy)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [11],
       "description": "**Goal:** Thin HTTP CLI; verbs are device-name-first.\n\n**Verify:** `go test -race -v ./cmd/breezy` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezy/main.go\", \"cmd/breezy/main_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezy\", \"acceptanceCriteria\": [\"<name> verb structure\", \"globals ls/discover/daemon-url\", \"--daemon flag\", \"non-zero on error\"]}\n```"
     },
     {
       "id": 14,
       "subject": "Task 14: Live integration tests",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "**Goal:** Build-tagged integration tests against real device.\n\n**Verify:** `BREEZY_INTEGRATION=1 ... go test -tags integration ./pkg/breezy`.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/integration_test.go\"], \"verifyCommand\": \"BREEZY_INTEGRATION=1 BREEZY_TEST_DEVICE_IP=192.168.1.148:4000 BREEZY_TEST_DEVICE_ID=BREEZY00000000A0 BREEZY_TEST_DEVICE_PASSWORD=1111 go test -v -tags integration ./pkg/breezy -run Integration\", \"acceptanceCriteria\": [\"build tag integration\", \"skips without env\", \"reads unit-type\", \"speed round-trip 1/2/3\"]}\n```"
     },
