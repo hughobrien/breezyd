@@ -88,10 +88,14 @@ func (h *Handler) getParam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// postParam writes raw LE bytes (hex-encoded) to a parameter. The registry
-// is consulted to refuse writes to read-only params with a 403/read_only.
-// Unknown params are *allowed* — the caller is signalling they know what
-// they're doing.
+// postParam writes raw LE bytes (hex-encoded) to a parameter. Read-only
+// enforcement is performed by breezy.WriteParams at the package layer
+// (single source of truth — see pkg/breezy/client.go::WriteParams). When
+// the caller targets a read-only ID, WriteParams returns ErrReadOnly and
+// classifyClientErr maps that onto the HTTP "read_only" code (-> 403).
+//
+// Unknown params (not in the registry) are *allowed* — the caller is
+// signalling they know what they're doing.
 func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.requireDevice(w, name); !ok {
@@ -100,11 +104,6 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 	id, err := parseParamID(r.PathValue("id"))
 	if err != nil {
 		writeErr(w, "bad_request", err.Error())
-		return
-	}
-
-	if p, ok := breezy.LookupByID(id); ok && !p.Caps.CanWrite() {
-		writeErr(w, "read_only", fmt.Sprintf("param %s (0x%04X) is read-only", p.Name, uint16(id)))
 		return
 	}
 

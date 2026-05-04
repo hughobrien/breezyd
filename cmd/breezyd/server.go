@@ -242,6 +242,9 @@ func classifyClientErr(err error) string {
 	if errors.Is(err, breezy.ErrAuth) {
 		return "auth_failed"
 	}
+	if errors.Is(err, breezy.ErrReadOnly) {
+		return "read_only"
+	}
 	if errors.Is(err, breezy.ErrChecksum) {
 		return "device_unreachable"
 	}
