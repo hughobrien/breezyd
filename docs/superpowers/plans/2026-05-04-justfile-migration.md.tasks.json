@@ -1,0 +1,19 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-04-justfile-migration.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Add justfile, delete Makefile, update flake.nix devShell",
+      "status": "completed",
+      "description": "**Goal:** Replace the build interface. After this task, `just --list` shows every recipe with its doc-comment, `just build` produces both binaries, `just test` runs the fast suite, and `nix develop` brings `just` along. The `Makefile` no longer exists.\n\n**Files:**\n- Create: `justfile`\n- Delete: `Makefile`\n- Modify: `flake.nix` (lines 68–76 — add `just` to `devShells.default.packages`)\n\n**Acceptance Criteria:**\n- justfile exists at repo root with the spec's recipe set\n- Makefile removed\n- `just --list` enumerates all recipes with `#` doc-comments\n- `just build` produces ./breezyd and ./breezy\n- `just test` exits 0\n- `just check` exits 0\n- `just clean` removes both binaries\n- flake.nix devShell packages includes `just`\n- no stale `make (build|test|lint|tidy|clean)` references outside the historical plan + new spec/plan docs\n\n**Verify:** `test ! -f Makefile && just --list && just clean && just build && [ -x ./breezyd ] && [ -x ./breezy ] && just test && just check && grep -n 'just' flake.nix`\n\n```json:metadata\n{\"files\": [\"justfile\", \"Makefile\", \"flake.nix\"], \"verifyCommand\": \"test ! -f Makefile && just --list && just clean && just build && [ -x ./breezyd ] && [ -x ./breezy ] && just test && just check && grep -n 'just' flake.nix\", \"acceptanceCriteria\": [\"justfile exists with full recipe set\", \"Makefile deleted\", \"just --list works\", \"just build produces both binaries\", \"just test exits 0\", \"just check exits 0\", \"flake.nix devShell includes just\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Update README and CLAUDE.md to reference just",
+      "status": "completed",
+      "blockedBy": [1],
+      "description": "**Goal:** Replace every `make` reference in operator-facing docs with the matching `just` invocation, and collapse the old `CGO_ENABLED=1 CC=clang` workaround paragraph since `just test-race` bakes the env into the recipe. Historical implementation plan in `docs/superpowers/plans/2026-05-03-twinfresh-cli.md` is left untouched.\n\n**Files:**\n- Modify: `README.md` (build/test block ~lines 75–85; Testing section ~lines 305–331)\n- Modify: `CLAUDE.md` (Build/test/lint section ~lines 5–18; integration-test block; Nix line)\n\n**Acceptance Criteria:**\n- README \"Build from source\" lists `just build`, `just check`, `just test-race`\n- README Testing section uses `just test-race` and a single-line `just test-integration <ip> <id> <password>`\n- README no longer has the trailing `CGO_ENABLED=1 CC=clang` workaround block\n- CLAUDE.md Build/test/lint section uses `just` recipes; clang note collapsed\n- Single-test examples in CLAUDE.md remain raw `go`\n- No `make (build|test|lint|tidy|clean)` strings remain in README or CLAUDE.md\n\n**Verify:** `! grep -nE 'make (build|test|lint|tidy|clean)' README.md CLAUDE.md && grep -n 'just build\\|just test-race\\|just check\\|just test-integration' README.md && grep -n 'just build\\|just test-race\\|just check' CLAUDE.md`\n\n```json:metadata\n{\"files\": [\"README.md\", \"CLAUDE.md\"], \"verifyCommand\": \"! grep -nE 'make (build|test|lint|tidy|clean)' README.md CLAUDE.md && grep -n 'just build\\\\|just test-race\\\\|just check\\\\|just test-integration' README.md && grep -n 'just build\\\\|just test-race\\\\|just check' CLAUDE.md\", \"acceptanceCriteria\": [\"README references just throughout\", \"README Testing section uses just test-integration one-liner\", \"CLAUDE.md uses just recipes\", \"no stale make refs in either file\", \"single-test examples remain raw go\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-04T03:35:00-07:00"
+}
