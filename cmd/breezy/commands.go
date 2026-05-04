@@ -445,6 +445,14 @@ func cmdLs(daemonURL string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// cmdParam prints the static parameter registry as a wide table. Pure
+// metadata read; no daemon round-trip. Exit code is always 0 (the
+// registry is built into the binary).
+func cmdParam(stdout io.Writer) int {
+	renderParams(stdout, breezy.AllParams())
+	return 0
+}
+
 // cmdDiscover does a real LAN broadcast (no daemon involved). This is
 // the bootstrap path: the user runs it once, copies the device IDs
 // into config.toml, and from then on lets the daemon manage things.

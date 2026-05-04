@@ -11,8 +11,8 @@
 //	breezy playroom speed manual:30
 //	breezy playroom mode regeneration
 //
-// Globals (`ls`, `discover`, `daemon-url`) are detected by checking the
-// first arg against a small reserved-name set.
+// Globals (`ls`, `discover`, `daemon-url`, `param`) are detected by checking
+// the first arg against a small reserved-name set.
 //
 // Exit codes:
 //   - 0 success
@@ -102,6 +102,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "daemon-url":
 		fmt.Fprintln(stdout, daemonURL)
 		return 0
+	case "param":
+		return cmdParam(stdout)
 	case "version":
 		fmt.Fprintf(stdout, "breezy %s (commit %s, built %s)\n", version, commit, date)
 		return 0
@@ -180,6 +182,7 @@ Globals:
   ls                    one-line summary of every configured device
   discover              LAN broadcast (bypasses daemon)
   daemon-url            print the URL the CLI would use
+  param                 list known parameters (id, type, unit, caps)
 `
 
 // resolveDaemonURL chooses the daemon URL according to the precedence:
