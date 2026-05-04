@@ -41,18 +41,18 @@ const (
 	idSize      byte = 0x10 // 16 ASCII bytes
 
 	// FUNC codes. Public for callers that build raw data blocks.
-	FuncRead             byte = 0x01
-	FuncWriteNoResponse  byte = 0x02
-	FuncWriteWithReply   byte = 0x03
-	FuncIncrement        byte = 0x04
-	FuncDecrement        byte = 0x05
-	FuncResponse         byte = 0x06
-	FuncAuthFailure      byte = 0x07 // firmware-emitted on bad password (undocumented)
+	FuncRead            byte = 0x01
+	FuncWriteNoResponse byte = 0x02
+	FuncWriteWithReply  byte = 0x03
+	FuncIncrement       byte = 0x04
+	FuncDecrement       byte = 0x05
+	FuncResponse        byte = 0x06
+	FuncAuthFailure     byte = 0x07 // firmware-emitted on bad password (undocumented)
 
 	// DATA-block special command bytes.
-	cmdChangeFunc    byte = 0xFC
-	cmdNotSupported  byte = 0xFD
-	cmdSizePrefix    byte = 0xFE
+	cmdChangeFunc     byte = 0xFC
+	cmdNotSupported   byte = 0xFD
+	cmdSizePrefix     byte = 0xFE
 	cmdChangeHighByte byte = 0xFF
 )
 

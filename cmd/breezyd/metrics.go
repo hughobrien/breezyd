@@ -32,28 +32,28 @@ import (
 // time series distinct.
 type Metrics struct {
 	// Configured/state gauges.
-	power                  *prometheus.GaugeVec
-	airflowMode            *prometheus.GaugeVec
-	speedMode              *prometheus.GaugeVec
-	speedManualPct         *prometheus.GaugeVec
-	heaterEnabled          *prometheus.GaugeVec
-	humidityThreshold      *prometheus.GaugeVec
-	co2Threshold           *prometheus.GaugeVec
-	vocThreshold           *prometheus.GaugeVec
-	humiditySensorEnabled  *prometheus.GaugeVec
-	co2SensorEnabled       *prometheus.GaugeVec
-	vocSensorEnabled       *prometheus.GaugeVec
-	filterTimeoutDays      *prometheus.GaugeVec
+	power                 *prometheus.GaugeVec
+	airflowMode           *prometheus.GaugeVec
+	speedMode             *prometheus.GaugeVec
+	speedManualPct        *prometheus.GaugeVec
+	heaterEnabled         *prometheus.GaugeVec
+	humidityThreshold     *prometheus.GaugeVec
+	co2Threshold          *prometheus.GaugeVec
+	vocThreshold          *prometheus.GaugeVec
+	humiditySensorEnabled *prometheus.GaugeVec
+	co2SensorEnabled      *prometheus.GaugeVec
+	vocSensorEnabled      *prometheus.GaugeVec
+	filterTimeoutDays     *prometheus.GaugeVec
 
 	// Live state.
-	fanRPM                     *prometheus.GaugeVec // labels: device,id,fan
-	heaterRunning              *prometheus.GaugeVec
-	inUserControl              *prometheus.GaugeVec
-	specialMode                *prometheus.GaugeVec
-	specialModeRemaining       *prometheus.GaugeVec
-	sensorAlert                *prometheus.GaugeVec // labels: device,id,sensor
-	recoveryEfficiency         *prometheus.GaugeVec
-	frostProtectionActive      *prometheus.GaugeVec
+	fanRPM                *prometheus.GaugeVec // labels: device,id,fan
+	heaterRunning         *prometheus.GaugeVec
+	inUserControl         *prometheus.GaugeVec
+	specialMode           *prometheus.GaugeVec
+	specialModeRemaining  *prometheus.GaugeVec
+	sensorAlert           *prometheus.GaugeVec // labels: device,id,sensor
+	recoveryEfficiency    *prometheus.GaugeVec
+	frostProtectionActive *prometheus.GaugeVec
 
 	// Sensors.
 	humidityPct *prometheus.GaugeVec
@@ -414,6 +414,6 @@ func boolish(b byte) float64 {
 // shared decode helpers in decode.go, kept here so the metrics call
 // sites read consistently. The aliases let any future "treat the
 // metric pipeline differently" tweak land in one place.
-func metricUint8(snap Snapshot, id breezy.ParamID) (uint8, bool)  { return uint8At(snap, id) }
+func metricUint8(snap Snapshot, id breezy.ParamID) (uint8, bool)   { return uint8At(snap, id) }
 func metricUint16(snap Snapshot, id breezy.ParamID) (uint16, bool) { return uint16At(snap, id) }
-func metricInt16(snap Snapshot, id breezy.ParamID) (int16, bool)  { return int16At(snap, id) }
+func metricInt16(snap Snapshot, id breezy.ParamID) (int16, bool)   { return int16At(snap, id) }

@@ -238,7 +238,7 @@ func TestState_WriteThrough_PreservesPollMetadata(t *testing.T) {
 	s.Set("a", Snapshot{
 		IP: "1.1.1.1",
 		Values: map[breezy.ParamID][]byte{
-			0x0001: {0x00},        // power off
+			0x0001: {0x00},       // power off
 			0x004A: {0x10, 0x27}, // fan_supply_rpm 10000
 		},
 		LastPoll: now,
