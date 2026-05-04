@@ -32,6 +32,12 @@ test-ui-install:
 test-ui:
 	cd tests/ui && pnpm exec playwright test
 
+# render the dashboard against mocked /v1/... data and screenshot it
+# in 3-col (1400x900) and 1-col (480x900) viewports.
+# requires test-ui-install to have run first (tsx + Playwright deps).
+screenshot:
+	cd tests/ui && pnpm exec tsx screenshot.ts
+
 lint:
 	go vet ./...
 
