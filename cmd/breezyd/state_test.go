@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"sync"
@@ -208,6 +209,155 @@ func TestState_Delete(t *testing.T) {
 
 	// Deleting a missing key must not panic.
 	s.Delete("nonexistent")
+}
+
+func TestState_WriteThrough_FreshSnapshot(t *testing.T) {
+	s := NewState()
+	s.WriteThrough("a", []breezy.ParamWrite{
+		{ID: 0x0001, Value: []byte{0x01}},
+		{ID: 0x0044, Value: []byte{0x32}},
+	})
+	got, ok := s.Get("a")
+	if !ok {
+		t.Fatalf("Get returned ok=false; WriteThrough should have created snapshot")
+	}
+	if !reflect.DeepEqual(got.Values[0x0001], []byte{0x01}) {
+		t.Errorf("0x0001: got %x, want 01", got.Values[0x0001])
+	}
+	if !reflect.DeepEqual(got.Values[0x0044], []byte{0x32}) {
+		t.Errorf("0x0044: got %x, want 32", got.Values[0x0044])
+	}
+}
+
+func TestState_WriteThrough_PreservesPollMetadata(t *testing.T) {
+	s := NewState()
+	now := time.Now().UTC().Truncate(time.Second)
+	wantErr := errors.New("transport")
+	s.Set("a", Snapshot{
+		IP: "1.1.1.1",
+		Values: map[breezy.ParamID][]byte{
+			0x0001: {0x00},        // power off
+			0x004A: {0x10, 0x27}, // fan_supply_rpm 10000
+		},
+		LastPoll: now,
+		LastErr:  wantErr,
+	})
+	s.WriteThrough("a", []breezy.ParamWrite{
+		{ID: 0x0001, Value: []byte{0x01}}, // user turns power on
+	})
+	got, ok := s.Get("a")
+	if !ok {
+		t.Fatalf("Get returned ok=false")
+	}
+	if got.IP != "1.1.1.1" {
+		t.Errorf("IP changed: %q", got.IP)
+	}
+	if !got.LastPoll.Equal(now) {
+		t.Errorf("LastPoll changed: %v", got.LastPoll)
+	}
+	if got.LastErr == nil || got.LastErr.Error() != "transport" {
+		t.Errorf("LastErr changed: %v", got.LastErr)
+	}
+	if !reflect.DeepEqual(got.Values[0x0001], []byte{0x01}) {
+		t.Errorf("0x0001 not updated: %x", got.Values[0x0001])
+	}
+	// Existing values for params we didn't write must be preserved.
+	if !reflect.DeepEqual(got.Values[0x004A], []byte{0x10, 0x27}) {
+		t.Errorf("0x004A not preserved: %x", got.Values[0x004A])
+	}
+}
+
+func TestState_WriteThrough_DeepCopiesValues(t *testing.T) {
+	s := NewState()
+	val := []byte{0x42}
+	s.WriteThrough("a", []breezy.ParamWrite{{ID: 0x0001, Value: val}})
+	val[0] = 0x99
+	got, _ := s.Get("a")
+	if got.Values[0x0001][0] != 0x42 {
+		t.Errorf("WriteThrough did not deep-copy: stored %x", got.Values[0x0001])
+	}
+}
+
+func TestState_WriteThrough_Empty(t *testing.T) {
+	s := NewState()
+	s.WriteThrough("a", nil)
+	if _, ok := s.Get("a"); ok {
+		t.Errorf("empty WriteThrough created a snapshot for missing device")
+	}
+	s.Set("b", Snapshot{IP: "1.1.1.1"})
+	s.WriteThrough("b", []breezy.ParamWrite{})
+	got, _ := s.Get("b")
+	if got.IP != "1.1.1.1" {
+		t.Errorf("empty WriteThrough disturbed existing snapshot: %+v", got)
+	}
+}
+
+func TestParsePeriodicDiscovery(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   time.Duration
+		wantOk bool
+	}{
+		{"periodic:5m", 5 * time.Minute, true},
+		{"periodic:30s", 30 * time.Second, true},
+		{"periodic:bogus", 0, false},
+		{"on-start", 0, false},
+		{"off", 0, false},
+		{"", 0, false},
+	}
+	for _, tc := range cases {
+		got, ok := parsePeriodicDiscovery(tc.in)
+		if ok != tc.wantOk {
+			t.Errorf("parsePeriodicDiscovery(%q) ok = %v, want %v", tc.in, ok, tc.wantOk)
+			continue
+		}
+		if ok && got != tc.want {
+			t.Errorf("parsePeriodicDiscovery(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestRunDiscoveryWith_UpdatesIPViaRegistry(t *testing.T) {
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		"playroom": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
+	})
+	stub := func(ctx context.Context) ([]breezy.Found, error) {
+		return []breezy.Found{
+			{DeviceID: "TESTID0000000001", IP: "10.0.0.5", UnitType: 17},
+		}, nil
+	}
+	if err := runDiscoveryWith(context.Background(), devices, stub); err != nil {
+		t.Fatalf("runDiscoveryWith: %v", err)
+	}
+	d, _ := devices.Get("playroom")
+	if d.IP != "10.0.0.5:4000" {
+		t.Errorf("after discovery IP = %q, want 10.0.0.5:4000", d.IP)
+	}
+}
+
+func TestDeviceRegistry_ConcurrentReadAndUpdate(t *testing.T) {
+	r := NewDeviceRegistry(map[string]DeviceConfig{
+		"a": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
+	})
+	var wg sync.WaitGroup
+	const N = 200
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			r.UpdateIP("a", "2.2.2.2:4000")
+			r.UpdateIP("a", "3.3.3.3:4000")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			_, _ = r.Get("a")
+			_ = r.Snapshot()
+			_ = r.Names()
+		}
+	}()
+	wg.Wait()
 }
 
 func TestState_Concurrent(t *testing.T) {

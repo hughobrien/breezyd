@@ -558,8 +558,31 @@ func encodeValue(t ValueType, v Value) ([]byte, error) {
 		}
 		return []byte{d.Minute, d.Hour}, nil
 
-	case TypeTimeOfDay, TypeDate, TypeRemainingTime, TypeFirmwareMeta,
-		TypeAlertBitmap, TypeWriteOnly, TypeRaw:
+	case TypeTimeOfDay:
+		// 3-byte LE wall clock: [sec, min, hr]. Mirrors the decode order.
+		tv, ok := v.(TimeOfDayValue)
+		if !ok {
+			return nil, fmt.Errorf("%w: want TimeOfDayValue, got %T", ErrTypeMismatch, v)
+		}
+		return []byte{tv.Second, tv.Minute, tv.Hour}, nil
+
+	case TypeDate:
+		// 4-byte: [day, day_of_week, month, year-2000].
+		dv, ok := v.(DateValue)
+		if !ok {
+			return nil, fmt.Errorf("%w: want DateValue, got %T", ErrTypeMismatch, v)
+		}
+		return []byte{dv.Day, dv.DayOfWeek, dv.Month, dv.Year}, nil
+
+	case TypeRemainingTime:
+		// 4-byte: [min, hr, day_lo, day_hi].
+		rv, ok := v.(RemainingTimeValue)
+		if !ok {
+			return nil, fmt.Errorf("%w: want RemainingTimeValue, got %T", ErrTypeMismatch, v)
+		}
+		return []byte{rv.Minutes, rv.Hours, byte(rv.Days & 0xFF), byte(rv.Days >> 8)}, nil
+
+	case TypeFirmwareMeta, TypeAlertBitmap, TypeWriteOnly, TypeRaw:
 		// These types are either read-only on the wire, structurally
 		// awkward to round-trip, or require the caller to construct raw
 		// bytes deliberately. Refuse here so a confused caller can't
