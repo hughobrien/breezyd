@@ -146,6 +146,13 @@ func TestOps_SetHeater(t *testing.T) {
 	if c.writes[0][0].ID != 0x0068 || c.writes[0][0].Value[0] != 1 {
 		t.Errorf("SetHeater(true): unexpected write %+v", c.writes[0][0])
 	}
+	c2 := &recordingClient{}
+	if err := SetHeater(context.Background(), c2, false); err != nil {
+		t.Fatalf("SetHeater(false): %v", err)
+	}
+	if c2.writes[0][0].ID != 0x0068 || c2.writes[0][0].Value[0] != 0 {
+		t.Errorf("SetHeater(false): unexpected write %+v", c2.writes[0][0])
+	}
 }
 
 func TestOps_ResetFilter(t *testing.T) {
@@ -201,5 +208,19 @@ func TestOps_SetRTC_SundayDoW(t *testing.T) {
 	dow := c.writes[0][1].Value[1]
 	if dow != 7 {
 		t.Errorf("Sunday: want dow=7 (ISO), got %d", dow)
+	}
+}
+
+func TestOps_SetRTC_YearOutOfRange(t *testing.T) {
+	for _, year := range []int{1999, 2256, 1900} {
+		c := &recordingClient{}
+		t0 := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+		err := SetRTC(context.Background(), c, t0)
+		if !errors.Is(err, ErrInvalidArg) {
+			t.Errorf("year %d: expected ErrInvalidArg, got %v", year, err)
+		}
+		if len(c.writes) != 0 {
+			t.Errorf("year %d: should not have issued any writes", year)
+		}
 	}
 }

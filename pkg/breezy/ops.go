@@ -22,7 +22,7 @@ type DeviceClient interface {
 // ErrInvalidArg is the sentinel for ops that reject caller-supplied
 // arguments before any UDP traffic. Callers can errors.Is against this
 // to map to a "bad_request" HTTP status, CLI exit code 2, etc.
-var ErrInvalidArg = errors.New("invalid argument")
+var ErrInvalidArg = errors.New("breezy: invalid argument")
 
 // Power turns the device on or off (parameter 0x0001).
 func Power(ctx context.Context, c DeviceClient, on bool) error {
@@ -102,6 +102,10 @@ func ResetFaults(ctx context.Context, c DeviceClient) error {
 // [day, dow, month, year-2000]) in one packet. Day-of-week follows
 // ISO-8601 (Monday=1, Sunday=7).
 func SetRTC(ctx context.Context, c DeviceClient, t time.Time) error {
+	year := t.Year() - 2000
+	if year < 0 || year > 255 {
+		return fmt.Errorf("%w: year %d is outside the RTC range 2000-2255", ErrInvalidArg, t.Year())
+	}
 	tv := TimeOfDayValue{Hour: uint8(t.Hour()), Minute: uint8(t.Minute()), Second: uint8(t.Second())}
 	timeBytes, err := encodeValue(TypeTimeOfDay, tv)
 	if err != nil {
@@ -111,7 +115,7 @@ func SetRTC(ctx context.Context, c DeviceClient, t time.Time) error {
 	if dow == 0 {
 		dow = 7 // Sunday: time.Weekday returns 0; ISO calls it 7.
 	}
-	dv := DateValue{Day: uint8(t.Day()), DayOfWeek: dow, Month: uint8(t.Month()), Year: uint8(t.Year() - 2000)}
+	dv := DateValue{Day: uint8(t.Day()), DayOfWeek: dow, Month: uint8(t.Month()), Year: uint8(year)}
 	dateBytes, err := encodeValue(TypeDate, dv)
 	if err != nil {
 		return fmt.Errorf("ops.SetRTC: encode date: %w", err)
