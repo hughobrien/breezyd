@@ -18,9 +18,9 @@ test-race:
 # live integration tests; WRITES to device (each test t.Cleanup-restores)
 test-integration ip id password:
 	BREEZY_INTEGRATION=1 \
-	BREEZY_TEST_DEVICE_IP={{ip}} \
-	BREEZY_TEST_DEVICE_ID={{id}} \
-	BREEZY_TEST_DEVICE_PASSWORD={{password}} \
+	BREEZY_TEST_DEVICE_IP='{{ip}}' \
+	BREEZY_TEST_DEVICE_ID='{{id}}' \
+	BREEZY_TEST_DEVICE_PASSWORD='{{password}}' \
 	go test -tags integration ./pkg/breezy/...
 
 lint:
