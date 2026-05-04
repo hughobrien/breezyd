@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // HTTP API for the breezy daemon. Routes the endpoints listed in the
 // design spec onto the State cache (for reads) and a per-call breezy
 // client (for writes and the raw passthrough). All routes return JSON.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //go:build integration
 
 // Live integration tests against a real Breezy device. These are gated by

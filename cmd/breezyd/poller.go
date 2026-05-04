@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The per-device polling goroutine that keeps the State cache fresh. One
 // Poller maps to one configured device; it batches the configured ReadIDs
 // into protocol packets, writes a Snapshot per tick (success or failure),

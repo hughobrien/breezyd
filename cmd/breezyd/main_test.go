@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Smoke test for the daemon's main(): boot run() against an
 // in-process fakedevice, hit /v1/devices, /metrics, and a write
 // endpoint, then trigger graceful shutdown.

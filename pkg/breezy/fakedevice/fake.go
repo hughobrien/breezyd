@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Package fakedevice provides an in-process UDP server that speaks the
 // Vents Breezy FDFD/02 protocol from a captured parameter snapshot. It's
 // used by daemon and client tests to exercise the full HTTP -> state ->

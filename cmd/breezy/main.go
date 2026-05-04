@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // breezy is the operator CLI for the breezyd daemon. It speaks HTTP to
 // the daemon for everything except `discover`, which performs a real
 // LAN broadcast for first-time setup.

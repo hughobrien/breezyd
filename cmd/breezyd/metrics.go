@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Prometheus metrics collector for the breezy daemon. Each gauge is
 // labelled with the device name and 16-byte device ID so a single
 // dashboard can plot multiple ERVs at once. The collectors are owned

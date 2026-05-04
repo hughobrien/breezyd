@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // This file defines the Breezy parameter registry: the static map from
 // every documented parameter ID to its name, value type, unit, and
 // capability flags, plus typed Decode/Encode helpers.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Tests for the Prometheus metrics surface. We don't try to replicate
 // the prometheus library's serialisation behavior here — we just want
 // to confirm:

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Tests for the daemon HTTP API. We exercise the handler via httptest.NewRecorder
 // (no real network; the in-process fakedevice still uses UDP, but tests dial
 // it directly through the breezy.Client constructed by the production
