@@ -156,6 +156,19 @@ systemd with hardening (`NoNewPrivileges`, `ProtectSystem=strict`,
 `network-online.target`. Set `services.breezyd.openFirewall = true` if
 you bind the listener to a non-loopback address.
 
+To automatically register a Prometheus scrape job for `/metrics` when
+the host also runs `services.prometheus`:
+
+```nix
+services.breezyd.prometheus.enable = true;
+# Optional tunables, defaults shown:
+# services.breezyd.prometheus.jobName = "breezyd";
+# services.breezyd.prometheus.scrapeInterval = "30s";
+```
+
+This injects an entry into `services.prometheus.scrapeConfigs` only when
+both `services.breezyd.enable` and `services.prometheus.enable` are true.
+
 ## Configuration
 
 The daemon and CLI both read `~/.config/breezy/config.toml`. The file must be

@@ -92,6 +92,29 @@ in {
         the daemon to a non-loopback address.
       '';
     };
+
+    prometheus = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          When true and `services.prometheus.enable` is also true, register
+          a scrape job for breezyd's `/metrics` endpoint automatically.
+        '';
+      };
+
+      jobName = lib.mkOption {
+        type = lib.types.str;
+        default = "breezyd";
+        description = "Prometheus job_name for the auto-registered scrape.";
+      };
+
+      scrapeInterval = lib.mkOption {
+        type = lib.types.str;
+        default = "30s";
+        description = "Scrape interval. Match or exceed the daemon's poll_interval.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -160,5 +183,15 @@ in {
     networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [
       (lib.toInt (lib.last (lib.splitString ":" (cfg.settings.daemon.listen or "127.0.0.1:9876"))))
     ];
+
+    # Auto-wire a Prometheus scrape job when both services are enabled.
+    services.prometheus.scrapeConfigs = lib.mkIf
+      (cfg.prometheus.enable && config.services.prometheus.enable) [{
+        job_name = cfg.prometheus.jobName;
+        scrape_interval = cfg.prometheus.scrapeInterval;
+        static_configs = [{
+          targets = [ (cfg.settings.daemon.listen or "127.0.0.1:9876") ];
+        }];
+      }];
   };
 }
