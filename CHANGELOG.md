@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run.
 - `just lint` (and CI) now fails on `gofmt` drift in addition to running
   `go vet`.
+- `just check-all` recipe — full pre-push gate: lint + tests + race + Playwright.
+- `just nix-check` recipe — fast parse-check for `nix/module.nix`.
+- `cmd/breezyd` HTTP server now sets explicit `Read`, `Write`, and `Idle`
+  timeouts in addition to the existing `ReadHeaderTimeout`, so a slow or
+  wedged client can't hold a goroutine indefinitely.
+- Web dashboard's `.toast` and `.err-banner` carry `role="alert"` so
+  assistive tech announces failures and daemon-unreachable events.
 
 ### Fixed
 

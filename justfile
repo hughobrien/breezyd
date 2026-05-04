@@ -32,13 +32,11 @@ test-ui-install:
 test-ui:
 	cd tests/ui && pnpm exec playwright test
 
-# render the dashboard against mocked /v1/... data and screenshot it
-# in 3-col (1400x900) and 1-col (480x900) viewports.
-# requires test-ui-install to have run first (tsx + Playwright deps).
+# screenshot dashboard in 3-col + 1-col viewports (needs test-ui-install)
 screenshot:
 	cd tests/ui && pnpm exec tsx screenshot.ts
 
-# go vet + a gofmt-drift check; fails if any file would be rewritten by `just fmt`
+# go vet + gofmt-drift check (fails if `just fmt` would rewrite anything)
 lint:
 	go vet ./...
 	@bad=$(gofmt -l .); if [ -n "$bad" ]; then echo "gofmt drift in:" >&2; echo "$bad" >&2; echo "(run \`just fmt\` to fix)" >&2; exit 1; fi
@@ -48,6 +46,13 @@ fmt:
 
 # quick pre-commit gate: vet + fast tests
 check: lint test
+
+# full pre-push gate: vet + gofmt + tests + race + Playwright (needs test-ui-install)
+check-all: lint test test-race test-ui
+
+# parse-check nix/module.nix (fast; `nix build` is the heavy variant)
+nix-check:
+	nix-instantiate --parse nix/module.nix > /dev/null && echo "nix/module.nix parses OK"
 
 tidy:
 	go mod tidy
