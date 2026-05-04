@@ -47,13 +47,17 @@ Three artefacts from one Go module (`github.com/hughobrien/breezyd`):
 
 1. **`pkg/breezy`** — importable protocol library. Speaks the Vents Twinfresh FDFD/02 framed protocol over UDP/4000.
 2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`. Also serves an embedded single-page dashboard from `cmd/breezyd/ui/index.html` (HTML + inlined CSS/JS) at `GET /{$}` — the `{$}` anchor is load-bearing: a plain `GET /` pattern would catch every unmatched URL and silently turn API typos into HTML responses. The handler lives in `cmd/breezyd/ui.go` and is one `go:embed` plus 12 lines of `http.HandlerFunc`.
-3. **`cmd/breezy`** — thin CLI. Talks HTTP to the daemon for everything except `breezy discover`, which broadcasts on the LAN directly. `Discover()` enumerates every up, non-loopback IPv4 interface and sends to its directed-broadcast address in addition to a static fallback list — relevant when a host isn't on `192.168.0/1.0/24`.
+3. **`cmd/breezy`** — CLI. Defaults to standalone mode (UDP directly to each configured device via `pkg/breezy/ops`). Opts into daemon mode when `--daemon URL` is passed or `[daemon].listen` is set in config. `breezy discover` always broadcasts on the LAN directly, independent of mode. `Discover()` enumerates every up, non-loopback IPv4 interface and sends to its directed-broadcast address in addition to a static fallback list — relevant when a host isn't on `192.168.0/1.0/24`.
 
 `internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration Go test runs against it. `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that tests the embedded dashboard's HTTP-call contract via `page.route()` mocking — no real daemon involved. `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
 
+### Standalone mode (default)
+
+The CLI also runs without the daemon — opening UDP per-invocation via `pkg/breezy/ops` against each configured device. This is the default; daemon mode is opt-in via `--daemon URL` or `[daemon].listen` in config. Within a single CLI invocation, `pkg/breezy.Client` serialises UDP behind a mutex. Across multiple CLI invocations against the same device, no coordination exists — the same hazard `discover` has applies. If users script parallel invocations against the same device, they should run the daemon.
+
 ### Why a daemon owns UDP
 
-Concurrent UDP request/response with checksums isn't safe to fan out from independent CLI invocations: overlapping retries and packet collisions cause silent corruption. `breezyd` serialises traffic per device behind a `sync.Mutex` in `pkg/breezy.Client` and a single per-device poller goroutine. The CLI never opens a UDP socket (except `discover`).
+Concurrent UDP request/response with checksums isn't safe to fan out from independent CLI invocations: overlapping retries and packet collisions cause silent corruption. `breezyd` serialises traffic per device behind a `sync.Mutex` in `pkg/breezy.Client` and a single per-device poller goroutine. The CLI in standalone mode opens its own UDP socket for the duration of the command, which is safe for a single sequential invocation but unsafe if multiple processes run concurrently against the same device.
 
 ### Cache vs. passthrough
 
@@ -86,7 +90,7 @@ Subject-before-verb: `breezy <device-name> <verb> [args]`. Per-device verbs (`st
 
 Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config`.
 
-CLI exit codes: `0` success, `1` daemon/HTTP error (with the daemon's `{"error","code"}` envelope rendered as `error: <msg> (<code>)`), `2` local usage error.
+CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error.
 
 ## Config
 

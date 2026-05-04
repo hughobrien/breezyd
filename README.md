@@ -341,8 +341,28 @@ so per-device commands read naturally:
 | `breezy playroom get humidity`       | raw param read by name or hex                |
 | `breezy playroom set 0x25 1e`        | raw param write (hex)                        |
 
-The CLI exit codes are: `0` success, `1` daemon/HTTP error (with the daemon's
-error envelope rendered as `error: <msg> (<code>)`), `2` local usage error.
+The CLI exit codes are: `0` success, `1` backend error (HTTP envelope in daemon
+mode, plain error message in standalone mode), `2` local usage error.
+
+### Standalone mode
+
+The CLI works without `breezyd`. By default — when no daemon is
+configured — `breezy <name> <verb>` opens a UDP connection to the
+device, issues the requested operation, and exits. This is fine for
+ad-hoc commands and matches the no-install / first-run experience.
+
+Run the daemon (`breezyd`) when you want polling, caching,
+`/metrics`, the embedded web dashboard, or to coordinate writes
+across multiple CLI processes. Uncomment the `[daemon]` block in
+`~/.config/breezy/config.toml` and start `breezyd`; the CLI then
+prefers daemon mode automatically.
+
+**Concurrency caveat:** the daemon serialises per-device UDP behind
+a mutex. Standalone CLI processes do not coordinate with each other
+— two `breezy` invocations against the same device at the same
+instant can produce silent checksum corruption. If you script
+invocations in parallel against the same device, run the daemon and
+use the CLI in daemon mode.
 
 ## Prometheus
 
