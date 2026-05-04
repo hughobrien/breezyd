@@ -279,3 +279,75 @@ func TestLoad_BadTOMLSyntax(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestWriteDefault_FreshTempDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "breezyd.toml")
+	if err := WriteDefault(path); err != nil {
+		t.Fatalf("WriteDefault: %v", err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if mode := st.Mode().Perm(); mode != 0o600 {
+		t.Errorf("mode = %#o, want 0600", mode)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	got := string(body)
+	for _, want := range []string{
+		`listen        = "127.0.0.1:9876"`,
+		`poll_interval = "30s"`,
+		`discovery     = "on-start"`,
+		`# [devices.playroom]`,
+		`breezy discover`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("default config missing %q", want)
+		}
+	}
+}
+
+func TestWriteDefault_CreatesParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "deeper", "breezyd.toml")
+	if err := WriteDefault(path); err != nil {
+		t.Fatalf("WriteDefault: %v", err)
+	}
+	parentSt, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat parent: %v", err)
+	}
+	if !parentSt.IsDir() {
+		t.Fatal("parent is not a directory")
+	}
+	if mode := parentSt.Mode().Perm(); mode != 0o700 {
+		t.Errorf("parent mode = %#o, want 0700", mode)
+	}
+}
+
+func TestWriteDefault_RefusesToOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "breezyd.toml")
+	const sentinel = "user-supplied content; do not clobber"
+	if err := os.WriteFile(path, []byte(sentinel), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	err := WriteDefault(path)
+	if err == nil {
+		t.Fatal("WriteDefault returned nil; expected ErrConfigExists")
+	}
+	if !errors.Is(err, ErrConfigExists) {
+		t.Errorf("err = %v, want errors.Is(_, ErrConfigExists)", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after refusal: %v", err)
+	}
+	if string(got) != sentinel {
+		t.Errorf("WriteDefault clobbered existing file; got %q", string(got))
+	}
+}

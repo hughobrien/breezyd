@@ -95,6 +95,14 @@ func run(parent context.Context) error {
 
 	cfg, err := config.Load(*flagConfig)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if werr := config.WriteDefault(*flagConfig); werr != nil {
+				return fmt.Errorf("config: bootstrap: %w", werr)
+			}
+			return fmt.Errorf("breezyd: no config file existed at %s — wrote a default; "+
+				"edit it to add at least one [devices.<name>] block, then run breezyd again",
+				*flagConfig)
+		}
 		return fmt.Errorf("config: %w", err)
 	}
 
