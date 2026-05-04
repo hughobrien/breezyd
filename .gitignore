@@ -1,0 +1,14 @@
+# Binaries
+/breezy
+/breezyd
+*.test
+*.out
+
+# Go
+coverage.out
+.go-build/
+
+# Editor
+.vscode/
+.idea/
+*.swp
