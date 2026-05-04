@@ -13,14 +13,24 @@ import (
 // do not record. This lets handlers call pkg/breezy/ops without each
 // one remembering to invoke h.recordWrite — the wrapper does it.
 //
-// recordingClient does not implement Close: the underlying client's
-// Close (e.g. *breezy.Client.Close) is still available via the original
-// reference. Handlers that need to close the client should hold onto
-// the inner *breezy.Client and `defer raw.Close()` before wrapping.
+// Close is intentionally absent: recordingClient satisfies
+// breezy.DeviceClient (ReadParams + WriteParams only), not
+// cmd/breezyd.HandlerClient (which adds Close). Callers must hold the
+// underlying HandlerClient — typically the value returned by h.dial —
+// and defer its Close directly:
+//
+//	rc, raw, err := h.dialRecording(name)
+//	if err != nil { ... }
+//	defer raw.Close()
 type recordingClient struct {
 	inner  breezy.DeviceClient
 	record func([]breezy.ParamWrite)
 }
+
+// Compile-time check that recordingClient satisfies breezy.DeviceClient.
+// Without this, a future change to the interface would silently break
+// call sites instead of failing here.
+var _ breezy.DeviceClient = (*recordingClient)(nil)
 
 // newRecordingClient wraps inner with a write-callback.
 func newRecordingClient(inner breezy.DeviceClient, record func([]breezy.ParamWrite)) *recordingClient {
