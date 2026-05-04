@@ -12,7 +12,7 @@ import (
 
 // DeviceClient is the minimal subset of *breezy.Client that pkg/breezy/ops
 // requires. The concrete *breezy.Client satisfies it; tests, the
-// daemon's recording wrapper, and the future standalone CLI backend
+// daemon's recording wrapper, and the CLI's standalone directBackend
 // all substitute their own implementations.
 type DeviceClient interface {
 	ReadParams(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error)

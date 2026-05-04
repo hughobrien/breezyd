@@ -8,9 +8,13 @@ A Go library, daemon, and CLI for controlling [Vents
 Twinfresh](https://ventilation-system.com/) Breezy ductless heat-recovery
 ventilators over the local network. It speaks the device's native UDP/4000
 protocol directly — no cloud account, no MQTT broker, no vendor app, no Home
-Assistant integration. LAN only. The daemon polls every configured unit,
-caches state, exposes a JSON HTTP API plus Prometheus `/metrics`, and
-serializes UDP traffic so that concurrent requests don't corrupt each other.
+Assistant integration. LAN only.
+
+The CLI works on its own — `breezy <name> <verb>` opens UDP to the
+configured device and exits — and that's the default for a fresh install.
+Add the optional daemon (`breezyd`) when you want polling, caching, a JSON
+HTTP API, Prometheus `/metrics`, the embedded web dashboard, or to
+serialize writes across multiple processes against the same device.
 
 ![breezy dashboard — three Breezy units on the LAN](tests/ui/screenshots/dashboard-3col.png)
 
@@ -36,8 +40,9 @@ only been tested against the 160 model.
 
 Feature-complete for the operator's stated workflow. v1.0 shipped the
 library + daemon + CLI + Prometheus surface; v1.1 added the embedded
-web dashboard and the optional NixOS-nginx integration. See `CHANGELOG.md`
-for the per-version breakdown.
+web dashboard and the optional NixOS-nginx integration. The unreleased
+trunk adds standalone CLI mode (CLI works without `breezyd`; daemon is
+opt-in) — see `CHANGELOG.md` for the per-version breakdown.
 
 In scope:
 - Sensor metrics: humidity, eCO2, VOC, supply/extract/exhaust temperatures,
@@ -413,7 +418,7 @@ breezyd/
 │   ├── discover.go            # LAN broadcast
 │   └── fakedevice/            # in-process protocol-speaking fake for tests
 ├── cmd/breezyd/               # the daemon (HTTP + Prometheus + poller)
-├── cmd/breezy/                # the CLI (talks HTTP to the daemon)
+├── cmd/breezy/                # the CLI (standalone UDP by default; daemon mode opt-in)
 ├── internal/config/           # TOML config loader, shared by both
 ├── tools/                     # Phase 0 Python probes (one-off, kept for reference)
 └── docs/superpowers/specs/    # design doc, parameter map, vendor PDF manual
