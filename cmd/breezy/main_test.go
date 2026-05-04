@@ -664,7 +664,7 @@ func TestRtcSetBadFormat(t *testing.T) {
 // surfaces: nothing at all, and an unrecognised verb.
 func TestUsageNoArgs(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run(nil, &stdout, &stderr)
+	code := run(nil, &stdout, &stderr, nil)
 	if code != 2 {
 		t.Fatalf("exit=%d (want 2)", code)
 	}
