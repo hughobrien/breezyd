@@ -42,12 +42,14 @@ In scope:
   reset, RTC set.
 - Per-device snapshots and Prometheus metrics.
 - `breezy discover` for first-time bootstrap.
+- Single-page web dashboard at `GET /` on the daemon, served from the
+  same binary; auto-refreshes every 5 s; covers sensors, fans, service
+  info, and the four high-level controls (power / mode / speed / heater).
 
 Out of scope (see "Known limitations" below):
 - No schedule editing. Scheduling is on-device and the v1 CLI does not poke at it.
 - No WiFi reconfig.
 - No MQTT bridge or Home Assistant component.
-- No web UI.
 
 Security caveat: the device leaks its protocol password and WiFi credentials in
 cleartext to any LAN client that knows the device ID. Put these units on an
@@ -217,6 +219,78 @@ chmod 600 ~/.config/breezy/config.toml
 The daemon logs to stderr. Stop it with SIGINT/SIGTERM; it shuts down within
 five seconds.
 
+## Web UI
+
+The daemon serves a single-page dashboard at the root path of its HTTP
+listener:
+
+```
+http://127.0.0.1:9876/
+```
+
+Three columns of cards (one per configured device) showing live sensor
+readings, fan RPMs, service info (filter, motor lifetime, RTC battery,
+faults), firmware version, plus controls for the four high-level
+options: power, airflow mode, speed (preset 1-3 or manual %), and the
+auxiliary heater. The page auto-refreshes every 5 s; cards desaturate
+when their last poll is more than 90 s old.
+
+The default `[daemon].listen` is `127.0.0.1:9876`, which means the
+dashboard is reachable only from the host running `breezyd`. To use it
+from a phone or laptop on the same LAN, change the listener in
+`~/.config/breezy/config.toml`:
+
+```toml
+[daemon]
+listen = "0.0.0.0:9876"
+```
+
+(Or pick a specific LAN IP if you want to avoid binding on every
+interface.) Restart `breezyd` after changing the config.
+
+**Security implication:** the HTTP API has no authentication. Binding
+to a LAN-reachable address exposes every `/v1/...` endpoint to anyone
+on the same network — including the raw `POST /v1/devices/<name>/params/<id>`
+write path that can change a unit's protocol password or WiFi
+credentials. The mitigation is networking, not software: keep the
+units (and the host running `breezyd`) on an IoT VLAN. See the
+[Security](#security) section for the full picture.
+
+### Behind nginx (NixOS)
+
+If you're already running NixOS and `services.nginx`, the cleaner way
+to expose the dashboard on the LAN is the module's opt-in nginx
+integration: keep `[daemon].listen = "127.0.0.1:9876"` (so the daemon
+itself stays loopback-bound and the raw API is unreachable from the
+LAN), and let nginx be the network-facing service:
+
+```nix
+services.nginx.enable = true;
+services.breezyd = {
+  enable = true;
+  nginx = {
+    enable = true;
+    virtualHost = "breezy.home.lan";
+    # basicAuthFile = "/run/secrets/breezy-htpasswd";  # sops-nix / agenix
+  };
+};
+
+# Define the vhost yourself — TLS, ACME, listen ports, etc. The module
+# only adds the location."/" with proxy_pass + basicAuthFile.
+services.nginx.virtualHosts."breezy.home.lan" = {
+  forceSSL = true;
+  enableACME = true;
+};
+```
+
+This is the recommended path when the dashboard is reached from
+devices other than the host running `breezyd`. Combined with
+`basicAuthFile`, it gives you both transport-level (TLS, if you set
+`forceSSL`) and application-level (basic auth) gates that the
+direct-listen path lacks. The daemon's full `/v1/...` API remains on
+loopback, so a compromised LAN device can't reach the raw param write
+endpoint even after authenticating to nginx.
+
 ## CLI overview
 
 `breezy --help` is the source of truth. The shape is "subject before verb",
@@ -341,6 +415,15 @@ cannot reach the rest of your home LAN, and only allow the host running
 `breezyd` into that VLAN. This project does not add cryptography on top of
 the wire protocol — that would not change the threat model, since the
 device firmware itself answers in cleartext.
+
+The web dashboard at `GET /` lives on the same listener as the JSON API.
+If you change `[daemon].listen` from the loopback default to a LAN
+address so the dashboard is reachable from your phone, you also expose
+the rest of the API — including raw parameter writes — to anyone on
+that network. The same VLAN-segmentation recommendation applies: put
+the host running `breezyd` on the IoT VLAN with the units, and reach
+the dashboard from a workstation that is briefly granted access to
+that VLAN, rather than binding `breezyd` to your trusted LAN.
 
 ## Known limitations (v1)
 
