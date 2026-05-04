@@ -81,7 +81,7 @@
     {
       "id": 11,
       "subject": "Task 11: HTTP server (cmd/breezyd/server.go)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5, 6, 8, 9],
       "description": "**Goal:** All spec routes; cache reads, UDP writes, error envelopes.\n\n**Verify:** `go test -race -v ./cmd/breezyd -run Server` passes.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/server.go\", \"cmd/breezyd/server_test.go\"], \"verifyCommand\": \"go test -race -v ./cmd/breezyd -run Server\", \"acceptanceCriteria\": [\"all routes work\", \"error envelopes with codes\", \"rejects writes to read-only params\"]}\n```"
     },
