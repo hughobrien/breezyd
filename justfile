@@ -38,8 +38,10 @@ test-ui:
 screenshot:
 	cd tests/ui && pnpm exec tsx screenshot.ts
 
+# go vet + a gofmt-drift check; fails if any file would be rewritten by `just fmt`
 lint:
 	go vet ./...
+	@bad=$(gofmt -l .); if [ -n "$bad" ]; then echo "gofmt drift in:" >&2; echo "$bad" >&2; echo "(run \`just fmt\` to fix)" >&2; exit 1; fi
 
 fmt:
 	gofmt -w .
