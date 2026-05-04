@@ -25,7 +25,7 @@
     {
       "id": 3,
       "subject": "Task 3: Frame codec (pkg/breezy/frame.go)",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [0],
       "description": "**Goal:** EncodeRequest, DecodeResponse with checksum/header validation. TDD with golden frames.\n\n**Verify:** `go test -race -v ./pkg/breezy -run Frame` passes.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/frame.go\", \"pkg/breezy/frame_test.go\"], \"verifyCommand\": \"go test -race -v ./pkg/breezy -run Frame\", \"acceptanceCriteria\": [\"golden encode round-trip\", \"ErrChecksum\", \"ErrBadHeader\", \"round-trip property test\"]}\n```"
     },
