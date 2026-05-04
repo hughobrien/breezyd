@@ -597,6 +597,14 @@ func TestHandler_PostSpeed_NeitherFieldSet(t *testing.T) {
 	}
 }
 
+func TestHandler_PostSpeed_BothFieldsSet(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"preset": 1, "manual": 30})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // ------------------------------------------------------------------------
 // POST /mode
 // ------------------------------------------------------------------------
@@ -634,6 +642,14 @@ func TestHandler_PostMode(t *testing.T) {
 func TestHandler_PostMode_Bad(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/mode", map[string]any{"mode": "moonshot"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_PostMode_MissingField(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/mode", map[string]any{})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
 	}
