@@ -464,6 +464,20 @@ func TestDaemonURLNormalizesBareHostPort(t *testing.T) {
 	}
 }
 
+func TestDaemonURLStandaloneByDefault(t *testing.T) {
+	// Neutralise any real ~/.config/breezy/config.toml so the test is hermetic.
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"daemon-url"}, &stdout, &stderr, nil)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	got := strings.TrimSpace(stdout.String())
+	if got != "(standalone — no daemon)" {
+		t.Errorf("got %q, want '(standalone — no daemon)'", got)
+	}
+}
+
 // TestErrorEnvelope verifies that {"error","code"} responses are
 // rendered in the spec's "error: <msg> (<code>)" form on stderr and
 // produce exit code 1.

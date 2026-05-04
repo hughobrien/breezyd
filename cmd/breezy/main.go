@@ -37,10 +37,6 @@ import (
 	"github.com/hughobrien/breezyd/internal/config"
 )
 
-// defaultDaemonURL is the fall-back when no --daemon flag is given and
-// no config file exists or the file lacks a [daemon].listen entry.
-const defaultDaemonURL = "http://127.0.0.1:9876"
-
 // discoverTimeout bounds the LAN broadcast in `breezy discover`.
 const discoverTimeout = 3 * time.Second
 
@@ -88,10 +84,15 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 		return 2
 	}
 
-	daemonURL := resolveDaemonURL(*daemon)
 	b := injected
 	if b == nil {
-		b = newDaemonBackend(daemonURL)
+		cfg := loadConfig()
+		var err error
+		b, err = resolveBackend(*daemon, cfg)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %s\n", err)
+			return 1
+		}
 	}
 	defer b.Close()
 
@@ -102,7 +103,12 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	case "discover":
 		return cmdDiscover(stdout, stderr)
 	case "daemon-url":
-		fmt.Fprintln(stdout, b.DaemonURLString())
+		url := b.DaemonURLString()
+		if url == "" {
+			fmt.Fprintln(stdout, "(standalone — no daemon)")
+		} else {
+			fmt.Fprintln(stdout, url)
+		}
 		return 0
 	case "param":
 		return cmdParam(stdout)
@@ -187,28 +193,43 @@ Globals:
   param                 list known parameters (id, type, unit, caps)
 `
 
-// resolveDaemonURL chooses the daemon URL according to the precedence:
-//
-//  1. --daemon flag (override).
-//  2. ~/.config/breezy/config.toml [daemon].listen.
-//  3. defaultDaemonURL.
-//
-// Any error reading or parsing the config falls through to the default
-// silently — running breezy on a fresh box without a config file should
-// still be useful (e.g. `breezy daemon-url`).
-func resolveDaemonURL(override string) string {
-	if override != "" {
-		return normalizeURL(override)
-	}
+// loadConfig reads ~/.config/breezy/config.toml. Errors silently fall
+// through to nil — running breezy on a fresh box without a config
+// should still produce useful behavior (standalone mode).
+func loadConfig() *config.Config {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return defaultDaemonURL
+		return nil
 	}
 	cfg, err := config.Load(filepath.Join(home, ".config", "breezy", "config.toml"))
-	if err != nil || cfg == nil || cfg.Daemon.Listen == "" {
-		return defaultDaemonURL
+	if err != nil {
+		return nil
 	}
-	return normalizeURL(cfg.Daemon.Listen)
+	return cfg
+}
+
+// resolveBackend picks a backend based on the precedence:
+//
+//  1. --daemon URL flag (explicit override).
+//  2. ~/.config/breezy/config.toml [daemon].listen.
+//  3. Standalone (direct UDP via pkg/breezy/ops).
+//
+// There is no fallback URL: if neither a flag nor config opts in to
+// daemon mode, we go standalone. The user's choice is honoured —
+// daemon-mode-but-unreachable surfaces as a clear HTTP error from the
+// first request, not a silent fall-through.
+func resolveBackend(override string, cfg *config.Config) (backend, error) {
+	if override != "" {
+		return newDaemonBackend(normalizeURL(override)), nil
+	}
+	if cfg != nil && cfg.Daemon.Listen != "" {
+		return newDaemonBackend(normalizeURL(cfg.Daemon.Listen)), nil
+	}
+	devices := map[string]config.Device{}
+	if cfg != nil {
+		devices = cfg.Devices
+	}
+	return newDirectBackend(devices), nil
 }
 
 // normalizeURL prepends http:// when the operator wrote bare host:port
