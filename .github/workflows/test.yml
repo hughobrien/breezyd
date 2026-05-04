@@ -31,6 +31,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: gofmt
+        run: |
+          bad=$(gofmt -l .)
+          if [ -n "$bad" ]; then
+            echo "::error::gofmt drift in:"
+            echo "$bad"
+            echo "Run 'just fmt' (or 'gofmt -w .') and commit."
+            exit 1
+          fi
+
       - name: Test (race)
         run: go test -race ./...
 
