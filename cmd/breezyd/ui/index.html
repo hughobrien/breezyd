@@ -173,7 +173,7 @@ function kv(k, v) {
 }
 
 function tempC(v) {
-  return (v === null || v === undefined) ? "—" : `${v.toFixed(1)} °C`;
+  return (v === null || v === undefined) ? "—" : `${esc(v.toFixed(1))} °C`;
 }
 
 function fmt(v, fallback, suffix) {
