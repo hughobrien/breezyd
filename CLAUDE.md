@@ -8,14 +8,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 just build       # go build -> ./breezyd ./breezy
 just test        # go test ./...           (fast, no race)
 just test-race   # go test -race ./...     (cgo+clang; the CI command)
-just lint        # go vet ./...
+just test-ui     # Playwright e2e (needs test-ui-install once)
+just lint        # go vet + gofmt-drift check
 just check       # lint + fast tests       (pre-commit gate)
+just check-all   # lint + test + test-race + test-ui (pre-push gate)
 just tidy        # go mod tidy
-just clean       # remove binaries + clean test cache
+just clean       # remove binaries, test cache, Playwright artifacts
 just fmt         # gofmt -w .
+just nix-check   # parse-check nix/module.nix
 ```
 
 `just test-race` bakes in `CGO_ENABLED=1 CC=clang` because the default `gcc` on this host lacks the TSan runtime.
+
+When in doubt about which gate to run: `check` is the fast pre-commit; `check-all` is the comprehensive pre-push (adds race + Playwright). When editing `nix/module.nix`, `nix-check` is the fast syntax probe — `nix build` is the heavy alternative.
+
+**Project rule:** when running a check / lint / test combo more than once, add it as a recipe to `justfile` rather than re-typing — improve the file *as you go*.
 
 Run a single package or test:
 
