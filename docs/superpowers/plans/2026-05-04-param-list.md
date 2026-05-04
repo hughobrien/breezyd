@@ -25,7 +25,7 @@
 - [ ] `renderParams(w io.Writer, params []breezy.Param)` exists in `cmd/breezy/render.go`.
 - [ ] `capsString(c breezy.Capabilities) string` helper exists in the same file.
 - [ ] Header row is `ID  NAME  TYPE  UNIT  CAPS  DESCRIPTION` (uppercase, two-space gutters).
-- [ ] IDs render as 4-digit lowercase hex with `0x` prefix (e.g. `0x0044`).
+- [ ] IDs render as 4-digit hex with `0x` prefix and uppercase A-F (e.g. `0x0044`, `0x004A`) — matches existing project convention (`commands.go`, `params.go` panic messages already use `%04X`).
 - [ ] `Param.Type.String()` is used directly for the TYPE column.
 - [ ] Empty `Param.Unit` renders as `-`.
 - [ ] CAPS letters appear in fixed order `R W I D`, concatenated, no separators.
@@ -158,7 +158,7 @@ func renderParams(w io.Writer, params []breezy.Param) {
 
 	cells := make([][6]string, 0, len(params))
 	for _, p := range params {
-		idStr := fmt.Sprintf("0x%04x", uint16(p.ID))
+		idStr := fmt.Sprintf("0x%04X", uint16(p.ID))
 		typeStr := p.Type.String()
 		unit := p.Unit
 		if unit == "" {

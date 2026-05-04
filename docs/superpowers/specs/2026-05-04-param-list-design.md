@@ -33,7 +33,7 @@ ID      NAME                          TYPE            UNIT    CAPS    DESCRIPTIO
 
 ### Column rules
 
-- **ID** — 4-digit lowercase hex with `0x` prefix (`0x0044`). Constant width keeps the column tidy across pages 0x00, 0x01, 0x03, 0x04.
+- **ID** — 4-digit hex with `0x` prefix and uppercase A-F (`0x0044`, `0x004A`), matching the existing project convention (`commands.go` daemon URLs and `params.go` panic messages already use `%04X`). Constant width keeps the column tidy across pages 0x00, 0x01, 0x03, 0x04.
 - **NAME** — `Param.Name` verbatim (snake_case, lowercase).
 - **TYPE** — `Param.Type.String()` (already implemented: `uint8`, `uint16`, `int16`, `ipv4`, `ascii`, `time_of_day`, `date`, `duration`, `remaining_time`, `firmware_meta`, `alert_bitmap`, `write_only`, `raw`).
 - **UNIT** — `Param.Unit` if non-empty, else `-`. Mirrors how `breezy ls` represents unknown power/mode.
