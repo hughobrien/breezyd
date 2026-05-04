@@ -23,6 +23,15 @@ test-integration ip id password:
 	BREEZY_TEST_DEVICE_PASSWORD='{{password}}' \
 	go test -tags integration ./pkg/breezy/...
 
+# install Node deps + Playwright's Chromium browser (one-time)
+test-ui-install:
+	cd tests/ui && pnpm install
+	cd tests/ui && pnpm exec playwright install chromium
+
+# end-to-end UI tests via Playwright (requires test-ui-install first)
+test-ui:
+	cd tests/ui && pnpm exec playwright test
+
 lint:
 	go vet ./...
 

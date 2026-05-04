@@ -16,3 +16,8 @@ coverage.out
 # Python bytecode caches
 __pycache__/
 *.pyc
+
+# Playwright UI tests
+tests/ui/node_modules/
+tests/ui/test-results/
+tests/ui/playwright-report/
