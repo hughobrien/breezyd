@@ -109,7 +109,7 @@ discovery     = "off"
 }
 
 func TestLoad_ReservedNamesRejected(t *testing.T) {
-	for _, name := range []string{"ls", "discover", "daemon-url", "LS", "Discover", "Daemon-URL"} {
+	for _, name := range []string{"ls", "discover", "daemon-url", "param", "LS", "Discover", "Daemon-URL", "Param"} {
 		t.Run(name, func(t *testing.T) {
 			path := writeConfig(t, `
 [devices.`+name+`]

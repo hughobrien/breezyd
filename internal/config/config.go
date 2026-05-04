@@ -30,6 +30,7 @@ var reservedNames = map[string]bool{
 	"ls":         true,
 	"discover":   true,
 	"daemon-url": true,
+	"param":      true,
 }
 
 // periodicRe matches the `periodic:<duration>` discovery form.
