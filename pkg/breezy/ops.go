@@ -109,6 +109,9 @@ type FaultCode struct {
 // reads in one batched ReadParams call. Mirrors the daemon poller's
 // defaultReadIDs() in cmd/breezyd/main.go; keep them in sync until the
 // daemon migrates to this constant.
+//
+// Do not mutate this slice. Callers that need a private copy should
+// allocate one (e.g. append([]ParamID(nil), StatusParamIDs...)).
 var StatusParamIDs = []ParamID{
 	// Page 0 (most params).
 	0x0001, 0x0002, 0x0007, 0x000B,
@@ -139,7 +142,11 @@ func GetFirmware(ctx context.Context, c DeviceClient) (FirmwareMetaValue, error)
 	if err != nil {
 		return FirmwareMetaValue{}, fmt.Errorf("ops.GetFirmware: %w", err)
 	}
-	return v.(FirmwareMetaValue), nil
+	fv, ok := v.(FirmwareMetaValue)
+	if !ok {
+		return FirmwareMetaValue{}, fmt.Errorf("ops.GetFirmware: unexpected decoded type %T", v)
+	}
+	return fv, nil
 }
 
 // GetEfficiency reads 0x0129 and returns it as an int (0..100).

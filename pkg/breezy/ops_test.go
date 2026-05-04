@@ -273,6 +273,18 @@ func TestOps_GetEfficiency(t *testing.T) {
 	}
 }
 
+func TestOps_GetEfficiency_WrongSize(t *testing.T) {
+	c := &recordingClient{
+		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+			return map[ParamID][]byte{0x0129: {72, 0}}, nil // 2 bytes, wrong
+		},
+	}
+	_, err := GetEfficiency(context.Background(), c)
+	if err == nil {
+		t.Fatal("expected error for wrong-sized 0x0129, got nil")
+	}
+}
+
 func TestOps_GetFaults_PairsAndOddTrailing(t *testing.T) {
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
