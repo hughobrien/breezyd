@@ -10,10 +10,33 @@
 
 **Source spec:** `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md`. **Param sweep fixture:** `docs/superpowers/specs/2026-05-03-paramsweep-148-raw.txt` (raw sweep of `.148` captured during brainstorming, 251 attempted IDs, ~60 readable).
 
-**Devices for testing:**
-- `192.168.1.148` / `BREEZY00000000A0` / pwd `1111` — primary test target
-- `192.168.1.152` / `BREEZY00000000A1` / pwd `1111` — second confirmed target
-- `192.168.1.160` / `BREEZY00000000A2` / pwd `TBD` — silent; do not target until password recovered
+**Devices for testing:** all three confirmed responsive on protocol password `testpwd` (operator changed from factory default `1111` during Phase 0):
+- `192.168.1.148` / `BREEZY00000000A0` — playroom (primary test target)
+- `192.168.1.152` / `BREEZY00000000A1` — bedroom
+- `192.168.1.160` / `BREEZY00000000A2` — office
+
+---
+
+## Plan revisions after Phase 0 (2026-05-03)
+
+Phase 0 is **complete**. The vendor publishes the protocol spec at `docs/superpowers/specs/breezy-manual-vendor.pdf`, and the param map at `docs/superpowers/specs/2026-05-03-param-map.md` is reconciled against it. The original Phase 0 (interactive characterization) produced ~50 confirmed parameters; the manual then validated them and added several we hadn't yet probed. Tasks 1 and 2 (probe tool, interactive characterization session) are **done** and Task 6 (param registry) now reads the existing param-map rather than waiting on Phase 0 work.
+
+Several tasks pick up scope from the revised design spec:
+
+- **Task 3 (frame codec):** must surface function `0x07` (auth-failure) as typed `ErrAuth`, support multi-byte writes via `FE <size>` framing in DATA, support page switching via `FF <hi>`. Golden frames now include captures from the live RE session.
+- **Task 5 (UDP client):** `ReadParam`/`WriteParam` accept `ParamID` as `uint16` (not `uint8`) and transparently emit the `FF <hi>` page prefix when `id > 0xFF`. Writes for multi-byte values transparently use the `FE` framing. Returns typed errors (`ErrAuth`, `ErrUnsupported`, `ErrReadOnly`, `ErrChecksum`).
+- **Task 6 (param registry):** generated/validated against `docs/superpowers/specs/2026-05-03-param-map.md`. Each entry encodes capability flags (R / W / INC / DEC) drawn from the manual; writes to read-only params return `ErrReadOnly` without going to the wire. Add a unit test that the registry is in lockstep with the markdown table (no silent drift).
+- **Task 10 (poller):** must wait at least 12 s after a write to `0x02`, `0x44`, or `0xB7` before re-reading `0x4A`/`0x4B`. Polls many more parameters than the original list — see the expanded "live" snapshot in the spec.
+- **Task 11 (HTTP server):** adds endpoints for `/firmware`, `/efficiency`, `/faults`, `/faults/reset`, `/filter/reset`, `/heater`, `/rtc`. The `GET /v1/devices/{name}` JSON response is structured with `configured` / `live` / `sensors` / `service` / `firmware` blocks; consumers can tell when the device is in user-controlled state vs. sensor-overridden.
+- **Task 12 (metrics):** the Prometheus surface roughly **doubles** vs. the original list. New gauges: `breezy_recovery_efficiency_pct`, `breezy_frost_protection_active`, `breezy_fault_level`, `breezy_filter_status`, `breezy_filter_remaining_seconds`, `breezy_motor_lifetime_seconds`, `breezy_rtc_battery_volts`, `breezy_sensor_alert{sensor=…}`, `breezy_voc_index`, `breezy_heater_running`, `breezy_in_user_control`, `breezy_special_mode`, `breezy_special_mode_remaining_seconds`. The CO2 gauge is renamed `breezy_eco2_ppm` (it's eCO2 from the VOC sensor, not real NDIR CO2). The `breezy_temperature_celsius` `position` label values are now `outdoor / supply / exhaust_inlet / exhaust_outlet` (from the vendor manual). Adds `breezy_info` metric labelled with firmware version + build date. Drops the original "in_preset_mode" idea (was based on a wrong reading of `0x06`).
+- **Task 13 (CLI):** new verbs: `<name> heater on|off`, `<name> reset-filter`, `<name> reset-faults`, `<name> faults`, `<name> firmware`, `<name> efficiency`, `<name> rtc [set <ISO>]`. The `<name> mode` verb now accepts four values (`ventilation|regeneration|supply|extract`) per the vendor manual. The `<name> speed manual:N` verb rejects `N < 10` with a typed error before going to the wire. `<name> status` distinguishes `configured` vs `live` and prints a one-line warning when sensor override is in effect.
+- **Task 14 (live integration):** add a test that round-trips a multi-byte write (e.g. set night duration `0x0302` to a non-default value, read back, restore) and a high-page read (read `0x0320` VOC index). Both validate the protocol-layer plumbing is wired up.
+
+Out-of-scope changes:
+- **Schedule editing (`0x77`)** moves explicitly to v2. The CLI still reads schedule enable (`0x72`) and the live "schedule active speed" (`0x0306`) but does not write schedule entries.
+- **WiFi reconfiguration** (`0x94`/`0x95`/`0x96`/`0x99`/`0x9A`/`0x9B`/`0x9C`/`0x9D`/`0x9E`/`0xA0`/`0xA2`) deferred — too easy to disconnect a unit; the app handles this. If exposed later, behind a `--unsafe-wifi` flag.
+
+The original task structure below stays. When implementing, refer to the **revised design spec** (`docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md`) and the **param map** (`docs/superpowers/specs/2026-05-03-param-map.md`) — those are now the authoritative inputs for every task.
 
 ---
 
