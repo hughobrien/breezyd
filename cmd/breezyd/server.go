@@ -20,10 +20,11 @@
 //
 // This file holds only the Handler/registry plumbing, routing setup, and
 // generic envelope helpers. The actual handlers live in:
-//   - snapshot.go         — buildSnapshot + decode helpers
 //   - handlers_device.go  — device-targeted reads/writes (power, speed, params, ...)
 //   - handlers_service.go — /firmware, /efficiency, /faults, resets
 //   - metrics.go          — Prometheus exporter
+//
+// Status decode helpers (BuildStatus, Uint8At, etc.) live in pkg/breezy/status.go.
 package main
 
 import (
@@ -418,7 +419,7 @@ func (h *Handler) listDevices(w http.ResponseWriter, r *http.Request) {
 				e.Power = &on
 			}
 			if v, ok := snap.Values[0x00B7]; ok && len(v) == 1 {
-				e.Mode = airflowModeName(v[0])
+				e.Mode = breezy.AirflowModeName(v[0])
 			}
 			if e.IP == "" {
 				e.IP = snap.IP

@@ -305,7 +305,7 @@ func (m *Metrics) Update(name, id string, snap Snapshot) {
 	if v, ok := metricUint8(snap, 0x0081); ok {
 		m.heaterRunning.With(lbl).Set(boolish(v))
 	}
-	m.inUserControl.With(lbl).Set(map[bool]float64{true: 1, false: 0}[computeInUserControl(snap)])
+	m.inUserControl.With(lbl).Set(map[bool]float64{true: 1, false: 0}[breezy.ComputeInUserControl(snap.Values)])
 	if v, ok := metricUint8(snap, 0x0007); ok {
 		m.specialMode.With(lbl).Set(float64(v))
 	}
@@ -411,9 +411,15 @@ func boolish(b byte) float64 {
 }
 
 // metricUint8 / metricUint16 / metricInt16 are thin aliases over the
-// shared decode helpers in decode.go, kept here so the metrics call
+// shared decode helpers in pkg/breezy, kept here so the metrics call
 // sites read consistently. The aliases let any future "treat the
 // metric pipeline differently" tweak land in one place.
-func metricUint8(snap Snapshot, id breezy.ParamID) (uint8, bool)   { return uint8At(snap, id) }
-func metricUint16(snap Snapshot, id breezy.ParamID) (uint16, bool) { return uint16At(snap, id) }
-func metricInt16(snap Snapshot, id breezy.ParamID) (int16, bool)   { return int16At(snap, id) }
+func metricUint8(snap Snapshot, id breezy.ParamID) (uint8, bool) {
+	return breezy.Uint8At(snap.Values, id)
+}
+func metricUint16(snap Snapshot, id breezy.ParamID) (uint16, bool) {
+	return breezy.Uint16At(snap.Values, id)
+}
+func metricInt16(snap Snapshot, id breezy.ParamID) (int16, bool) {
+	return breezy.Int16At(snap.Values, id)
+}

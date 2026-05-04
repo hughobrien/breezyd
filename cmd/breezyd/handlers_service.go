@@ -41,7 +41,7 @@ func (h *Handler) getEfficiency(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snap, _ := h.State.Get(name)
-	b, ok := uint8At(snap, 0x0129)
+	b, ok := breezy.Uint8At(snap.Values, 0x0129)
 	if !ok {
 		writeErr(w, "not_found", "efficiency reading not in cache yet")
 		return
