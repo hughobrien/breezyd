@@ -13,6 +13,10 @@ coverage.out
 .idea/
 *.swp
 
+# Nix build symlink (created by `nix build`)
+/result
+/result-*
+
 # Python bytecode caches
 __pycache__/
 *.pyc
