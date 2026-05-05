@@ -178,8 +178,8 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await loadDashboard(page, { devices: [{ name: "playroom" }] });
   const card = page.locator(".card").first();
   await expect(card).toContainText("52%");
-  await expect(card).toContainText("3500 ppm");
-  await expect(card).toContainText("20.8 °C");
+  await expect(card).toContainText("3500ppm");
+  await expect(card).toContainText("20.8°C");
   await expect(card).toContainText("85%");
 });
 
@@ -196,8 +196,8 @@ test("fans: pct and rpm both rendered on each fan row", async ({ page }) => {
     }),
   });
   const fans = page.locator(".card .block", { hasText: "Fans" });
-  await expect(fans).toContainText("30% / 5340 rpm");
-  await expect(fans).toContainText("30% / 5400 rpm");
+  await expect(fans).toContainText("30% / 5340rpm");
+  await expect(fans).toContainText("30% / 5400rpm");
 });
 
 test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
@@ -214,7 +214,7 @@ test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
     }),
   });
   const fans = page.locator(".card .block", { hasText: "Fans" });
-  await expect(fans).toContainText("0% / 0 rpm");
+  await expect(fans).toContainText("0% / 0rpm");
 });
 
 test("stale indicator: old last_poll desaturates the card", async ({ page }) => {
@@ -384,7 +384,7 @@ test("timer click on active mode: POSTs {mode:'off'} to stop the timer", async (
   expect(post!.body).toEqual({ mode: "off" });
 });
 
-test("threshold: sensor row shows current and alert threshold", async ({ page }) => {
+test("threshold: sensor row shows current value only (threshold hidden until edit)", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -394,7 +394,21 @@ test("threshold: sensor row shows current and alert threshold", async ({ page })
   });
   const sensors = page.locator(".card .block", { hasText: "Sensors" });
   await expect(sensors).toContainText("52%");
-  await expect(sensors).toContainText("alert 70%");
+  await expect(sensors).not.toContainText("alert 70%");
+});
+
+test("threshold: opening the editor reveals 'set alert ≥' label and threshold input", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { humidity_threshold_pct: 70 },
+    }),
+  });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  const sensors = page.locator(".card .block", { hasText: "Sensors" });
+  await expect(sensors).toContainText("set alert ≥");
+  const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
+  await expect(input).toHaveValue("70");
 });
 
 test("threshold: alert-fire class on the value when sensor_alerts is true", async ({ page }) => {
@@ -457,42 +471,45 @@ test("threshold: cancel reverts without POSTing", async ({ page }) => {
   expect(post).toBeFalsy();
 });
 
-test("service block: collapsed by default", async ({ page }) => {
+test("device info: collapsed by default", async ({ page }) => {
   await loadDashboard(page, { devices: [{ name: "playroom" }] });
   const card = page.locator(".card").first();
-  const svc = card.locator("details.block", { hasText: "Service" });
-  await expect(svc).toHaveCount(1);
-  await expect(svc).not.toHaveAttribute("open", "");
-  // Body rows aren't visible while collapsed.
-  await expect(svc.locator("text=clean")).toBeHidden();
+  const info = card.locator("details.device-info", { hasText: "Device Info" });
+  await expect(info).toHaveCount(1);
+  await expect(info).not.toHaveAttribute("open", "");
+  // Body rows (serial, ip, fw, filter, …) aren't visible while collapsed.
+  await expect(info.locator("text=BREEZY")).toBeHidden();
 });
 
-test("service block: auto-expanded when fault is active", async ({ page }) => {
+test("device info: auto-expanded when fault is active", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       service: { fault_level: "alarm" },
     }),
   });
-  const svc = page.locator("details.block", { hasText: "Service" }).first();
-  await expect(svc).toHaveAttribute("open", "");
+  const info = page.locator("details.device-info", { hasText: "Device Info" }).first();
+  await expect(info).toHaveAttribute("open", "");
 });
 
-test("service block: auto-expanded when filter is soiled", async ({ page }) => {
+test("device info: auto-expanded when filter is soiled", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       service: { filter_status: "soiled" },
     }),
   });
-  const svc = page.locator("details.block", { hasText: "Service" }).first();
-  await expect(svc).toHaveAttribute("open", "");
+  const info = page.locator("details.device-info", { hasText: "Device Info" }).first();
+  await expect(info).toHaveAttribute("open", "");
 });
 
-test("service block: clicking summary toggles open", async ({ page }) => {
+test("device info: clicking summary toggles open and reveals serial/ip/fw", async ({ page }) => {
   await loadDashboard(page, { devices: [{ name: "playroom" }] });
-  const svc = page.locator("details.block", { hasText: "Service" }).first();
-  await expect(svc).not.toHaveAttribute("open", "");
-  await svc.locator("summary").click();
-  await expect(svc).toHaveAttribute("open", "");
+  const info = page.locator("details.device-info", { hasText: "Device Info" }).first();
+  await expect(info).not.toHaveAttribute("open", "");
+  await info.locator("summary").click();
+  await expect(info).toHaveAttribute("open", "");
+  await expect(info).toContainText("BREEZY00000000A0");
+  await expect(info).toContainText("192.168.1.148");
+  await expect(info).toContainText("0.11");
 });
