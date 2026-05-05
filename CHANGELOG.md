@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-05
+
 ### Added
 
 - New night/turbo special-mode timer support across the stack:
@@ -32,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Power and Heater toggles now share a 2-wide row at the top of the Controls block instead of stacking vertically.
 - The Speed control no longer has an explicit "manual" button — interacting with the slider is the gesture; preset 1/2/3 deselect when the slider moves.
 - HomeKit's RotationSpeed slider now reflects `live.fan_supply_pct` (the firmware's currently-commanded percentage) instead of `configured.manual_pct`, so the slider position is correct in preset modes too. Drag-to-change still writes the manual percentage as before.
+- Webui Timer seg drops the redundant `off` button. Tapping the active mode (Night or Turbo) toggles it off; tapping the other one swaps modes. Mirrors the toggle semantics already used by the HomeKit Night/Turbo switches.
+- Webui Power and Heater toggles drop their "● on" / "○ off" trailing text since the button background already conveys state. Heater additionally uses a red active colour (`#b22`) instead of the default green so the two toggles are visually distinct when both are on. `aria-pressed` still carries state for screen readers.
+- Webui Service block is collapsed by default (`<details>`/`<summary>`). It auto-expands when `service.fault_level != "none"` OR `service.filter_status != "clean"`, so attention-needing states surface without a click.
 
 ### Fixed
 
