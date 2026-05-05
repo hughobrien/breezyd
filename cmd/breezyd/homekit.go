@@ -210,16 +210,6 @@ func isDigits(s string) bool {
 	return true
 }
 
-// accessoriesOf returns a slice of all stashed homekit accessories.
-// Unused in this file but available for T5's SyncHomekit.
-func accessoriesOf(h *Handler) []*homekit.Accessory {
-	out := make([]*homekit.Accessory, 0, len(h.homekitAccessories))
-	for _, a := range h.homekitAccessories {
-		out = append(out, a)
-	}
-	return out
-}
-
 // registerWriteCallbacks wires HAP remote-write callbacks on all writable
 // characteristics for the given device accessory. Failures are logged at
 // ERROR (not panicked) so a single device error doesn't crash the bridge.
