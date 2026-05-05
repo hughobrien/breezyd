@@ -161,6 +161,9 @@ func BuildStatus(values map[ParamID][]byte, name, id, ip string, lastPoll *time.
 		secs := days*86400 + int(raw[1])*3600 + int(raw[0])*60
 		resp.Service["filter_remaining_seconds"] = secs
 	}
+	if v, ok := Uint16At(values, 0x0063); ok {
+		resp.Service["filter_total_seconds"] = int(v) * 86400
+	}
 	if raw, ok := values[0x007E]; ok && len(raw) == 4 {
 		days := int(raw[2]) | int(raw[3])<<8
 		secs := days*86400 + int(raw[1])*3600 + int(raw[0])*60

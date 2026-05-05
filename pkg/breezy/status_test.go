@@ -134,6 +134,20 @@ func TestBuildStatus_TempSensorSentinels(t *testing.T) {
 	}
 }
 
+func TestBuildStatus_FilterTotalSeconds(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x0063: {90, 0},       // 90 days
+		0x0064: {0, 0, 30, 0}, // 30 days remaining
+	}
+	s := BuildStatus(values, "n", "i", "ip", nil)
+	if s.Service["filter_total_seconds"] != 90*86400 {
+		t.Errorf("filter_total_seconds: want %d, got %v", 90*86400, s.Service["filter_total_seconds"])
+	}
+	if s.Service["filter_remaining_seconds"] != 30*86400 {
+		t.Errorf("filter_remaining_seconds: want %d, got %v", 30*86400, s.Service["filter_remaining_seconds"])
+	}
+}
+
 func TestBuildStatus_FirmwareBlock(t *testing.T) {
 	values := map[ParamID][]byte{
 		0x0086: {1, 5, 0x0F, 0x05, 0xEA, 0x07},

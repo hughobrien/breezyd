@@ -16,7 +16,12 @@ import "github.com/hughobrien/breezyd/pkg/breezy"
 func Sync(a *Accessory, s breezy.Status) {
 	syncAirPurifier(a, s)
 	syncAirflowSwitches(a, s)
+	syncHeaterSwitch(a, s)
+	syncTimerSwitches(a, s)
 	syncSensors(a, s)
+	syncFilter(a, s)
+	syncBattery(a, s)
+	syncStatusFault(a, s)
 }
 
 func syncAirPurifier(a *Accessory, s breezy.Status) {
@@ -45,7 +50,13 @@ func syncAirPurifier(a *Accessory, s breezy.Status) {
 		}
 	}
 
-	if pct, ok := intField(s.Configured, "manual_pct"); ok {
+	// Prefer the live commanded percentage so the iOS slider reflects what
+	// the unit is actually doing in preset modes, not just the stored
+	// manual value. Fall back to manual_pct on older daemons that don't
+	// emit fan_supply_pct.
+	if pct, ok := intField(s.Live, "fan_supply_pct"); ok {
+		a.RotationSpeed.SetValue(float64(pct))
+	} else if pct, ok := intField(s.Configured, "manual_pct"); ok {
 		a.RotationSpeed.SetValue(float64(pct))
 	}
 
@@ -65,6 +76,87 @@ func syncAirflowSwitches(a *Accessory, s breezy.Status) {
 	}
 	a.SupplyOnly.On.SetValue(mode == "supply")
 	a.ExtractOnly.On.SetValue(mode == "extract")
+}
+
+func syncHeaterSwitch(a *Accessory, s breezy.Status) {
+	if v, ok := boolField(s.Configured, "heater_enabled"); ok {
+		a.Heater.On.SetValue(v)
+	}
+}
+
+// syncTimerSwitches mirrors live.special_mode onto the Night and Turbo
+// switches. The two are mutually exclusive: at most one is on, both off
+// when no timer is active.
+func syncTimerSwitches(a *Accessory, s breezy.Status) {
+	mode, ok := s.Live["special_mode"].(string)
+	if !ok {
+		return
+	}
+	a.Night.On.SetValue(mode == "night")
+	a.Turbo.On.SetValue(mode == "turbo")
+}
+
+// syncFilter populates the FilterMaintenance service. FilterChangeIndication
+// flips when filter_status reports "soiled"; FilterLifeLevel is the percentage
+// of the configured interval remaining (clamped 0..100).
+func syncFilter(a *Accessory, s breezy.Status) {
+	if status, ok := s.Service["filter_status"].(string); ok {
+		change := 0
+		if status != "clean" {
+			change = 1
+		}
+		a.Filter.FilterChangeIndication.SetValue(change) //nolint:errcheck
+	}
+	remaining, hasRemaining := intField(s.Service, "filter_remaining_seconds")
+	total, hasTotal := intField(s.Service, "filter_total_seconds")
+	if hasRemaining && hasTotal && total > 0 {
+		pct := remaining * 100 / total
+		if pct < 0 {
+			pct = 0
+		} else if pct > 100 {
+			pct = 100
+		}
+		a.FilterLifeLevel.SetValue(float64(pct))
+	}
+}
+
+// syncBattery maps the RTC coin-cell voltage to a HAP battery service.
+// CR2032 voltage drops from ~3.0 V (fresh) to ~2.5 V (effectively dead),
+// so a linear curve over that range is a reasonable percentage proxy.
+// StatusLowBattery flips at 2.7 V (roughly 40%), well before the RTC
+// would actually fail.
+func syncBattery(a *Accessory, s breezy.Status) {
+	volts, ok := floatField(s.Service, "rtc_battery_volts")
+	if !ok {
+		return
+	}
+	pct := int((volts - 2.5) / 0.5 * 100)
+	if pct < 0 {
+		pct = 0
+	} else if pct > 100 {
+		pct = 100
+	}
+	a.Battery.BatteryLevel.SetValue(pct) //nolint:errcheck
+	a.Battery.ChargingState.SetValue(2)  //nolint:errcheck (2 = not chargeable)
+	low := 0
+	if volts <= 2.7 {
+		low = 1
+	}
+	a.Battery.StatusLowBattery.SetValue(low) //nolint:errcheck
+}
+
+// syncStatusFault sets the StatusFault characteristic on the AirPurifier
+// service: 1 when the unit reports any fault, 0 otherwise.
+func syncStatusFault(a *Accessory, s breezy.Status) {
+	level, ok := s.Service["fault_level"].(string)
+	if !ok {
+		return
+	}
+	v := 0
+	if level != "none" {
+		v = 1
+	}
+	a.StatusFault.SetValue(v) //nolint:errcheck
 }
 
 func syncSensors(a *Accessory, s breezy.Status) {

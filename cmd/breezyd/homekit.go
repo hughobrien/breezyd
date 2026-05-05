@@ -280,6 +280,66 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 	a.ExtractOnly.On.OnValueRemoteUpdate(func(v bool) {
 		switchAirflow(h, name, a, false, v)
 	})
+
+	// Heater switch.
+	a.Heater.On.OnValueRemoteUpdate(func(v bool) {
+		rc, raw, err := h.dialRecording(name)
+		if err != nil {
+			slog.Error("homekit heater dial", "device", name, "err", err)
+			return
+		}
+		defer raw.Close()
+		if err := breezy.SetHeater(context.Background(), rc, v); err != nil {
+			slog.Error("homekit heater write", "device", name, "err", err)
+		}
+	})
+
+	// Night / Turbo switches share the same mutually-exclusive timer.
+	a.Night.On.OnValueRemoteUpdate(func(v bool) {
+		mode := "off"
+		if v {
+			mode = "night"
+		}
+		switchTimer(h, name, a, mode)
+	})
+	a.Turbo.On.OnValueRemoteUpdate(func(v bool) {
+		mode := "off"
+		if v {
+			mode = "turbo"
+		}
+		switchTimer(h, name, a, mode)
+	})
+
+	// ResetFilter: any remote write means "I changed the filter, reset
+	// the counter." HAP Apple spec writes 1 on the reset gesture.
+	a.ResetFilter.OnValueRemoteUpdate(func(_ int) {
+		rc, raw, err := h.dialRecording(name)
+		if err != nil {
+			slog.Error("homekit filter-reset dial", "device", name, "err", err)
+			return
+		}
+		defer raw.Close()
+		if err := breezy.ResetFilter(context.Background(), rc); err != nil {
+			slog.Error("homekit filter-reset write", "device", name, "err", err)
+		}
+	})
+}
+
+// switchTimer wires the Night and Turbo switches to the special-mode
+// timer (0x0007). The two switches are mutually exclusive — entering one
+// always cancels the other; turning either off cancels the timer entirely.
+func switchTimer(h *Handler, name string, a *homekit.Accessory, mode string) {
+	a.Night.On.SetValue(mode == "night")
+	a.Turbo.On.SetValue(mode == "turbo")
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		slog.Error("homekit timer dial", "device", name, "err", err)
+		return
+	}
+	defer raw.Close()
+	if err := breezy.SetTimer(context.Background(), rc, mode); err != nil {
+		slog.Error("homekit timer write", "device", name, "mode", mode, "err", err)
+	}
 }
 
 // switchAirflow implements the mutual-exclusion logic for the Supply Only

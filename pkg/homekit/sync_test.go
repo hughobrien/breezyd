@@ -314,3 +314,132 @@ func TestSync_FloatFieldCoercion(t *testing.T) {
 		t.Errorf("AirQuality = %v, want Good (voc=80)", v)
 	}
 }
+
+func TestSync_RotationSpeedPrefersLiveFanPct(t *testing.T) {
+	a := newTestAccessory()
+	s := breezy.Status{
+		Configured: map[string]any{
+			"power":      true,
+			"speed_mode": "preset2",
+			"manual_pct": 50,
+		},
+		Live: map[string]any{
+			"fan_supply_pct":  60,
+			"fan_extract_pct": 65,
+		},
+	}
+	Sync(a, s)
+	if v := a.RotationSpeed.Value(); v != 60.0 {
+		t.Errorf("RotationSpeed = %v, want 60 (live.fan_supply_pct)", v)
+	}
+}
+
+func TestSync_RotationSpeedFallsBackToManualPct(t *testing.T) {
+	a := newTestAccessory()
+	s := breezy.Status{
+		Configured: map[string]any{
+			"power":      true,
+			"speed_mode": "manual",
+			"manual_pct": 35,
+		},
+		Live: map[string]any{},
+	}
+	Sync(a, s)
+	if v := a.RotationSpeed.Value(); v != 35.0 {
+		t.Errorf("RotationSpeed = %v, want 35 (fallback to manual_pct)", v)
+	}
+}
+
+func TestSync_HeaterSwitch(t *testing.T) {
+	a := newTestAccessory()
+	Sync(a, breezy.Status{Configured: map[string]any{"heater_enabled": true}})
+	if !a.Heater.On.Value() {
+		t.Error("Heater.On = false, want true")
+	}
+	Sync(a, breezy.Status{Configured: map[string]any{"heater_enabled": false}})
+	if a.Heater.On.Value() {
+		t.Error("Heater.On = true, want false")
+	}
+}
+
+func TestSync_TimerSwitches(t *testing.T) {
+	a := newTestAccessory()
+	cases := []struct {
+		mode  string
+		night bool
+		turbo bool
+	}{
+		{"off", false, false},
+		{"night", true, false},
+		{"turbo", false, true},
+	}
+	for _, c := range cases {
+		Sync(a, breezy.Status{Live: map[string]any{"special_mode": c.mode}})
+		if a.Night.On.Value() != c.night {
+			t.Errorf("special_mode=%q: Night.On = %v, want %v", c.mode, a.Night.On.Value(), c.night)
+		}
+		if a.Turbo.On.Value() != c.turbo {
+			t.Errorf("special_mode=%q: Turbo.On = %v, want %v", c.mode, a.Turbo.On.Value(), c.turbo)
+		}
+	}
+}
+
+func TestSync_FilterMaintenance(t *testing.T) {
+	a := newTestAccessory()
+
+	// Clean filter, 30 of 90 days remaining.
+	Sync(a, breezy.Status{Service: map[string]any{
+		"filter_status":            "clean",
+		"filter_remaining_seconds": 30 * 86400,
+		"filter_total_seconds":     90 * 86400,
+	}})
+	if v := a.Filter.FilterChangeIndication.Value(); v != 0 {
+		t.Errorf("FilterChangeIndication = %v, want 0 (clean)", v)
+	}
+	if v := a.FilterLifeLevel.Value(); v != 33.0 {
+		t.Errorf("FilterLifeLevel = %v, want 33", v)
+	}
+
+	// Soiled filter.
+	Sync(a, breezy.Status{Service: map[string]any{"filter_status": "soiled"}})
+	if v := a.Filter.FilterChangeIndication.Value(); v != 1 {
+		t.Errorf("FilterChangeIndication = %v, want 1 (soiled)", v)
+	}
+}
+
+func TestSync_BatteryLevelFromVolts(t *testing.T) {
+	cases := []struct {
+		volts float64
+		pct   int
+		low   int
+	}{
+		{3.0, 100, 0},
+		{2.75, 50, 0},
+		{2.7, 40, 1}, // borderline-low
+		{2.5, 0, 1},
+		{2.3, 0, 1},   // clamped
+		{3.5, 100, 0}, // clamped
+	}
+	for _, c := range cases {
+		a := newTestAccessory()
+		Sync(a, breezy.Status{Service: map[string]any{"rtc_battery_volts": c.volts}})
+		if v := a.Battery.BatteryLevel.Value(); v != c.pct {
+			t.Errorf("volts=%v: BatteryLevel = %v, want %v", c.volts, v, c.pct)
+		}
+		if v := a.Battery.StatusLowBattery.Value(); v != c.low {
+			t.Errorf("volts=%v: StatusLowBattery = %v, want %v", c.volts, v, c.low)
+		}
+	}
+}
+
+func TestSync_StatusFault(t *testing.T) {
+	a := newTestAccessory()
+	Sync(a, breezy.Status{Service: map[string]any{"fault_level": "none"}})
+	if v := a.StatusFault.Value(); v != 0 {
+		t.Errorf("StatusFault (none) = %v, want 0", v)
+	}
+	Sync(a, breezy.Status{Service: map[string]any{"fault_level": "alarm"}})
+	if v := a.StatusFault.Value(); v != 1 {
+		t.Errorf("StatusFault (alarm) = %v, want 1", v)
+	}
+}

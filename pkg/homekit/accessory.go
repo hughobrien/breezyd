@@ -45,6 +45,9 @@ type Accessory struct {
 	AirPurifier *service.AirPurifier
 	SupplyOnly  *service.Switch
 	ExtractOnly *service.Switch
+	Heater      *service.Switch
+	Night       *service.Switch
+	Turbo       *service.Switch
 
 	// Sensor services.
 	Humidity      *service.HumiditySensor
@@ -57,13 +60,21 @@ type Accessory struct {
 	TempExhaustIn  *TemperatureSensor
 	TempExhaustOut *TemperatureSensor
 
+	// Service: filter maintenance (native iOS "change filter" UI) and
+	// the RTC coin-cell battery percentage badge.
+	Filter  *service.FilterMaintenance
+	Battery *service.BatteryService
+
 	// Optional characteristics that brutella/hap doesn't include in the
-	// service struct by default; we add them here so sync.go (Task 2) and
-	// the daemon's write callbacks (Task 4) can reach them via typed
-	// handles instead of walking the characteristic list.
+	// service struct by default; we add them here so sync.go and the
+	// daemon's write callbacks can reach them via typed handles instead of
+	// walking the characteristic list.
 	RotationSpeed      *characteristic.RotationSpeed
 	VOCDensity         *characteristic.VOCDensity
 	CarbonDioxideLevel *characteristic.CarbonDioxideLevel
+	StatusFault        *characteristic.StatusFault
+	FilterLifeLevel    *characteristic.FilterLifeLevel
+	ResetFilter        *characteristic.ResetFilterIndication
 }
 
 // NewBreezyAccessory constructs the full per-Breezy accessory tree.
@@ -95,15 +106,20 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 		},
 	}
 
-	// AirPurifier with optional RotationSpeed and Name.
+	// AirPurifier with optional RotationSpeed, StatusFault, and Name.
 	a.AirPurifier = service.NewAirPurifier()
 	a.RotationSpeed = characteristic.NewRotationSpeed()
 	a.AirPurifier.AddC(a.RotationSpeed.C)
+	a.StatusFault = characteristic.NewStatusFault()
+	a.AirPurifier.AddC(a.StatusFault.C)
 	attachName(a.AirPurifier.S, displayName)
 
 	// Switches with Name characteristics so iOS Home can distinguish them.
 	a.SupplyOnly = newNamedSwitch("Supply Only")
 	a.ExtractOnly = newNamedSwitch("Extract Only")
+	a.Heater = newNamedSwitch("Heater")
+	a.Night = newNamedSwitch("Night")
+	a.Turbo = newNamedSwitch("Turbo")
 
 	a.Humidity = service.NewHumiditySensor()
 
@@ -123,12 +139,28 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 	a.TempExhaustIn = newNamedTemp("Exhaust In")
 	a.TempExhaustOut = newNamedTemp("Exhaust Out")
 
+	// Filter maintenance (native iOS filter-change indicator).
+	a.Filter = service.NewFilterMaintenance()
+	a.FilterLifeLevel = characteristic.NewFilterLifeLevel()
+	a.Filter.AddC(a.FilterLifeLevel.C)
+	a.ResetFilter = characteristic.NewResetFilterIndication()
+	a.Filter.AddC(a.ResetFilter.C)
+	attachName(a.Filter.S, "Filter")
+
+	// Battery service for the RTC coin-cell. iOS shows a battery badge
+	// on the accessory tile and a low-battery warning when StatusLowBattery=1.
+	a.Battery = service.NewBatteryService()
+	attachName(a.Battery.S, "RTC Battery")
+
 	// Attach all services to the underlying accessory. AddS takes
 	// *service.S; each typed service embeds *S, so we pass the .S field.
 	for _, s := range []*service.S{
 		a.AirPurifier.S,
 		a.SupplyOnly.S,
 		a.ExtractOnly.S,
+		a.Heater.S,
+		a.Night.S,
+		a.Turbo.S,
 		a.Humidity.S,
 		a.CO2.S,
 		a.AirQualitySvc.S,
@@ -136,6 +168,8 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 		a.TempSupply.S,
 		a.TempExhaustIn.S,
 		a.TempExhaustOut.S,
+		a.Filter.S,
+		a.Battery.S,
 	} {
 		base.AddS(s)
 	}
