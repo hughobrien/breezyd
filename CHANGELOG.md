@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-05-05
+
+### Changed
+
+- HomeKit accessory and AirPurifier service names now display Title Case (`Playroom`, `Bedroom`, `Office`) instead of the lowercase config-key form (`playroom`, `bedroom`, `office`). Underscores and hyphens become spaces (`guest_room` → `Guest Room`); already-capitalised keys round-trip unchanged. Internal `Accessory.Info.Name` keeps the original config-key form so metric labels, log lines, and the daemon's device map are unchanged — only the iOS-facing label is title-cased.
+
 ## [1.6.8] - 2026-05-05
 
 ### Fixed
@@ -241,7 +247,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.8...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.9...HEAD
+[1.6.9]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.9
 [1.6.8]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.8
 [1.6.7]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.7
 [1.6.6]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.6
