@@ -233,6 +233,17 @@ breezy discover 192.168.1.148 192.168.1.152 192.168.1.160
 `breezy discover` then sends the wildcard request unicast to each address
 and prints `<ip>  id=<id>  type=<n>` for every device that replies.
 
+If your devices are on a non-default protocol password and discovery still
+returns nothing, retry with `-p PASSWORD`. The vendor manual claims wildcard
+discovery is unauthenticated, but some firmware versions silently drop
+wildcard requests with a password mismatch — passing the real password works
+around it. The flag works in both broadcast and unicast modes:
+
+```sh
+breezy discover -p testpwd                                       # broadcast
+breezy discover -p testpwd 192.168.1.148 192.168.1.152           # unicast
+```
+
 ## First run
 
 The daemon writes a default config on the first run if one doesn't exist
@@ -397,7 +408,7 @@ so per-device commands read naturally:
 | Command                              | What it does                                 |
 | ------------------------------------ | -------------------------------------------- |
 | `breezy ls`                          | one-line table of every configured device   |
-| `breezy discover [ip...]`            | LAN broadcast, or unicast to each IP if given |
+| `breezy discover [-p PWD] [ip...]`   | LAN broadcast (or unicast to each IP); `-p` overrides the wildcard discovery password |
 | `breezy param`                       | list known parameters (id, type, unit, caps; use `name` with `get`/`set`) |
 | `breezy playroom status`             | full structured snapshot                     |
 | `breezy bedroom on` / `off`          | power                                        |

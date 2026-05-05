@@ -195,7 +195,8 @@ Per-device verbs:
 
 Globals:
   ls                    one-line summary of every configured device
-  discover [ip...]      LAN broadcast (or unicast to each IP if given)
+  discover [-p PWD] [ip...]  LAN broadcast (or unicast to each IP if given);
+                        -p overrides the factory-default discovery password
   daemon-url            print the URL the CLI would use
   param                 list known parameters (id, type, unit, caps)
 `

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-04
+
+### Added
+
+- `breezy discover` accepts `-p PASSWORD` (or `--password=PASSWORD`) to override the factory-default discovery password (`"1111"`). The vendor manual says wildcard discovery is unauthenticated but some firmware silently drops requests when the password doesn't match; passing the real password works around it. Works in both broadcast and unicast modes:
+  - `breezy discover -p testpwd`
+  - `breezy discover -p testpwd 192.168.1.148 192.168.1.152`
+- Library: new `pkg/breezy.DiscoverWithPassword(ctx, password)` and `pkg/breezy.DiscoverAtWithPassword(ctx, targets, password)` exported functions. The existing `Discover` and `DiscoverAt` are unchanged — they delegate to the new functions with `DefaultDiscoveryPassword`.
+
 ## [1.4.0] - 2026-05-04
 
 ### Added
@@ -135,7 +144,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.0
 [1.4.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.4.0
 [1.3.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.3.0
 [1.2.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.2.0

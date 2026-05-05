@@ -416,24 +416,50 @@ func cmdParam(stdout io.Writer) int {
 	return 0
 }
 
-// cmdDiscover queries the LAN for Breezy devices. Two modes:
+// cmdDiscover queries the LAN for Breezy devices. Two modes plus an
+// optional password override:
 //
-//   - No args: UDP broadcast to the limited (255.255.255.255) and
-//     subnet-directed broadcast addresses. Bootstrap path.
-//   - Args: each positional arg is treated as a target IP (or host:port);
-//     the wildcard discovery request is sent unicast to each. Useful when
-//     the LAN drops broadcasts (Wi-Fi AP isolation, mesh hops, NAT) but
-//     unicast routes work — pinging the device works, broadcast doesn't.
+//   - No positional args: UDP broadcast to the limited (255.255.255.255)
+//     and subnet-directed broadcast addresses. Bootstrap path.
+//   - Positional args: each is a target IP (or host:port); the wildcard
+//     discovery request is sent unicast to each. Useful when the LAN
+//     drops broadcasts (Wi-Fi AP isolation, mesh hops, NAT) but unicast
+//     works — pinging the device works, broadcast doesn't.
+//   - -p / --password PASSWORD: send the wildcard request with the
+//     supplied password instead of the factory default "1111". The
+//     manual claims discovery is unauthenticated, but some firmware
+//     versions appear to drop wildcard requests with a password
+//     mismatch — pass your real password if discovery returns no
+//     responders even though the units are reachable.
 //
-// In both modes output is one line per responder: "<ip>  id=<id>  type=<n>".
-func cmdDiscover(targets []string, stdout, stderr io.Writer) int {
+// In all modes output is one line per responder: "<ip>  id=<id>  type=<n>".
+func cmdDiscover(args []string, stdout, stderr io.Writer) int {
+	password := breezy.DefaultDiscoveryPassword
+	targets := []string{}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-p" || a == "--password":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "discover: -p needs a password value")
+				return 2
+			}
+			password = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--password="):
+			password = strings.TrimPrefix(a, "--password=")
+		default:
+			targets = append(targets, a)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), discoverTimeout)
 	defer cancel()
 
 	var found []breezy.Found
 	var err error
 	if len(targets) == 0 {
-		found, err = breezy.Discover(ctx)
+		found, err = breezy.DiscoverWithPassword(ctx, password)
 	} else {
 		normalised := make([]string, len(targets))
 		for i, t := range targets {
@@ -442,19 +468,25 @@ func cmdDiscover(targets []string, stdout, stderr io.Writer) int {
 			}
 			normalised[i] = t
 		}
-		found, err = breezy.DiscoverAt(ctx, normalised)
+		found, err = breezy.DiscoverAtWithPassword(ctx, normalised, password)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "discover: %v\n", err)
 		return 1
 	}
 	if len(found) == 0 {
-		if len(targets) == 0 {
+		switch {
+		case len(targets) == 0:
 			fmt.Fprintln(stdout, "no Breezy devices found on the LAN")
 			fmt.Fprintln(stdout, "  hint: if your network drops UDP broadcasts (Wi-Fi AP isolation,")
 			fmt.Fprintln(stdout, "        mesh hops, VLAN), pass each device's IP as a positional arg:")
 			fmt.Fprintln(stdout, "        breezy discover 192.168.1.148 192.168.1.152")
-		} else {
+		case password == breezy.DefaultDiscoveryPassword:
+			fmt.Fprintln(stdout, "no Breezy devices replied at the supplied targets")
+			fmt.Fprintln(stdout, "  hint: if your devices are on a non-default password, retry with")
+			fmt.Fprintln(stdout, "        -p PASSWORD — some firmware drops wildcard requests with a")
+			fmt.Fprintln(stdout, "        password mismatch despite the spec.")
+		default:
 			fmt.Fprintln(stdout, "no Breezy devices replied at the supplied targets")
 		}
 		return 0

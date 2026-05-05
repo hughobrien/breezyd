@@ -953,6 +953,53 @@ func TestDiscover_UnicastTargets(t *testing.T) {
 	}
 }
 
+// TestDiscover_UnicastWithPassword: the wildcard request is encoded
+// with the supplied password instead of the factory default. The
+// fakedevice accepts any password on wildcard discovery, so this
+// just confirms the flag is plumbed through end-to-end.
+func TestDiscover_UnicastWithPassword(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := startFakeDevice(t)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"discover", "-p", "testpwd", fake.Addr()}, &stdout, &stderr, nil)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	host, _, _ := strings.Cut(fake.Addr(), ":")
+	if !strings.Contains(stdout.String(), host) || !strings.Contains(stdout.String(), "id=") {
+		t.Errorf("expected discover output for fake device, got:\n%s", stdout.String())
+	}
+}
+
+// TestDiscover_PasswordFlagFormats covers --password=PWD as well.
+func TestDiscover_PasswordFlagFormats(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := startFakeDevice(t)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"discover", "--password=anything", fake.Addr()}, &stdout, &stderr, nil)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "id=") {
+		t.Errorf("expected discover output, got:\n%s", stdout.String())
+	}
+}
+
+// TestDiscover_PasswordFlagMissingValue: -p with no following arg
+// should exit 2 with a usage error.
+func TestDiscover_PasswordFlagMissingValue(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"discover", "-p"}, &stdout, &stderr, nil)
+	if code != 2 {
+		t.Fatalf("exit=%d (want 2); stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "needs a password value") {
+		t.Errorf("missing usage hint: stderr=%q", stderr.String())
+	}
+	_ = stdout
+}
+
 // TestDiscover_UnicastNoReply: the daemon-side fakedevice isn't
 // running, so the unicast target receives no reply within the
 // discover timeout. We expect exit 0 and a "no devices replied"
