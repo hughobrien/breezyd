@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/brutella/hap"
 	hapaccessory "github.com/brutella/hap/accessory"
@@ -114,6 +115,36 @@ func (h *Handler) StartHomekit(ctx context.Context, cfg config.Homekit, devices 
 		wg.Wait()
 		return nil
 	}, nil
+}
+
+// SyncHomekit translates a Snapshot into a breezy.Status and pushes it
+// into the HomeKit accessory for name. It is a no-op when the HomeKit
+// bridge is disabled (h.homekitAccessories == nil) or the device name
+// is not registered in the map. Safe to call concurrently from multiple
+// goroutines as long as each call targets a different name; callers must
+// serialise concurrent calls for the same name.
+func (h *Handler) SyncHomekit(name string, snap Snapshot) {
+	if h.homekitAccessories == nil {
+		return
+	}
+	a, ok := h.homekitAccessories[name]
+	if !ok {
+		return
+	}
+
+	cfg, ok := h.Devices.Get(name)
+	if !ok {
+		return
+	}
+
+	var lastPoll *time.Time
+	if !snap.LastPoll.IsZero() {
+		t := snap.LastPoll
+		lastPoll = &t
+	}
+
+	status := breezy.BuildStatus(snap.Values, name, cfg.ID, cfg.IP, lastPoll)
+	homekit.Sync(a, status)
 }
 
 // loadOrGeneratePin reads pin.txt from stateDir if it exists and is an

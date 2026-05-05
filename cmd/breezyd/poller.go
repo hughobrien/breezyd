@@ -76,6 +76,12 @@ type Poller struct {
 	// OnError is invoked once per tick error with the device Name and a
 	// classification ("checksum"/"auth"/"timeout"/"other"). Optional.
 	OnError func(name, kind string)
+	// OnPoll is called after every successful tick (i.e. when the recorded
+	// Snapshot has no LastErr) with the device Name and the Snapshot that
+	// was just written to State. Use this to push fresh data into subsystems
+	// (e.g. the HomeKit bridge) without polling the State cache. Optional;
+	// a nil OnPoll is a no-op.
+	OnPoll func(name string, snap Snapshot)
 
 	// NewClient builds the breezy client used for the next tick. Tests
 	// inject a stub; production code leaves it nil and the poller dials
@@ -156,12 +162,16 @@ func (p *Poller) tick(ctx context.Context) {
 		}
 	}
 
-	p.State.RecordPoll(p.Name, Snapshot{
+	snap := Snapshot{
 		IP:       p.IP,
 		Values:   values,
 		LastPoll: p.now(),
 		LastErr:  lastErr,
-	})
+	}
+	p.State.RecordPoll(p.Name, snap)
+	if lastErr == nil && p.OnPoll != nil {
+		p.OnPoll(p.Name, snap)
+	}
 }
 
 // dial returns a PollerClient for the upcoming tick. If NewClient is set
