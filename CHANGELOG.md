@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-05-05
+
+### Documentation
+
+- README NixOS section restructured into a single end-to-end flow: discover → configure → rebuild & use, with Prometheus / HomeKit / "what the module does" moved to subsections after the main path. Reuses real device IDs/IPs from the running fleet for the example, includes a `breezy ls` table demo so readers can see what success looks like, and threads the static-IP fallback into step 3 (where it belongs as an alternative configuration shape) instead of dangling as a sidebar.
+
 ## [1.6.2] - 2026-05-05
 
 ### Changed
@@ -190,7 +196,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.2...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.3...HEAD
+[1.6.3]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.3
 [1.6.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.2
 [1.6.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.1
 [1.6.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.0
