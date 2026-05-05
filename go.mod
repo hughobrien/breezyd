@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/brutella/hap v0.0.35
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	pgregory.net/rapid v1.3.0
@@ -17,6 +18,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
+	github.com/xiam/to v0.0.0-20200126224905-d60d31e03561 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
