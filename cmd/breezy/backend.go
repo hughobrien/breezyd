@@ -44,6 +44,7 @@ type backend interface {
 	SpeedManual(ctx context.Context, name string, pct int) error
 	Mode(ctx context.Context, name string, mode string) error
 	Heater(ctx context.Context, name string, on bool) error
+	Timer(ctx context.Context, name string, mode string) error
 	ResetFilter(ctx context.Context, name string) error
 	ResetFaults(ctx context.Context, name string) error
 	SetRTC(ctx context.Context, name string, t time.Time) error
@@ -182,6 +183,14 @@ func (d *daemonBackend) Mode(ctx context.Context, name, mode string) error {
 
 func (d *daemonBackend) Heater(ctx context.Context, name string, on bool) error {
 	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/heater", map[string]any{"on": on})
+	if err != nil || status >= 400 {
+		return envelopeErr(status, raw, err)
+	}
+	return nil
+}
+
+func (d *daemonBackend) Timer(ctx context.Context, name, mode string) error {
+	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/timer", map[string]any{"mode": mode})
 	if err != nil || status >= 400 {
 		return envelopeErr(status, raw, err)
 	}
@@ -432,6 +441,14 @@ func (d *directBackend) Heater(ctx context.Context, name string, on bool) error 
 		return err
 	}
 	return breezy.SetHeater(ctx, c, on)
+}
+
+func (d *directBackend) Timer(ctx context.Context, name, mode string) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.SetTimer(ctx, c, mode)
 }
 
 func (d *directBackend) ResetFilter(ctx context.Context, name string) error {
