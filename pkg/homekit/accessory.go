@@ -151,6 +151,10 @@ func newNamedSwitch(name string) *service.Switch {
 
 func newNamedTemp(name string) *TemperatureSensor {
 	ts := service.NewTemperatureSensor()
+	// Expand the default [0, 100] range to [-40, 85] so outdoor and exhaust
+	// temperatures below 0°C (common in winter) are not clamped by the library.
+	ts.CurrentTemperature.SetMinValue(-40)
+	ts.CurrentTemperature.SetMaxValue(85)
 	attachName(ts.S, name)
 	return &TemperatureSensor{TemperatureSensor: ts, Name: name}
 }
