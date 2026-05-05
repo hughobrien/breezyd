@@ -21,7 +21,13 @@ against the same device.
 
 ![breezy dashboard — three Breezy units on the LAN](tests/ui/screenshots/dashboard-3col.png)
 
-The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state.
+<p align="center">
+  <img src="tests/ui/screenshots/homekit-bridge.png" width="45%" alt="HomeKit bridge details in iOS Home — &quot;breezyd&quot; bridge with 3 accessories" />
+  &nbsp;&nbsp;
+  <img src="tests/ui/screenshots/homekit-accessories.png" width="45%" alt="Each Breezy as a separate AirPurifier accessory in the Apple Home rooms list" />
+</p>
+
+The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
 
 ## At a glance
 
