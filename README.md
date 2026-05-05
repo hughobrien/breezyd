@@ -182,9 +182,11 @@ Add the flake as an input and import its module:
 
 The module creates a `breezyd` system user, runs `breezyd` under
 systemd with hardening (`NoNewPrivileges`, `ProtectSystem=strict`,
-`PrivateTmp`, `MemoryDenyWriteExecute`, etc.), and starts after
-`network-online.target`. Set `services.breezyd.openFirewall = true` if
-you bind the listener to a non-loopback address.
+`PrivateTmp`, `MemoryDenyWriteExecute`, etc.), starts after
+`network-online.target`, and adds the `breezy` CLI to
+`environment.systemPackages` so it's on every user's `PATH`. Set
+`services.breezyd.openFirewall = true` if you bind the listener to a
+non-loopback address.
 
 If `journalctl -u breezyd` shows `discovery complete found=0` while your
 units are reachable (Wi-Fi AP isolation, separate VLANs, or a host
@@ -205,15 +207,6 @@ services.breezyd.settings = {
 Find each device's ID/IP pair with `breezy discover` (or
 `breezy discover 192.168.1.148 192.168.1.152 …` if broadcasts are
 dropped on your LAN).
-
-The module ships only the daemon — to put the `breezy` CLI on every
-user's `PATH`, reuse the package the module already resolved:
-
-```nix
-environment.systemPackages = [ config.services.breezyd.package ];
-```
-
-(The same derivation produces both `breezyd` and `breezy`.)
 
 To automatically register a Prometheus scrape job for `/metrics` when
 the host also runs `services.prometheus`:
