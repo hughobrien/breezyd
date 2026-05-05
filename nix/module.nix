@@ -117,7 +117,13 @@ in {
     };
 
     homekit = {
-      enable = lib.mkEnableOption "HomeKit bridge that exposes configured Breezy units to Apple Home";
+      enable = lib.mkEnableOption ''
+        HomeKit bridge that exposes configured Breezy units to Apple Home.
+        When `services.breezyd.configFile` is set (the user owns their
+        config), this option still adjusts the systemd unit (StateDirectory,
+        firewall) but does NOT inject a [homekit] block into the file —
+        you must add it yourself
+      '';
 
       port = lib.mkOption {
         type = lib.types.port;
@@ -140,6 +146,11 @@ in {
         description = ''
           Directory where the HAP server persists pairing keys + the
           generated PIN. Delete to factory-reset HomeKit pairing.
+
+          Must reside under /var/lib/breezyd (the daemon's
+          StateDirectory) to be writable under ProtectSystem=strict.
+          If you set this elsewhere, also add the parent path to
+          systemd.services.breezyd.serviceConfig.ReadWritePaths.
         '';
       };
     };

@@ -92,6 +92,29 @@ func TestSync_IdleWhenPoweredNoFan(t *testing.T) {
 	}
 }
 
+// TestSync_PowerFieldAbsentLeavesStateUntouched protects the Sync
+// contract: if the power field is missing from a partial snapshot,
+// CurrentAirPurifierState must NOT be written. Otherwise a snapshot
+// that happened to read fan RPMs but skipped 0x01 would falsely
+// flip the iOS Home tile to Inactive.
+func TestSync_PowerFieldAbsentLeavesStateUntouched(t *testing.T) {
+	a := newTestAccessory()
+	// Pre-set the characteristic so we can observe it being preserved.
+	a.AirPurifier.CurrentAirPurifierState.SetValue(2) // Purifying
+	s := breezy.Status{
+		Configured: map[string]any{}, // no "power" key
+		Live: map[string]any{
+			"fan_supply_rpm":  1500,
+			"fan_extract_rpm": 1450,
+		},
+	}
+	Sync(a, s)
+
+	if v := a.AirPurifier.CurrentAirPurifierState.Value(); v != 2 {
+		t.Errorf("CurrentAirPurifierState = %v, want 2 (untouched, was set to Purifying)", v)
+	}
+}
+
 // TestSync_AutoModes verifies preset2/preset3 all map to Auto.
 func TestSync_AutoModes(t *testing.T) {
 	for _, mode := range []string{"preset1", "preset2", "preset3"} {

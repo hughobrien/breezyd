@@ -20,14 +20,29 @@ func Sync(a *Accessory, s breezy.Status) {
 }
 
 func syncAirPurifier(a *Accessory, s breezy.Status) {
-	powered := false
-	if power, ok := boolField(s.Configured, "power"); ok {
-		powered = power
+	power, powerOK := boolField(s.Configured, "power")
+	if powerOK {
 		val := 0
 		if power {
 			val = 1
 		}
 		a.AirPurifier.Active.SetValue(val) //nolint:errcheck
+
+		// CurrentAirPurifierState is gated on the same field — without
+		// it we can't honestly say "Inactive", we just don't know.
+		//   0 = Inactive (not powered)
+		//   1 = Idle     (powered but no fan motion)
+		//   2 = Purifying (fan is moving air)
+		supplyRPM, _ := intField(s.Live, "fan_supply_rpm")
+		extractRPM, _ := intField(s.Live, "fan_extract_rpm")
+		switch {
+		case !power:
+			a.AirPurifier.CurrentAirPurifierState.SetValue(0) //nolint:errcheck
+		case supplyRPM > 0 || extractRPM > 0:
+			a.AirPurifier.CurrentAirPurifierState.SetValue(2) //nolint:errcheck
+		default:
+			a.AirPurifier.CurrentAirPurifierState.SetValue(1) //nolint:errcheck
+		}
 	}
 
 	if pct, ok := intField(s.Configured, "manual_pct"); ok {
@@ -40,21 +55,6 @@ func syncAirPurifier(a *Accessory, s breezy.Status) {
 			target = 0 // Manual
 		}
 		a.AirPurifier.TargetAirPurifierState.SetValue(target) //nolint:errcheck
-	}
-
-	// CurrentAirPurifierState:
-	//   0 = Inactive (not powered)
-	//   1 = Idle     (powered but no fan motion)
-	//   2 = Purifying (fan is moving air)
-	supplyRPM, _ := intField(s.Live, "fan_supply_rpm")
-	extractRPM, _ := intField(s.Live, "fan_extract_rpm")
-	switch {
-	case !powered:
-		a.AirPurifier.CurrentAirPurifierState.SetValue(0) //nolint:errcheck
-	case supplyRPM > 0 || extractRPM > 0:
-		a.AirPurifier.CurrentAirPurifierState.SetValue(2) //nolint:errcheck
-	default:
-		a.AirPurifier.CurrentAirPurifierState.SetValue(1) //nolint:errcheck
 	}
 }
 
