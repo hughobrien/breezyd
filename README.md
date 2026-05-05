@@ -137,7 +137,10 @@ three apps (`default`, `breezyd`, `breezy`), a `devShells.default`, and a
 
 ### NixOS service
 
-Add the flake as an input and import its module:
+Four steps: add the flake input, discover your devices, configure the
+module, rebuild and use it.
+
+#### 1. Add the flake input + module import
 
 ```nix
 {
@@ -148,68 +151,108 @@ Add the flake as an input and import its module:
       system = "x86_64-linux";
       modules = [
         breezyd.nixosModules.default
-        ({ pkgs, ... }: {
-          services.breezyd = {
-            enable = true;
-
-            # Inline settings render to a 0600 TOML at /run/breezyd/breezyd.toml.
-            # Note: anything in `settings` ends up readable in the world-readable
-            # Nix store. Use `configFile` with sops-nix / agenix for real device
-            # passwords.
-            settings = {
-              # Fleet-wide protocol password. Used for the daemon's
-              # wildcard discovery probes and inherited by any device
-              # that doesn't set its own.
-              daemon.password = "your-protocol-password";
-
-              # `ip` is optional — when present the daemon polls
-              # immediately; when absent it's resolved at startup by
-              # discovery. Per-device `password` overrides daemon.password.
-              devices.bedroom  = { id = "BREEZY00000000A0"; };
-              devices.office   = { id = "BREEZY00000000A1"; ip = "192.168.1.148"; };
-              devices.playroom = {
-                id = "BREEZY00000000A2";
-                password = "different-password";
-              };
-            };
-          };
-        })
+        ./breezyd.nix         # the host-specific config from step 3
       ];
     };
   };
 }
 ```
 
-The module creates a `breezyd` system user, runs `breezyd` under
-systemd with hardening (`NoNewPrivileges`, `ProtectSystem=strict`,
-`PrivateTmp`, `MemoryDenyWriteExecute`, etc.), starts after
-`network-online.target`, and adds the `breezy` CLI to
-`environment.systemPackages` so it's on every user's `PATH`. Set
-`services.breezyd.openFirewall = true` if you bind the listener to a
-non-loopback address.
+#### 2. Discover your devices
 
-If `journalctl -u breezyd` shows `discovery complete found=0` while your
-units are reachable (Wi-Fi AP isolation, separate VLANs, or a host
-firewall blocking inbound UDP/4000 are the common causes), specify each
-device's IP statically and the daemon will skip the broadcast step:
+You need each unit's 16-character device ID before you can configure
+it. Run discovery before the module is in place — `nix run` doesn't
+need anything installed:
 
-```nix
-services.breezyd.settings = {
-  daemon.password = "your-protocol-password";
-  devices = {
-    bedroom  = { id = "BREEZY00000000A0"; ip = "192.168.1.148"; };
-    office   = { id = "BREEZY00000000A1"; ip = "192.168.1.152"; };
-    playroom = { id = "BREEZY00000000A2"; ip = "192.168.1.160"; };
-  };
-};
+```sh
+nix run github:hughobrien/breezyd#breezy -- discover
+# 192.168.1.148  id=BREEZY00000000A0  type=17 (Breezy 160)
+# 192.168.1.152  id=BREEZY00000000A1  type=17 (Breezy 160)
+# 192.168.1.160  id=BREEZY00000000A2  type=17 (Breezy 160)
 ```
 
-Find each device's ID/IP pair with `breezy discover` (or
-`breezy discover 192.168.1.148 192.168.1.152 …` if broadcasts are
-dropped on your LAN).
+If your devices use a non-default password, add `-p PASSWORD` (some
+firmware drops mismatched wildcard requests despite the spec).
 
-To automatically register a Prometheus scrape job for `/metrics` when
-the host also runs `services.prometheus`:
+If discover comes back empty but the units are reachable (Wi-Fi AP
+isolation, separate VLANs, or a host firewall blocking UDP/4000 are
+the common causes), pass each IP as a positional arg to send unicast
+wildcards instead:
+
+```sh
+nix run github:hughobrien/breezyd#breezy -- discover -p huffpuff \
+  192.168.1.148 192.168.1.152 192.168.1.160
+```
+
+Note the IDs and IPs — both go into the next step.
+
+#### 3. Configure the module
+
+```nix
+# breezyd.nix
+{
+  services.breezyd = {
+    enable = true;
+    settings = {
+      # Fleet-wide protocol password. Used for the daemon's wildcard
+      # discovery probes and inherited by any device that doesn't set
+      # its own.
+      daemon.password = "huffpuff";
+
+      # `ip` is optional — set it when broadcast is unreliable on your
+      # LAN, and the daemon will skip discovery for that device.
+      # Per-device `password` overrides `daemon.password`.
+      devices.bedroom  = { id = "BREEZY00000000A0"; ip = "192.168.1.148"; };
+      devices.office   = { id = "BREEZY00000000A1"; ip = "192.168.1.152"; };
+      devices.playroom = { id = "BREEZY00000000A2"; ip = "192.168.1.160"; };
+    };
+  };
+}
+```
+
+Inline `settings` render into a 0600 TOML at `/run/breezyd/breezyd.toml`,
+but anything you put there ends up readable in the world-readable Nix
+store. For real device passwords use `services.breezyd.configFile`
+with sops-nix or agenix to point at a secrets-managed file instead.
+
+#### 4. Rebuild and use it
+
+After `nixos-rebuild switch`, the daemon starts and the `breezy` CLI
+is on every user's PATH:
+
+```sh
+$ breezy ls
+NAME      IP                  POWER  MODE          LAST POLL
+bedroom   192.168.1.152:4000  on     supply        29s ago
+office    192.168.1.160:4000  on     regeneration  29s ago
+playroom  192.168.1.148:4000  off    extract       29s ago
+
+$ breezy playroom status      # full snapshot
+$ breezy bedroom speed manual:30
+$ breezy office mode regeneration
+```
+
+If a row shows `?` for power / `never` for last poll, the daemon
+hasn't been able to reach that device yet. Check the log:
+
+```sh
+journalctl -u breezyd -n 50 | grep -E 'discovery|no IP'
+```
+
+`discovery complete found=0` means the wildcard probe didn't get any
+replies — go back to step 2 and add `ip = "..."` per device, which
+bypasses discovery entirely.
+
+#### What the module does
+
+Creates a `breezyd` system user, runs the daemon under systemd with
+hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`,
+`MemoryDenyWriteExecute`, etc.), starts after `network-online.target`,
+and adds the `breezy` CLI to `environment.systemPackages` so it's on
+every user's PATH. Set `services.breezyd.openFirewall = true` if you
+bind the listener to a non-loopback address.
+
+#### Prometheus (optional)
 
 ```nix
 services.breezyd.prometheus.enable = true;
@@ -218,11 +261,11 @@ services.breezyd.prometheus.enable = true;
 # services.breezyd.prometheus.scrapeInterval = "30s";
 ```
 
-This injects an entry into `services.prometheus.scrapeConfigs` only when
-both `services.breezyd.enable` and `services.prometheus.enable` are true.
+Injects an entry into `services.prometheus.scrapeConfigs` only when
+both `services.breezyd.enable` and `services.prometheus.enable` are
+true.
 
-To enable the HomeKit bridge so each configured Breezy shows up as an
-accessory in Apple Home:
+#### HomeKit (optional)
 
 ```nix
 services.breezyd.homekit.enable = true;
@@ -232,6 +275,7 @@ services.breezyd.homekit.enable = true;
 # services.breezyd.homekit.stateDir   = "/var/lib/breezyd/homekit";
 ```
 
+Each configured Breezy appears as a HomeKit accessory in Apple Home.
 The module appends a `[homekit]` block to the generated config and
 manages the state directory under `/var/lib/breezyd`. The pairing PIN
 is auto-generated on first start and printed in the log; reset by
@@ -239,10 +283,10 @@ deleting the state directory. If `port` is non-zero and you want it
 reachable from your phone, set `services.breezyd.openFirewall = true`
 (opens the daemon's listener and the HomeKit port).
 
-If you also keep `services.breezyd.configFile` set (i.e. you manage the
-TOML yourself with sops-nix / agenix), enabling `homekit` still adjusts
-the systemd unit (state directory, optional firewall) but does **not**
-inject a `[homekit]` block into your file — add it yourself.
+If you use `services.breezyd.configFile` (i.e. you manage the TOML
+yourself with sops-nix / agenix), enabling `homekit` still adjusts the
+systemd unit (state directory, firewall) but does **not** inject a
+`[homekit]` block into your file — add it yourself.
 
 ## Getting started
 
