@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `POST /v1/devices/{name}/timer` daemon endpoint with body `{"mode":"off|night|turbo"}`.
   - `breezy <name> timer <off|night|turbo>` CLI verb.
   - Web dashboard now shows a Timer row in the Controls block with a 3-way segmented control and a `Xh Ym remaining` countdown when active.
+- Sensor alert thresholds are editable from the dashboard:
+  - `pkg/breezy.SetThreshold(ctx, c, kind, value)` writes humidity (`0x0019`), co2 (`0x001A`), or voc (`0x031F`) with per-kind range and step validation (humidity 40-80, co2 400-2000 step 10, voc 50-250).
+  - `POST /v1/devices/{name}/threshold` daemon endpoint with body `{"kind":"humidity|co2|voc","value":N}`.
+  - Each editable sensor row now reads `value · alert threshold`; clicking the value opens an inline editor with the right min/max/step constraints.
+- The dashboard's Fans block shows the commanded fan percentage alongside RPM (`X% / Y rpm`); preset percentages (`0x003A`-`0x003F`) are now polled so the value is correct in preset modes too.
+- The card header now shows the 16-byte FDFD device ID between the device name and IP.
+
+### Changed
+
+- The dashboard's current sensor value goes red when the firmware's over-threshold flag is set, giving a glanceable alert state alongside the existing `⚠` warn line under Fans.
+- The Power and Heater toggles now share a 2-wide row at the top of the Controls block instead of stacking vertically.
+- The Speed control no longer has an explicit "manual" button — interacting with the slider is the gesture; preset 1/2/3 deselect when the slider moves.
 
 ### Fixed
 
