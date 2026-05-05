@@ -618,3 +618,34 @@ func TestPoller_ReadError_RecordedInSnapshot(t *testing.T) {
 		t.Errorf("OnError kinds = %v, want [other]", kinds)
 	}
 }
+
+func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
+	p := &Poller{}
+	first := p.LockUDP()
+
+	// A second LockUDP call from a different goroutine must block until the
+	// first releases. We assert by scheduling the second acquire and checking
+	// it doesn't complete while the first is still holding.
+	gotSecond := make(chan struct{})
+	go func() {
+		unlock := p.LockUDP()
+		close(gotSecond)
+		unlock()
+	}()
+
+	select {
+	case <-gotSecond:
+		t.Fatal("second LockUDP returned before first unlocked")
+	case <-time.After(50 * time.Millisecond):
+		// expected: blocked
+	}
+
+	first()
+
+	select {
+	case <-gotSecond:
+		// expected: unblocked once first released
+	case <-time.After(time.Second):
+		t.Fatal("second LockUDP never returned after first unlocked")
+	}
+}

@@ -59,11 +59,12 @@ func (h *Handler) getParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := h.dial(name)
+	client, unlock, err := h.dial(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer client.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -131,11 +132,12 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", fmt.Sprintf("decode hex: %v", err))
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -165,11 +167,12 @@ func (h *Handler) postPower(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'on' field (true/false)")
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -201,11 +204,12 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "set exactly one of 'preset' (1-3) or 'manual' (10-100)")
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -233,11 +237,12 @@ func (h *Handler) postMode(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &body) {
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -263,11 +268,12 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'on' field (true/false)")
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -301,11 +307,12 @@ func (h *Handler) postThreshold(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'value' field")
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -334,11 +341,12 @@ func (h *Handler) postTimer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'mode' field (off|night|turbo)")
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -372,11 +380,12 @@ func (h *Handler) postRTC(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", fmt.Sprintf("parse time %q: %v", body.Time, err))
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()

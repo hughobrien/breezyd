@@ -95,11 +95,12 @@ func (h *Handler) postFilterReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -115,11 +116,12 @@ func (h *Handler) postFaultsReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	rc, raw, err := h.dialRecording(name)
+	rc, raw, unlock, err := h.dialRecording(name)
 	if err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
+	defer unlock()
 	defer raw.Close()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
