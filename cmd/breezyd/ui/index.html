@@ -38,14 +38,18 @@
   .power-off { color: #c00; }
   .row { display: flex; justify-content: space-between; padding: 0.1rem 0; }
   .k { color: #666; }
-  .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
+  .block,
+  .device-info { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
   .block h3,
-  .block summary {
+  .block summary,
+  .device-info summary {
     margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
     color: #333; text-transform: uppercase; letter-spacing: 0.05em;
   }
-  .block summary { cursor: pointer; }
-  .block summary::marker { font-size: 0.7em; color: #888; }
+  .block summary,
+  .device-info summary { cursor: pointer; }
+  .block summary::marker,
+  .device-info summary::marker { font-size: 0.7em; color: #888; }
   .warn { color: #b07000; font-size: 0.85rem; margin-top: 0.4rem; }
   .err-banner {
     background: #fee; border: 1px solid #c66; padding: 0.75rem;
@@ -84,7 +88,11 @@
   .toggle:disabled             { opacity: 0.5; cursor: not-allowed; }
   .slider-row { display: flex; gap: 0.5rem; align-items: center; }
   .slider-row input[type=range] { flex: 1; }
-  .slider-row .val { min-width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
+  /* Symmetric spacer on the left so the slider track sits centered in the
+     row instead of being pushed left by the right-side .val readout. */
+  .slider-row .val-spacer,
+  .slider-row .val { min-width: 3rem; }
+  .slider-row .val { text-align: right; font-variant-numeric: tabular-nums; }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
   .toast {
     background: #fee; border: 1px solid #c66; color: #800;
@@ -145,7 +153,7 @@ const editingThreshold = {}; // name -> kind
 const THRESHOLD_KINDS = {
   humidity: { label: "RH",   suffix: "%",     min: 40,  max: 80,   step: 1,
               valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity" },
-  co2:      { label: "eCO₂", suffix: " ppm", min: 400, max: 2000, step: 10,
+  co2:      { label: "eCO₂", suffix: "ppm",  min: 400, max: 2000, step: 10,
               valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2" },
   voc:      { label: "VOC",  suffix: "",      min: 50,  max: 250,  step: 1,
               valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc" },
@@ -220,18 +228,35 @@ function renderCard(name, snap) {
   const powerLabel = power === true ? "on" : power === false ? "off" : "?";
   const powerCls  = power === true ? "power-on" : "power-off";
 
+  const fw = snap.firmware
+    ? `${esc(snap.firmware.version || "?")} · ${esc(snap.firmware.build_date || "?")}`
+    : "—";
   return `<div class="card${stale ? " stale" : ""}">
     <div class="row">
       <h2>${esc(name)}</h2>
       <span class="${powerCls}">● ${powerLabel}</span>
     </div>
     <div class="row">
-      <span class="ip">${esc(snap.id || "?")}</span>
-    </div>
-    <div class="row">
-      <span class="ip">${esc(snap.ip || "?")}</span>
       <span class="ts${stale ? " red" : ""}">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span>
     </div>
+    <details class="device-info"${(() => {
+      // Collapsed by default; auto-expand when a service condition wants
+      // the user's attention (active fault OR soiled filter), so the
+      // user sees what's wrong without having to click into the panel.
+      const fault = snap.service?.fault_level;
+      const filter = snap.service?.filter_status;
+      const needs = (fault && fault !== "none") || (filter && filter !== "clean");
+      return needs ? " open" : "";
+    })()}>
+      <summary>Device Info</summary>
+      ${kv("serial", esc(snap.id || "?"))}
+      ${kv("ip",     esc(snap.ip || "?"))}
+      ${kv("fw",     fw)}
+      ${kv("filter", filterStatus(snap.service))}
+      ${kv("motor",  humanSeconds(snap.service?.motor_lifetime_seconds))}
+      ${kv("RTC",    fmt(snap.service?.rtc_battery_volts, "—", " V"))}
+      ${kv("faults", fmt(snap.service?.fault_level, "—"))}
+    </details>
 
     <div class="block">
       <h3>Sensors</h3>
@@ -250,24 +275,7 @@ function renderCard(name, snap) {
       ${overrideLine(snap.live)}
     </div>
 
-    <details class="block"${(() => {
-      // Collapsed by default; auto-expand when a service condition wants
-      // the user's attention (active fault OR soiled filter).
-      const fault = snap.service?.fault_level;
-      const filter = snap.service?.filter_status;
-      const needs = (fault && fault !== "none") || (filter && filter !== "clean");
-      return needs ? " open" : "";
-    })()}>
-      <summary>Service</summary>
-      ${kv("filter",  filterStatus(snap.service))}
-      ${kv("motor",   humanSeconds(snap.service?.motor_lifetime_seconds))}
-      ${kv("RTC",     fmt(snap.service?.rtc_battery_volts, "—", " V"))}
-      ${kv("faults",  fmt(snap.service?.fault_level, "—"))}
-    </details>
-
     ${renderControls(name, snap, stale)}
-
-    ${snap.firmware ? `<div class="fw">fw ${esc(snap.firmware.version || "?")} · ${esc(snap.firmware.build_date || "?")}</div>` : ""}
   </div>`;
 }
 
@@ -299,7 +307,7 @@ function thresholdRow(name, kind, snap) {
       <span class="k">${esc(cfg.label)}</span>
       <span class="thresh-edit">
         <span class="${liveCls}">${esc(liveStr)}</span>
-        · alert
+        <span class="thresh-edit-label">set alert ≥</span>
         <input type="number" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}"
                value="${inputVal}"
                data-name="${esc(name)}" data-kind="${esc(kind)}"
@@ -310,21 +318,21 @@ function thresholdRow(name, kind, snap) {
     </div>${toastEl}`;
   }
 
-  const threshStr = (thresh === null || thresh === undefined)
-    ? ""
-    : ` · alert ${esc(String(thresh))}${esc(cfg.suffix)}`;
+  // Display state: show only the live value. The threshold lives in the
+  // editor that opens on click — keeping the row uncluttered while making
+  // the editor itself self-explanatory ("set alert ≥ N").
   return `<div class="row">
     <span class="k">${esc(cfg.label)}</span>
     <span>
       <span class="value-clickable ${liveCls}"
             data-action="edit-threshold" data-name="${esc(name)}" data-kind="${esc(kind)}"
-            >${esc(liveStr)}</span>${threshStr}
+            >${esc(liveStr)}</span>
     </span>
   </div>${toastEl}`;
 }
 
 function tempC(v) {
-  return (v === null || v === undefined) ? "—" : `${esc(v.toFixed(1))} °C`;
+  return (v === null || v === undefined) ? "—" : `${esc(v.toFixed(1))}°C`;
 }
 
 function fmt(v, fallback, suffix) {
@@ -334,8 +342,8 @@ function fmt(v, fallback, suffix) {
 
 function fanLine(pct, rpm) {
   if (rpm === null || rpm === undefined) return "—";
-  if (pct === null || pct === undefined) return `${esc(String(rpm))} rpm`;
-  return `${esc(String(pct))}% / ${esc(String(rpm))} rpm`;
+  if (pct === null || pct === undefined) return `${esc(String(rpm))}rpm`;
+  return `${esc(String(pct))}% / ${esc(String(rpm))}rpm`;
 }
 
 function filterStatus(svc) {
@@ -421,14 +429,14 @@ function renderControls(name, snap, stale) {
         <div class="toggle-cell">
           <button class="toggle" data-action="power" data-name="${esc(name)}" ${dis}
             aria-pressed="${power ? "true" : "false"}">
-            Power
+            power
           </button>
           ${t.power ? `<div class="toast" role="alert">${esc(t.power)}</div>` : ""}
         </div>
         <div class="toggle-cell">
           <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
             aria-pressed="${heater ? "true" : "false"}">
-            Heater
+            heater
           </button>
           ${t.heater ? `<div class="toast" role="alert">${esc(t.heater)}</div>` : ""}
         </div>
@@ -466,6 +474,7 @@ function renderControls(name, snap, stale) {
         ${presetBtn(3)}
       </div>
       <div class="slider-row">
+        <span class="val-spacer"></span>
         <input type="range" min="10" max="100" step="5"
           value="${manualPct}"
           data-action="manual-slider" data-name="${esc(name)}" ${dis}>
