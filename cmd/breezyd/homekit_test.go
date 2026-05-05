@@ -57,8 +57,8 @@ func TestHomekit_PinFileMode(t *testing.T) {
 }
 
 func TestHomekit_PinFormat(t *testing.T) {
-	if got := formatPinDisplay("12345678"); got != "123-45-678" {
-		t.Errorf("formatPinDisplay = %q, want '123-45-678'", got)
+	if got := formatPinDisplay("12345678"); got != "1234-5678" {
+		t.Errorf("formatPinDisplay = %q, want '1234-5678'", got)
 	}
 }
 
