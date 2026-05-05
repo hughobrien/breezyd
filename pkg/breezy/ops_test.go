@@ -155,6 +155,44 @@ func TestOps_SetHeater(t *testing.T) {
 	}
 }
 
+func TestOps_SetTimer(t *testing.T) {
+	cases := map[string]byte{
+		"off":   0,
+		"night": 1,
+		"turbo": 2,
+		"OFF":   0,
+		"Turbo": 2,
+	}
+	for in, want := range cases {
+		c := &recordingClient{}
+		if err := SetTimer(context.Background(), c, in); err != nil {
+			t.Errorf("SetTimer(%q): %v", in, err)
+			continue
+		}
+		if len(c.writes) != 1 || len(c.writes[0]) != 1 {
+			t.Errorf("SetTimer(%q): expected one packet with one write, got %v", in, c.writes)
+			continue
+		}
+		got := c.writes[0][0]
+		if got.ID != 0x0007 {
+			t.Errorf("SetTimer(%q): wrote ID 0x%04X, want 0x0007", in, uint16(got.ID))
+		}
+		if got.Value[0] != want {
+			t.Errorf("SetTimer(%q): wrote 0x%02X, want 0x%02X", in, got.Value[0], want)
+		}
+	}
+	for _, bad := range []string{"sleep", "boost", "auto", ""} {
+		c := &recordingClient{}
+		err := SetTimer(context.Background(), c, bad)
+		if !errors.Is(err, ErrInvalidArg) {
+			t.Errorf("SetTimer(%q): expected ErrInvalidArg, got %v", bad, err)
+		}
+		if len(c.writes) != 0 {
+			t.Errorf("SetTimer(%q): should not have issued any writes", bad)
+		}
+	}
+}
+
 func TestOps_ResetFilter(t *testing.T) {
 	c := &recordingClient{}
 	if err := ResetFilter(context.Background(), c); err != nil {
