@@ -184,6 +184,41 @@ func TestModeValidation(t *testing.T) {
 	}
 }
 
+func TestTimerValidation(t *testing.T) {
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+	for _, m := range []string{"off", "night", "turbo"} {
+		got = stub{}
+		code, _, stderr := runCLI(t, srv, "playroom", "timer", m)
+		if code != 0 {
+			t.Fatalf("timer=%s exit=%d stderr=%q", m, code, stderr)
+		}
+		if got.path != "/v1/devices/playroom/timer" {
+			t.Fatalf("path=%q want /v1/devices/playroom/timer", got.path)
+		}
+		if got.body["mode"] != m {
+			t.Fatalf("body mode=%v want %s", got.body["mode"], m)
+		}
+	}
+	// Bogus mode → exit 2, stderr lists valid modes.
+	code, _, stderr := runCLI(t, srv, "playroom", "timer", "fluff")
+	if code != 2 {
+		t.Fatalf("bogus mode exit=%d", code)
+	}
+	if !strings.Contains(stderr, "off, night, turbo") {
+		t.Fatalf("stderr=%q (should list valid modes)", stderr)
+	}
+	// Missing arg → exit 2, usage message.
+	code, _, stderr = runCLI(t, srv, "playroom", "timer")
+	if code != 2 {
+		t.Fatalf("missing arg exit=%d", code)
+	}
+	if !strings.Contains(stderr, "usage:") {
+		t.Fatalf("stderr=%q (should print usage)", stderr)
+	}
+}
+
 func TestHeater(t *testing.T) {
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
