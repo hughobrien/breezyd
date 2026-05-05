@@ -107,7 +107,20 @@ func localBroadcasts() []string {
 // The returned slice is empty (not nil-on-error) when no devices answered.
 // Errors only surface for socket-level failures (e.g. the local UDP listen
 // failed); per-target send/recv errors are non-fatal.
+//
+// Discovery uses DefaultDiscoveryPassword ("1111", the factory default).
+// If your devices are on a non-default password and ignore wildcard
+// requests with a password mismatch — some firmware versions do, even
+// though the manual says discovery is unauthenticated — use
+// DiscoverWithPassword instead.
 func Discover(ctx context.Context) ([]Found, error) {
+	return DiscoverWithPassword(ctx, DefaultDiscoveryPassword)
+}
+
+// DiscoverWithPassword is like Discover but uses the supplied password
+// instead of DefaultDiscoveryPassword. The wildcard device ID is still
+// DEFAULT_DEVICEID — only the password slot of the request frame changes.
+func DiscoverWithPassword(ctx context.Context, password string) ([]Found, error) {
 	targets := append([]string(nil), DefaultBroadcasts...)
 	seen := make(map[string]struct{}, len(targets))
 	for _, t := range targets {
@@ -119,18 +132,24 @@ func Discover(ctx context.Context) ([]Found, error) {
 			seen[t] = struct{}{}
 		}
 	}
-	return discoverInternal(ctx, targets, true)
+	return discoverInternal(ctx, targets, true, password)
 }
 
 // DiscoverAt is the test- and unicast-friendly variant of Discover: instead
 // of broadcasting it sends the wildcard request to each of targets (which
 // may be unicast addresses such as "127.0.0.1:54321"). The reply parsing
-// and dedupe behavior matches Discover.
+// and dedupe behavior matches Discover. Uses DefaultDiscoveryPassword.
 func DiscoverAt(ctx context.Context, targets []string) ([]Found, error) {
-	return discoverInternal(ctx, targets, false)
+	return DiscoverAtWithPassword(ctx, targets, DefaultDiscoveryPassword)
 }
 
-func discoverInternal(ctx context.Context, targets []string, broadcast bool) ([]Found, error) {
+// DiscoverAtWithPassword is like DiscoverAt but uses the supplied password.
+// See DiscoverWithPassword for the rationale.
+func DiscoverAtWithPassword(ctx context.Context, targets []string, password string) ([]Found, error) {
+	return discoverInternal(ctx, targets, false, password)
+}
+
+func discoverInternal(ctx context.Context, targets []string, broadcast bool, password string) ([]Found, error) {
 	// Bind to an ephemeral local port. ListenPacket on "udp" gives us an
 	// unconnected socket — required because we want to receive replies
 	// from arbitrary peers, not just one we Dial'd.
@@ -156,7 +175,7 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool) ([]
 		}
 	}
 
-	req := EncodeRequest(DefaultDeviceID, DefaultDiscoveryPassword, FuncRead,
+	req := EncodeRequest(DefaultDeviceID, password, FuncRead,
 		BuildReadDataBlock([]ParamID{0x007C, 0x00B9}))
 
 	for _, t := range targets {
@@ -205,7 +224,7 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool) ([]
 			// Read deadline fired or socket closed — listen loop is done.
 			break
 		}
-		f, ok := parseDiscoveryResponse(buf[:n], peer)
+		f, ok := parseDiscoveryResponse(buf[:n], peer, password)
 		if !ok {
 			continue
 		}
@@ -230,11 +249,11 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool) ([]
 // parseDiscoveryResponse decodes one UDP reply to a wildcard probe. It
 // returns ok=false (and skips the response) when the frame is malformed,
 // authentication-tagged, or doesn't carry a real device ID.
-func parseDiscoveryResponse(raw []byte, peer net.Addr) (Found, bool) {
+func parseDiscoveryResponse(raw []byte, peer net.Addr, password string) (Found, bool) {
 	// The response echoes our outgoing wildcard ID and password — that's
 	// what we used to encode the request, so that's what DecodeResponse
 	// must compare against.
-	_, body, err := DecodeResponse(raw, DefaultDeviceID, DefaultDiscoveryPassword)
+	_, body, err := DecodeResponse(raw, DefaultDeviceID, password)
 	if err != nil {
 		return Found{}, false
 	}
