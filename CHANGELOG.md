@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-05-05
+
+### Fixed
+
+- **HomeKit bridge was silently advertising on zero interfaces under the NixOS module's systemd hardening.** Diagnosed via tcpdump on UDP/5353 against a real Apple Home-pairing failure: the daemon's HAP server was running fine, the firewall was open (TCP `homekit.port` + UDP/5353 from v1.6.5), but the bridge never appeared in "Add Accessory". Root cause: `RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ]` excluded `AF_NETLINK`, which Go's `net.Interfaces()` calls on Linux to enumerate interfaces. Without netlink the call silently returns an empty list, `dnssd.MulticastInterfaces()` then has nothing to advertise on, and the bridge runs in mDNS-deaf mode — no log line, no error, just dead silence on UDP/5353. Added `AF_NETLINK` to the allowlist; verified that `breezyd._hap._tcp.local` advertisements appear on the wire under the hardened sandbox after the fix. Apple Home discovery works again.
+
 ## [1.6.5] - 2026-05-05
 
 ### Fixed
@@ -223,7 +229,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.5...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.6...HEAD
+[1.6.6]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.6
 [1.6.5]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.5
 [1.6.4]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.4
 [1.6.3]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.3

@@ -24,7 +24,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        version = "1.6.5";
+        version = "1.6.6";
         commitOrDirty = if self ? rev then self.rev else "dirty";
 
         breezyd-pkg = pkgs.buildGoModule {
