@@ -403,8 +403,8 @@ func TestPoller_NoticeWrite_NonFanWriteDoesNotSetSettle(t *testing.T) {
 		},
 	}
 
-	// 0x0007 (timer) is not a fan-speed write.
-	p.NoticeWrite(0x0007)
+	// 0x0068 (heater) is not a fan-speed write.
+	p.NoticeWrite(0x0068)
 	p.tick(context.Background())
 	got := fc.seenIDs()
 	found := false
@@ -415,6 +415,45 @@ func TestPoller_NoticeWrite_NonFanWriteDoesNotSetSettle(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("non-fan write should not have set settle deadline; got=%v", got)
+	}
+}
+
+func TestPoller_NoticeWrite_TimerWriteSetsSettle(t *testing.T) {
+	state := NewState()
+	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x004A: {0, 0}, 0x0001: {1}}}
+
+	p := &Poller{
+		Name:     "x",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001, 0x004A},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+	}
+
+	// 0x0007 (timer) DOES change fan speed — entering turbo ramps up,
+	// entering night ramps down. Suppress fan-sensitive reads for the
+	// settle window after such a write.
+	p.NoticeWrite(0x0007)
+	p.tick(context.Background())
+	got := fc.seenIDs()
+	for _, id := range got {
+		if id == 0x004A {
+			t.Errorf("0x004A read during settle window after timer write; want skipped (got=%v)", got)
+		}
+	}
+	hasPower := false
+	for _, id := range got {
+		if id == 0x0001 {
+			hasPower = true
+		}
+	}
+	if !hasPower {
+		t.Errorf("settle-tick should still read non-fan params; got=%v", got)
 	}
 }
 
