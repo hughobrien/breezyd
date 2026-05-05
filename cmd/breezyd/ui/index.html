@@ -106,11 +106,6 @@ const lastSnapshots = {}; // name -> {snapshot fields, _fetchedAt}
 const inFlight = {}; // name -> bool
 // Per-control toasts. Cleared on next successful poll.
 const toasts = {}; // name -> { control: msg }
-// User clicked "manual" but hasn't moved the slider yet — keep the slider
-// enabled across polls until either a slider change POSTs (which makes
-// configured.speed_mode == "manual" become server truth) or the user
-// picks a preset. Cleared in refreshAll along with toasts.
-const pendingManual = {}; // name -> true
 
 async function bootstrap() {
   try {
@@ -312,11 +307,6 @@ function renderControls(name, snap, stale) {
     `<button data-action="preset" data-name="${esc(name)}" data-value="${n}" ${dis}
         aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${n}</button>`;
 
-  const manualPressed = speedMode === "manual" || pendingManual[name] === true;
-  const manualBtn =
-    `<button data-action="manual-mode" data-name="${esc(name)}" ${dis}
-        aria-pressed="${manualPressed ? "true" : "false"}">manual</button>`;
-  const sliderDis = (disabled || !manualPressed) ? "disabled" : "";
 
   return `<div class="controls">
     <h3>Controls</h3>
@@ -370,12 +360,11 @@ function renderControls(name, snap, stale) {
         ${presetBtn(1)}
         ${presetBtn(2)}
         ${presetBtn(3)}
-        ${manualBtn}
       </div>
       <div class="slider-row">
         <input type="range" min="10" max="100" step="5"
           value="${manualPct}"
-          data-action="manual-slider" data-name="${esc(name)}" ${sliderDis}>
+          data-action="manual-slider" data-name="${esc(name)}" ${dis}>
         <span class="val">${manualPct}%</span>
       </div>
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
@@ -404,18 +393,8 @@ document.addEventListener("click", async (ev) => {
                       { mode: value });
       break;
     case "preset":
-      // User changed their mind back to a preset; drop any pending-manual intent.
-      delete pendingManual[name];
       await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                       { preset: parseInt(value, 10) });
-      break;
-    case "manual-mode":
-      // Selecting manual just enables the slider; no POST until the
-      // slider value changes. Track the intent in pendingManual so the
-      // slider stays enabled across polls (don't mutate snap, which is
-      // a server-truth mirror).
-      pendingManual[name] = true;
-      render();
       break;
     case "heater":
       await postWrite(name, "heater", "/v1/devices/" + encodeURIComponent(name) + "/heater",
@@ -434,9 +413,6 @@ document.addEventListener("change", async (ev) => {
   if (!el.matches('input[type="range"][data-action="manual-slider"]')) return;
   const name = el.dataset.name;
   const pct = parseInt(el.value, 10);
-  // Slider change commits the manual intent — server will now report
-  // speed_mode "manual", so the pendingManual hint is no longer needed.
-  delete pendingManual[name];
   await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                   { manual: pct });
 });
