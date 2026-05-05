@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-05
+
+### Added
+
+- New `[daemon].password` config field (and matching `services.breezyd.settings.daemon.password` on NixOS) sets a fleet-wide protocol password. It's used for the daemon's startup and periodic wildcard discovery probes — replacing the hardcoded factory `"1111"` — and inherited by any `[devices.NAME]` block that omits its own `password`. Most users have all units on the same password and can now set it once instead of per-device. Per-device `password = "..."` still overrides for mixed-fleet hosts. When `[daemon].password` is unset the behaviour is unchanged: discovery uses `"1111"`, and devices keep whatever password (or empty) they were configured with.
+
+  This fixes the silent `discovery complete found=0` log line on hosts where the units are reachable but use a non-default password — same firmware quirk we patched on the CLI side in v1.5.0 with `breezy discover -p PASSWORD`. Add `password = "your-pw"` to `[daemon]` and discovery will populate device IPs at startup again.
+
 ## [1.5.2] - 2026-05-05
 
 ### Changed
@@ -169,7 +177,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.0
 [1.5.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.2
 [1.5.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.1
 [1.5.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.0

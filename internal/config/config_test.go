@@ -95,6 +95,60 @@ password = "testpwd"
 	}
 }
 
+func TestLoad_DaemonPasswordInherited(t *testing.T) {
+	// Devices without an explicit `password` should inherit
+	// [daemon].password. Devices with their own password keep it.
+	path := writeConfig(t, `
+[daemon]
+password = "fleetpwd"
+
+[devices.bedroom]
+id = "BREEZY00000000A0"
+
+[devices.office]
+id       = "BREEZY00000000A1"
+password = "override"
+
+[devices.playroom]
+id = "BREEZY00000000A2"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Daemon.Password != "fleetpwd" {
+		t.Errorf("Daemon.Password = %q, want fleetpwd", cfg.Daemon.Password)
+	}
+	if got := cfg.Devices["bedroom"].Password; got != "fleetpwd" {
+		t.Errorf("bedroom inherited = %q, want fleetpwd", got)
+	}
+	if got := cfg.Devices["office"].Password; got != "override" {
+		t.Errorf("office override = %q, want override", got)
+	}
+	if got := cfg.Devices["playroom"].Password; got != "fleetpwd" {
+		t.Errorf("playroom inherited = %q, want fleetpwd", got)
+	}
+}
+
+func TestLoad_DaemonPasswordAbsentLeavesEmpty(t *testing.T) {
+	// When [daemon].password is unset, devices without their own
+	// password stay empty (current behaviour preserved).
+	path := writeConfig(t, `
+[devices.bedroom]
+id = "BREEZY00000000A0"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Daemon.Password != "" {
+		t.Errorf("Daemon.Password = %q, want empty", cfg.Daemon.Password)
+	}
+	if got := cfg.Devices["bedroom"].Password; got != "" {
+		t.Errorf("bedroom.Password = %q, want empty (no inheritance)", got)
+	}
+}
+
 func TestLoad_EmptyDevicesAccepted(t *testing.T) {
 	path := writeConfig(t, `
 [daemon]
