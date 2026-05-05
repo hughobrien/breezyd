@@ -39,10 +39,13 @@
   .row { display: flex; justify-content: space-between; padding: 0.1rem 0; }
   .k { color: #666; }
   .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
-  .block h3 {
+  .block h3,
+  .block summary {
     margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
     color: #333; text-transform: uppercase; letter-spacing: 0.05em;
   }
+  .block summary { cursor: pointer; }
+  .block summary::marker { font-size: 0.7em; color: #888; }
   .warn { color: #b07000; font-size: 0.85rem; margin-top: 0.4rem; }
   .err-banner {
     background: #fee; border: 1px solid #c66; padding: 0.75rem;
@@ -247,13 +250,20 @@ function renderCard(name, snap) {
       ${overrideLine(snap.live)}
     </div>
 
-    <div class="block">
-      <h3>Service</h3>
+    <details class="block"${(() => {
+      // Collapsed by default; auto-expand when a service condition wants
+      // the user's attention (active fault OR soiled filter).
+      const fault = snap.service?.fault_level;
+      const filter = snap.service?.filter_status;
+      const needs = (fault && fault !== "none") || (filter && filter !== "clean");
+      return needs ? " open" : "";
+    })()}>
+      <summary>Service</summary>
       ${kv("filter",  filterStatus(snap.service))}
       ${kv("motor",   humanSeconds(snap.service?.motor_lifetime_seconds))}
       ${kv("RTC",     fmt(snap.service?.rtc_battery_volts, "—", " V"))}
       ${kv("faults",  fmt(snap.service?.fault_level, "—"))}
-    </div>
+    </details>
 
     ${renderControls(name, snap, stale)}
 
