@@ -33,6 +33,7 @@ const pollBatchSize = 30
 // skip the params in fanSensitiveReads.
 var fanWriteIDs = map[breezy.ParamID]bool{
 	0x0002: true, // speed_mode
+	0x0007: true, // timer (entering/leaving night|turbo ramps fans)
 	0x0044: true, // speed_manual_pct
 	0x00B7: true, // fan_rotation_direction
 }
