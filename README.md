@@ -179,6 +179,26 @@ systemd with hardening (`NoNewPrivileges`, `ProtectSystem=strict`,
 `network-online.target`. Set `services.breezyd.openFirewall = true` if
 you bind the listener to a non-loopback address.
 
+If `journalctl -u breezyd` shows `discovery complete found=0` while your
+units are reachable (Wi-Fi AP isolation, separate VLANs, or a host
+firewall blocking inbound UDP/4000 are the common causes), specify each
+device's IP statically and the daemon will skip the broadcast step:
+
+```nix
+services.breezyd.settings = {
+  daemon.password = "your-protocol-password";
+  devices = {
+    bedroom  = { id = "BREEZY00000000A0"; ip = "192.168.1.148"; };
+    office   = { id = "BREEZY00000000A1"; ip = "192.168.1.152"; };
+    playroom = { id = "BREEZY00000000A2"; ip = "192.168.1.160"; };
+  };
+};
+```
+
+Find each device's ID/IP pair with `breezy discover` (or
+`breezy discover 192.168.1.148 192.168.1.152 …` if broadcasts are
+dropped on your LAN).
+
 The module ships **only the daemon** — it does not put the `breezy` CLI on
 every user's `PATH`. The CLI is a separate binary (same derivation) used
 either ad-hoc against the daemon's HTTP API or in standalone mode without
