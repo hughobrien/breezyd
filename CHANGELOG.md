@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.7] - 2026-05-05
+
+### Changed
+
+- HomeKit PIN log line now formats as `XXXX-XXXX` (4-4) instead of `XXX-XX-XXX` (3-2-3). Easier to read off the log; iOS accepts the same 8 digits in either form during pairing. The actual PIN handed to brutella/hap is still the raw 8-digit value — only the log display changed.
+
 ## [1.6.6] - 2026-05-05
 
 ### Fixed
@@ -229,7 +235,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.6...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.7...HEAD
+[1.6.7]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.7
 [1.6.6]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.6
 [1.6.5]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.5
 [1.6.4]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.4

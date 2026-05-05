@@ -192,12 +192,14 @@ func generatePin() (string, error) {
 	}
 }
 
-// formatPinDisplay formats an 8-digit PIN as "XXX-XX-XXX".
+// formatPinDisplay formats an 8-digit PIN as "XXXX-XXXX" for the log.
+// The raw 8-digit value is what brutella/hap (and iOS) expect; the dash
+// is purely cosmetic so the operator can read it back at a glance.
 func formatPinDisplay(pin string) string {
 	if len(pin) != 8 {
 		return pin
 	}
-	return pin[:3] + "-" + pin[3:5] + "-" + pin[5:]
+	return pin[:4] + "-" + pin[4:]
 }
 
 // isDigits reports whether s consists entirely of ASCII digits.
