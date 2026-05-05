@@ -4,7 +4,7 @@
     {
       "id": 1,
       "subject": "Task 1: pkg/breezy.SetTimer op + tests",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Library-level function that writes the timer mode byte to 0x0007. Mirrors SetHeater.\n\n**Files:**\n- Modify: `pkg/breezy/ops.go` (after SetHeater, around line 87)\n- Modify: `pkg/breezy/ops_test.go` (after TestOps_SetHeater)\n\n**Acceptance Criteria:**\n- SetTimer accepts off/night/turbo (case-insensitive), writes 0x0007 with byte 0/1/2\n- Unknown modes return ErrInvalidArg, no write emitted\n\n**Verify:** `go test ./pkg/breezy/ -run TestOps_SetTimer -v`\n\n```json:metadata\n{\"files\": [\"pkg/breezy/ops.go\", \"pkg/breezy/ops_test.go\"], \"verifyCommand\": \"go test ./pkg/breezy/ -run TestOps_SetTimer -v\", \"acceptanceCriteria\": [\"SetTimer writes 0x0007 with mode byte\", \"Bad mode returns ErrInvalidArg\"]}\n```"
     },
     {
