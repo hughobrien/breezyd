@@ -275,3 +275,53 @@ test("daemon-unreachable: bootstrap failure shows the top error banner", async (
   await loadDashboard(page, { failBootstrap: true });
   await expect(page.locator(".err-banner")).toContainText("cannot reach daemon");
 });
+
+test("timer turbo: button pressed and countdown line rendered", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: {
+        special_mode: "turbo",
+        special_mode_remaining_seconds: 5400, // 1h 30m
+        in_user_control: false,
+        sensor_alerts: { humidity: false, co2: false, voc: false },
+      },
+    }),
+  });
+  const card = page.locator(".card").first();
+  await expect(
+    card.locator('button[data-action="timer"][data-value="turbo"]'),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    card.locator('button[data-action="timer"][data-value="off"]'),
+  ).toHaveAttribute("aria-pressed", "false");
+  await expect(card).toContainText("1h 30m remaining");
+});
+
+test("timer override: warn line attributes the override to the timer, not sensors", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: {
+        special_mode: "turbo",
+        special_mode_remaining_seconds: 600,
+        in_user_control: false,
+        sensor_alerts: { humidity: false, co2: false, voc: false },
+      },
+    }),
+  });
+  const warn = page.locator(".card .warn");
+  await expect(warn).toContainText("timer active (turbo)");
+  await expect(warn).not.toContainText("sensor override");
+});
+
+test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+  });
+  await page.click('button[data-action="timer"][data-name="playroom"][data-value="night"]');
+  await page.waitForTimeout(150);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/timer"));
+  expect(post).toBeTruthy();
+  expect(post!.body).toEqual({ mode: "night" });
+});
