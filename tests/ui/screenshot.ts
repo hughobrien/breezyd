@@ -26,10 +26,12 @@ function snapshot(name: string) {
       fan_supply_rpm: name === "office" ? 0 : (name === "playroom" ? 5340 : 3120),
       fan_extract_rpm: name === "office" ? 0 : (name === "playroom" ? 5400 : 3180),
       heater_running: false,
-      in_user_control: name !== "playroom",
+      in_user_control: name !== "playroom" && name !== "bedroom",
       sensor_alerts: name === "playroom"
         ? { humidity: false, co2: true, voc: true }
         : { humidity: false, co2: false, voc: false },
+      special_mode: name === "bedroom" ? "night" : "off",
+      special_mode_remaining_seconds: name === "bedroom" ? 21600 : 0, // 6h
     },
     sensors: {
       humidity_pct: name === "playroom" ? 52 : name === "bedroom" ? 47 : 41,
