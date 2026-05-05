@@ -159,6 +159,34 @@ func cmdHeater(b backend, name string, args []string, stdout, stderr io.Writer) 
 	return 0
 }
 
+// validTimerModes is the set the daemon will accept; we mirror it locally
+// so a typo doesn't waste a round-trip and produce a vaguer error.
+var validTimerModes = map[string]bool{
+	"off":   true,
+	"night": true,
+	"turbo": true,
+}
+
+func cmdTimer(b backend, name string, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "usage: breezy <name> timer <off|night|turbo>")
+		return 2
+	}
+	mode := strings.ToLower(args[0])
+	if !validTimerModes[mode] {
+		fmt.Fprintf(stderr, "timer: %q is not one of: off, night, turbo\n", args[0])
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := b.Timer(ctx, name, mode); err != nil {
+		fmt.Fprintf(stderr, "error: %s\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "ok")
+	return 0
+}
+
 func cmdResetFilter(b backend, name string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
