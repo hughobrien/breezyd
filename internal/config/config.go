@@ -39,6 +39,7 @@ var periodicRe = regexp.MustCompile(`^periodic:(.+)$`)
 // Config is the top-level config structure.
 type Config struct {
 	Daemon  Daemon
+	Homekit Homekit
 	Devices map[string]Device
 }
 
@@ -50,6 +51,22 @@ type Daemon struct {
 	PollInterval time.Duration
 	// Discovery is one of "on-start", "off", or "periodic:<duration>".
 	Discovery string
+}
+
+// Homekit holds HomeKit bridge settings. The bridge is opt-in via
+// Enabled; defaults for BridgeName and StateDir are applied by Load
+// when Enabled is true.
+type Homekit struct {
+	// Enabled controls whether the daemon starts the HAP server.
+	Enabled bool
+	// BridgeName is shown in iOS during pairing. Default "breezyd".
+	BridgeName string
+	// Port is the TCP port the HAP server binds to. 0 = ephemeral.
+	Port int
+	// StateDir holds pairing keys + the generated PIN. Default
+	// $XDG_STATE_HOME/breezyd/homekit. Delete to factory-reset
+	// pairing.
+	StateDir string
 }
 
 // Device is a single configured device.
@@ -68,7 +85,15 @@ type Device struct {
 // nicer error message than the TOML library's generic decode failure.
 type rawConfig struct {
 	Daemon  rawDaemon            `toml:"daemon"`
+	Homekit rawHomekit           `toml:"homekit"`
 	Devices map[string]rawDevice `toml:"devices"`
+}
+
+type rawHomekit struct {
+	Enabled    bool   `toml:"enabled"`
+	BridgeName string `toml:"bridge_name"`
+	Port       int    `toml:"port"`
+	StateDir   string `toml:"state_dir"`
 }
 
 type rawDaemon struct {
@@ -111,6 +136,29 @@ func Load(path string) (*Config, error) {
 			Discovery: raw.Daemon.Discovery,
 		},
 		Devices: make(map[string]Device, len(raw.Devices)),
+	}
+
+	cfg.Homekit = Homekit{
+		Enabled:    raw.Homekit.Enabled,
+		BridgeName: raw.Homekit.BridgeName,
+		Port:       raw.Homekit.Port,
+		StateDir:   raw.Homekit.StateDir,
+	}
+	if cfg.Homekit.Enabled {
+		if cfg.Homekit.BridgeName == "" {
+			cfg.Homekit.BridgeName = "breezyd"
+		}
+		if len(cfg.Homekit.BridgeName) > 32 {
+			return nil, fmt.Errorf("config: homekit bridge_name must be <= 32 chars, got %d", len(cfg.Homekit.BridgeName))
+		}
+		if cfg.Homekit.Port != 0 && (cfg.Homekit.Port < 1024 || cfg.Homekit.Port > 65535) {
+			return nil, fmt.Errorf("config: homekit port must be 0 or 1024-65535, got %d", cfg.Homekit.Port)
+		}
+		expanded, err := expandStateDir(cfg.Homekit.StateDir)
+		if err != nil {
+			return nil, fmt.Errorf("config: homekit state_dir: %w", err)
+		}
+		cfg.Homekit.StateDir = expanded
 	}
 
 	// Defaults.
@@ -169,6 +217,31 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// expandStateDir applies ~/$HOME and $XDG_STATE_HOME defaults for
+// the homekit state directory. An empty input returns the default
+// $XDG_STATE_HOME/breezyd/homekit (or $HOME/.local/state/... when
+// XDG_STATE_HOME is unset).
+func expandStateDir(in string) (string, error) {
+	if in == "" {
+		if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+			return filepath.Join(x, "breezyd", "homekit"), nil
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, ".local", "state", "breezyd", "homekit"), nil
+	}
+	if strings.HasPrefix(in, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, in[2:]), nil
+	}
+	return in, nil
 }
 
 // defaultConfigTemplate is the content WriteDefault writes for a fresh

@@ -366,3 +366,92 @@ func TestWriteDefault_RefusesToOverwrite(t *testing.T) {
 		t.Errorf("WriteDefault clobbered existing file; got %q", string(got))
 	}
 }
+
+func TestLoad_HomekitDisabledByDefault(t *testing.T) {
+	path := writeConfig(t, `
+[devices.playroom]
+id       = "BREEZY00000000A0"
+password = "testpwd"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Homekit.Enabled {
+		t.Error("Homekit.Enabled defaults to false")
+	}
+}
+
+func TestLoad_HomekitEnabledDefaults(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path := writeConfig(t, `
+[homekit]
+enabled = true
+
+[devices.playroom]
+id       = "BREEZY00000000A0"
+password = "testpwd"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Homekit.Enabled {
+		t.Error("Enabled = false, want true")
+	}
+	if cfg.Homekit.BridgeName != "breezyd" {
+		t.Errorf("BridgeName = %q, want default 'breezyd'", cfg.Homekit.BridgeName)
+	}
+	if !strings.HasSuffix(cfg.Homekit.StateDir, "/breezyd/homekit") {
+		t.Errorf("StateDir = %q, want path ending in /breezyd/homekit", cfg.Homekit.StateDir)
+	}
+}
+
+func TestLoad_HomekitBridgeNameTooLong(t *testing.T) {
+	path := writeConfig(t, `
+[homekit]
+enabled     = true
+bridge_name = "this-name-is-way-too-long-for-the-32-char-limit"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for long bridge_name")
+	}
+	if !strings.Contains(err.Error(), "32 chars") {
+		t.Errorf("error should mention 32 char limit: %v", err)
+	}
+}
+
+func TestLoad_HomekitBadPort(t *testing.T) {
+	path := writeConfig(t, `
+[homekit]
+enabled = true
+port    = 80
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for low port")
+	}
+	if !strings.Contains(err.Error(), "1024-65535") {
+		t.Errorf("error should mention port range: %v", err)
+	}
+}
+
+func TestLoad_HomekitTildeExpansion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "")
+	path := writeConfig(t, `
+[homekit]
+enabled   = true
+state_dir = "~/.config/breezyd/homekit"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := filepath.Join(home, ".config", "breezyd", "homekit")
+	if cfg.Homekit.StateDir != want {
+		t.Errorf("StateDir = %q, want %q", cfg.Homekit.StateDir, want)
+	}
+}
