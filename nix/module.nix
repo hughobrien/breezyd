@@ -218,6 +218,11 @@ in {
     };
     users.groups.${cfg.group} = { };
 
+    # Put the `breezy` CLI on every user's PATH alongside the daemon.
+    # Same derivation produces both binaries, so this is free; users who
+    # enable the daemon almost always want the CLI to talk to it.
+    environment.systemPackages = [ cfg.package ];
+
     # If no configFile is provided, materialise settings into a 0600 file
     # in /run/breezyd. The loader checks mode bits, so 0600 is required.
     systemd.tmpfiles.rules = lib.mkIf (cfg.configFile == null) [

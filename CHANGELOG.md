@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-05-05
+
+### Changed
+
+- The NixOS module now adds the `breezy` CLI to `environment.systemPackages` automatically when `services.breezyd.enable = true`. Same derivation produces both binaries, so the CLI is free; users almost always want it on `PATH` to talk to the daemon they just enabled. Drops the manual `environment.systemPackages = [ config.services.breezyd.package ];` step from the README NixOS instructions. No opt-out knob — anyone in the niche "daemon but no CLI" case can shadow the binary.
+
 ## [1.6.1] - 2026-05-05
 
 ### Documentation
@@ -184,7 +190,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.2...HEAD
+[1.6.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.2
 [1.6.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.1
 [1.6.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.0
 [1.5.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.2
