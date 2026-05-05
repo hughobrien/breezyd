@@ -203,6 +203,29 @@ services.breezyd.prometheus.enable = true;
 This injects an entry into `services.prometheus.scrapeConfigs` only when
 both `services.breezyd.enable` and `services.prometheus.enable` are true.
 
+To enable the HomeKit bridge so each configured Breezy shows up as an
+accessory in Apple Home:
+
+```nix
+services.breezyd.homekit.enable = true;
+# Optional tunables, defaults shown:
+# services.breezyd.homekit.port       = 0;          # 0 = ephemeral; pin if firewalling
+# services.breezyd.homekit.bridgeName = "breezyd";  # name shown during pairing
+# services.breezyd.homekit.stateDir   = "/var/lib/breezyd/homekit";
+```
+
+The module appends a `[homekit]` block to the generated config and
+manages the state directory under `/var/lib/breezyd`. The pairing PIN
+is auto-generated on first start and printed in the log; reset by
+deleting the state directory. If `port` is non-zero and you want it
+reachable from your phone, set `services.breezyd.openFirewall = true`
+(opens the daemon's listener and the HomeKit port).
+
+If you also keep `services.breezyd.configFile` set (i.e. you manage the
+TOML yourself with sops-nix / agenix), enabling `homekit` still adjusts
+the systemd unit (state directory, optional firewall) but does **not**
+inject a `[homekit]` block into your file — add it yourself.
+
 ## Getting started
 
 The CLI works on its own — you only need the daemon if you want polling,
