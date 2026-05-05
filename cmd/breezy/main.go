@@ -4,8 +4,10 @@
 // default it talks UDP directly to each configured device (standalone
 // mode). When the user opts in via --daemon URL or [daemon].listen in
 // ~/.config/breezy/config.toml, it talks HTTP to the breezyd daemon
-// instead. `discover` always performs a LAN broadcast directly,
-// independent of mode.
+// instead. `discover` always issues UDP directly to the LAN —
+// broadcasting by default, or unicast to positional IP arguments
+// (`breezy discover 192.168.1.148 ...`) when the network drops
+// broadcasts. Independent of mode.
 //
 // The CLI surface is "subject before verb" so per-device verbs read
 // naturally:
@@ -106,7 +108,7 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	case "ls":
 		return cmdLs(b, stdout, stderr)
 	case "discover":
-		return cmdDiscover(stdout, stderr)
+		return cmdDiscover(rest[1:], stdout, stderr)
 	case "daemon-url":
 		url := b.DaemonURLString()
 		if url == "" {
@@ -193,7 +195,7 @@ Per-device verbs:
 
 Globals:
   ls                    one-line summary of every configured device
-  discover              LAN broadcast (used during initial setup)
+  discover [ip...]      LAN broadcast (or unicast to each IP if given)
   daemon-url            print the URL the CLI would use
   param                 list known parameters (id, type, unit, caps)
 `

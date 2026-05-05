@@ -221,6 +221,18 @@ ip       = "192.168.1.160"
 Run `breezy discover` once on a fresh install to learn each unit's 16-character
 device ID; copy them into the config file along with your protocol password.
 
+If your network drops UDP broadcasts (Wi-Fi AP isolation, mesh hops, separate
+VLANs) the broadcast form will return "no Breezy devices found on the LAN"
+even when the units are reachable. In that case ping each unit to confirm
+its IP, then pass the IPs as positional args:
+
+```sh
+breezy discover 192.168.1.148 192.168.1.152 192.168.1.160
+```
+
+`breezy discover` then sends the wildcard request unicast to each address
+and prints `<ip>  id=<id>  type=<n>` for every device that replies.
+
 ## First run
 
 The daemon writes a default config on the first run if one doesn't exist
@@ -385,7 +397,7 @@ so per-device commands read naturally:
 | Command                              | What it does                                 |
 | ------------------------------------ | -------------------------------------------- |
 | `breezy ls`                          | one-line table of every configured device   |
-| `breezy discover`                    | LAN broadcast (used during initial setup)   |
+| `breezy discover [ip...]`            | LAN broadcast, or unicast to each IP if given |
 | `breezy param`                       | list known parameters (id, type, unit, caps; use `name` with `get`/`set`) |
 | `breezy playroom status`             | full structured snapshot                     |
 | `breezy bedroom on` / `off`          | power                                        |
