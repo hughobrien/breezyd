@@ -10,49 +10,49 @@
     {
       "id": 2,
       "subject": "Task 2: Add 0x0007 to fanWriteIDs",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Apply existing 12s fan-settle suppression window to timer writes.\n\n**Files:**\n- Modify: `cmd/breezyd/poller.go:34-38`\n- Modify: `cmd/breezyd/poller_test.go:389-419`\n\n**Verify:** `go test ./cmd/breezyd/ -run TestPoller_NoticeWrite -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/poller.go\", \"cmd/breezyd/poller_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run TestPoller_NoticeWrite -v\", \"acceptanceCriteria\": [\"0x0007 in fanWriteIDs\", \"Existing non-fan test uses 0x0068\", \"New positive test for 0x0007 passes\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: POST /v1/devices/{name}/timer handler",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1, 2],
       "description": "**Goal:** Daemon endpoint mirroring postHeater. Cache + fan-settle notice via dialRecording.\n\n**Files:**\n- Modify: `cmd/breezyd/handlers_device.go`\n- Modify: `cmd/breezyd/server.go:209`\n- Modify: `cmd/breezyd/server_test.go`\n\n**Verify:** `go test ./cmd/breezyd/ -run TestHandler_PostTimer -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_device.go\", \"cmd/breezyd/server.go\", \"cmd/breezyd/server_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run TestHandler_PostTimer -v\", \"acceptanceCriteria\": [\"Round-trip works\", \"Bad mode 400\", \"Missing mode 400\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: CLI verb breezy <name> timer",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** CLI verb in both daemon and standalone modes.\n\n**Files:**\n- Modify: `cmd/breezy/backend.go`\n- Modify: `cmd/breezy/commands.go`\n- Modify: `cmd/breezy/main.go`\n\n**Verify:** `go test ./cmd/breezy/ -v && go build ./...`\n\n```json:metadata\n{\"files\": [\"cmd/breezy/backend.go\", \"cmd/breezy/commands.go\", \"cmd/breezy/main.go\"], \"verifyCommand\": \"go test ./cmd/breezy/ -v && go build ./...\", \"acceptanceCriteria\": [\"Timer in interface and both backends\", \"cmdTimer with usage validation\", \"Help text updated\"]}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: Webui Timer row + countdown + override-line fix",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Timer row in Controls block, countdown line, click handler, fixed overrideLine.\n\n**Files:**\n- Modify: `cmd/breezyd/ui/index.html`\n\n**Verify:** Visual smoke test\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/index.html\"], \"verifyCommand\": \"just lint && just build\", \"acceptanceCriteria\": [\"Timer row renders\", \"Countdown line when active\", \"Override line distinguishes timer from sensor\"]}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: Playwright tests for timer UI",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5],
       "description": "**Goal:** Lock UI rendering and click contract.\n\n**Files:**\n- Modify: `tests/ui/dashboard.spec.ts`\n\n**Verify:** `just test-ui`\n\n```json:metadata\n{\"files\": [\"tests/ui/dashboard.spec.ts\"], \"verifyCommand\": \"just test-ui\", \"acceptanceCriteria\": [\"Turbo render test\", \"Override copy test\", \"Click POST test\"]}\n```"
     },
     {
       "id": 7,
       "subject": "Task 7: Update screenshot fixture and regenerate PNGs",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [5, 6],
       "description": "**Goal:** Make Timer row visible in README screenshot.\n\n**Files:**\n- Modify: `tests/ui/screenshot.ts`\n- Regenerate: `tests/ui/screenshots/dashboard-3col.png`, `tests/ui/screenshots/dashboard-1col.png`\n\n**Verify:** `just screenshot && git diff --stat tests/ui/screenshots/`\n\n```json:metadata\n{\"files\": [\"tests/ui/screenshot.ts\", \"tests/ui/screenshots/dashboard-3col.png\", \"tests/ui/screenshots/dashboard-1col.png\"], \"verifyCommand\": \"just screenshot\", \"acceptanceCriteria\": [\"Snapshot has timer fields\", \"PNGs regenerated\", \"Timer row visible in 3-col\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Update README + CHANGELOG",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4, 7],
       "description": "**Goal:** Document new capability.\n\n**Files:**\n- Modify: `README.md`\n- Modify: `CHANGELOG.md`\n\n**Verify:** `git diff README.md CHANGELOG.md`\n\n```json:metadata\n{\"files\": [\"README.md\", \"CHANGELOG.md\"], \"verifyCommand\": \"git diff README.md CHANGELOG.md\", \"acceptanceCriteria\": [\"README updated in 3 places\", \"CHANGELOG entry added\"]}\n```"
     }
