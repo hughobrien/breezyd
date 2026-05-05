@@ -201,8 +201,8 @@ function renderCard(name, snap) {
 
     <div class="block">
       <h3>Fans</h3>
-      ${kv("supply",   fmt(snap.live?.fan_supply_rpm, "—", " rpm"))}
-      ${kv("extract",  fmt(snap.live?.fan_extract_rpm, "—", " rpm"))}
+      ${kv("supply",   fanLine(snap.live?.fan_supply_pct, snap.live?.fan_supply_rpm))}
+      ${kv("extract",  fanLine(snap.live?.fan_extract_pct, snap.live?.fan_extract_rpm))}
       ${overrideLine(snap.live)}
     </div>
 
@@ -231,6 +231,12 @@ function tempC(v) {
 function fmt(v, fallback, suffix) {
   if (v === null || v === undefined) return fallback;
   return `${esc(String(v))}${suffix || ""}`;
+}
+
+function fanLine(pct, rpm) {
+  if (rpm === null || rpm === undefined) return "—";
+  if (pct === null || pct === undefined) return `${esc(String(rpm))} rpm`;
+  return `${esc(String(pct))}% / ${esc(String(rpm))} rpm`;
 }
 
 function filterStatus(svc) {
