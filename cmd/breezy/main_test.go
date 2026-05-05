@@ -926,3 +926,50 @@ func TestStandaloneFaults(t *testing.T) {
 	// Output is either "no active faults" (snapshot has none) or a list.
 	// Either is fine — what matters is the call completed without error.
 }
+
+// TestDiscover_UnicastTargets exercises the positional-target form
+// of `breezy discover`, which sends the wildcard request unicast to
+// each given address. This is the workaround for networks that drop
+// UDP broadcasts (Wi-Fi AP isolation, mesh hops, VLAN).
+func TestDiscover_UnicastTargets(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := startFakeDevice(t)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"discover", fake.Addr()}, &stdout, &stderr, nil)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	// Discover wildcard reads param 0x7C from the device, which is the
+	// device's own configured ID — for the fakedevice that's the value
+	// stored in snapshot_148.json (BREEZY-prefix), NOT the ID we passed
+	// to fakedevice.NewServer. Just assert SOMETHING came back with the
+	// right shape.
+	out := stdout.String()
+	// The output format is "<ip>  id=<id>  type=<n>"; the IP shown is the
+	// reply's source address (the bare IP, no port).
+	host, _, _ := strings.Cut(fake.Addr(), ":")
+	if !strings.Contains(out, host) || !strings.Contains(out, "id=") || !strings.Contains(out, "type=") {
+		t.Errorf("discover output missing host/id/type:\n%s", out)
+	}
+}
+
+// TestDiscover_UnicastNoReply: the daemon-side fakedevice isn't
+// running, so the unicast target receives no reply within the
+// discover timeout. We expect exit 0 and a "no devices replied"
+// message tailored to the unicast path (not the broadcast hint).
+func TestDiscover_UnicastNoReply(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	// 192.0.2.1 is TEST-NET-1: routable but never answered.
+	code := run([]string{"discover", "192.0.2.1"}, &stdout, &stderr, nil)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "no Breezy devices replied at the supplied targets") {
+		t.Errorf("expected unicast-no-reply message, got:\n%s", stdout.String())
+	}
+	// The broadcast hint should NOT show in the unicast no-reply path.
+	if strings.Contains(stdout.String(), "AP isolation") {
+		t.Errorf("broadcast-hint leaked into unicast path:\n%s", stdout.String())
+	}
+}

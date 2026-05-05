@@ -416,19 +416,47 @@ func cmdParam(stdout io.Writer) int {
 	return 0
 }
 
-// cmdDiscover does a real LAN broadcast (no backend involved). This is
-// the bootstrap path: the user runs it once, copies the device IDs
-// into config.toml, and from then on lets the daemon manage things.
-func cmdDiscover(stdout, stderr io.Writer) int {
+// cmdDiscover queries the LAN for Breezy devices. Two modes:
+//
+//   - No args: UDP broadcast to the limited (255.255.255.255) and
+//     subnet-directed broadcast addresses. Bootstrap path.
+//   - Args: each positional arg is treated as a target IP (or host:port);
+//     the wildcard discovery request is sent unicast to each. Useful when
+//     the LAN drops broadcasts (Wi-Fi AP isolation, mesh hops, NAT) but
+//     unicast routes work — pinging the device works, broadcast doesn't.
+//
+// In both modes output is one line per responder: "<ip>  id=<id>  type=<n>".
+func cmdDiscover(targets []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), discoverTimeout)
 	defer cancel()
-	found, err := breezy.Discover(ctx)
+
+	var found []breezy.Found
+	var err error
+	if len(targets) == 0 {
+		found, err = breezy.Discover(ctx)
+	} else {
+		normalised := make([]string, len(targets))
+		for i, t := range targets {
+			if !strings.Contains(t, ":") {
+				t += ":4000"
+			}
+			normalised[i] = t
+		}
+		found, err = breezy.DiscoverAt(ctx, normalised)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "discover: %v\n", err)
 		return 1
 	}
 	if len(found) == 0 {
-		fmt.Fprintln(stdout, "no Breezy devices found on the LAN")
+		if len(targets) == 0 {
+			fmt.Fprintln(stdout, "no Breezy devices found on the LAN")
+			fmt.Fprintln(stdout, "  hint: if your network drops UDP broadcasts (Wi-Fi AP isolation,")
+			fmt.Fprintln(stdout, "        mesh hops, VLAN), pass each device's IP as a positional arg:")
+			fmt.Fprintln(stdout, "        breezy discover 192.168.1.148 192.168.1.152")
+		} else {
+			fmt.Fprintln(stdout, "no Breezy devices replied at the supplied targets")
+		}
 		return 0
 	}
 	for _, f := range found {
