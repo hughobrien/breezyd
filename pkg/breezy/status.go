@@ -80,11 +80,30 @@ func BuildStatus(values map[ParamID][]byte, name, id, ip string, lastPoll *time.
 	}
 
 	// Live: the device's actual current behavior.
-	if v, ok := Uint16At(values, 0x004A); ok {
-		resp.Live["fan_supply_rpm"] = int(v)
+	supplyRPM, supplyRPMOK := Uint16At(values, 0x004A)
+	extractRPM, extractRPMOK := Uint16At(values, 0x004B)
+	if supplyRPMOK {
+		resp.Live["fan_supply_rpm"] = int(supplyRPM)
 	}
-	if v, ok := Uint16At(values, 0x004B); ok {
-		resp.Live["fan_extract_rpm"] = int(v)
+	if extractRPMOK {
+		resp.Live["fan_extract_rpm"] = int(extractRPM)
+	}
+	// Per-fan commanded percentage. In manual mode both fans share 0x0044;
+	// in preset N supply uses 0x3A/3C/3E and extract uses 0x3B/3D/3F. We
+	// gate on the live RPM so a stopped fan reads 0% (power off, supply-
+	// only / extract-only modes), even when the firmware still has a
+	// non-zero commanded value stored.
+	if supplyPct, ok := commandedFanPct(values, true); ok {
+		if supplyRPMOK && supplyRPM == 0 {
+			supplyPct = 0
+		}
+		resp.Live["fan_supply_pct"] = supplyPct
+	}
+	if extractPct, ok := commandedFanPct(values, false); ok {
+		if extractRPMOK && extractRPM == 0 {
+			extractPct = 0
+		}
+		resp.Live["fan_extract_pct"] = extractPct
 	}
 	if b, ok := Uint8At(values, 0x0081); ok {
 		resp.Live["heater_running"] = b == 1
@@ -245,6 +264,45 @@ func AirflowModeName(b uint8) string {
 		return "extract"
 	}
 	return fmt.Sprintf("unknown(%d)", b)
+}
+
+// commandedFanPct returns the percentage the firmware is commanding for one
+// fan, derived from speed_mode (0x02) and the active source param: 0x44 in
+// manual mode, 0x3A/3C/3E for supply at preset 1/2/3, 0x3B/3D/3F for extract.
+// Returns (0, false) when speed_mode or the source param is missing or
+// outside the recognised set.
+func commandedFanPct(values map[ParamID][]byte, supply bool) (int, bool) {
+	mode, ok := Uint8At(values, 0x0002)
+	if !ok {
+		return 0, false
+	}
+	var src ParamID
+	switch mode {
+	case 0xFF:
+		src = 0x0044
+	case 1:
+		src = 0x003A
+		if !supply {
+			src = 0x003B
+		}
+	case 2:
+		src = 0x003C
+		if !supply {
+			src = 0x003D
+		}
+	case 3:
+		src = 0x003E
+		if !supply {
+			src = 0x003F
+		}
+	default:
+		return 0, false
+	}
+	v, ok := Uint8At(values, src)
+	if !ok {
+		return 0, false
+	}
+	return int(v), true
 }
 
 // SpecialModeName decodes 0x07 (0=off, 1=night, 2=turbo).
