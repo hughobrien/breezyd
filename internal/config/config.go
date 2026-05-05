@@ -126,16 +126,30 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Refuse to load if anyone besides the owner can read or write the file.
-	// 0o077 catches group + other rwx bits.
-	if mode := st.Mode().Perm(); mode&0o077 != 0 {
-		return nil, fmt.Errorf("config file %s must be mode 0600 (currently %#o); "+
-			"run: chmod 600 %s", path, mode, path)
-	}
-
 	var raw rawConfig
 	if _, err := toml.DecodeFile(path, &raw); err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+
+	// The mode-0600 check is there to protect passwords. Skip it for
+	// password-free files so a world-readable system fallback (e.g.
+	// /etc/breezy/config.toml written by the NixOS module to point the
+	// CLI at the daemon) can sit at 0644 without tripping the loader.
+	hasPasswords := raw.Daemon.Password != ""
+	if !hasPasswords {
+		for _, d := range raw.Devices {
+			if d.Password != "" {
+				hasPasswords = true
+				break
+			}
+		}
+	}
+	if hasPasswords {
+		// 0o077 catches group + other rwx bits.
+		if mode := st.Mode().Perm(); mode&0o077 != 0 {
+			return nil, fmt.Errorf("config file %s contains passwords and must be mode 0600 (currently %#o); "+
+				"run: chmod 600 %s", path, mode, path)
+		}
 	}
 
 	cfg := &Config{

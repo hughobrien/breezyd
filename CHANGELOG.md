@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-05-05
+
+### Added
+
+- The CLI's config loader now falls back to `/etc/breezy/config.toml` when `~/.config/breezy/config.toml` doesn't exist. This lets a system-wide install hand the CLI the daemon URL without every user writing their own home-directory config. The two paths are tried in order; explicit user config still wins.
+- The NixOS module now writes `/etc/breezy/config.toml` (mode 0644, contents: just `[daemon].listen`) so `breezy ls` Just Works for every user on the host with no per-user setup. No passwords land in this file — passwords stay in `/run/breezyd/breezyd.toml` (mode 0600, daemon-readable only).
+- Mode buttons in the dashboard are now labelled `auto / regen / supply / extract` (was `vent / regen / sup / ext`). Protocol values unchanged; this is a UX-only relabel — `auto` matches what the device's `ventilation` mode appears to actually do (datasheet's "auto sensor mode"), and `supply` / `extract` use the protocol's full names.
+
+### Changed
+
+- Config loader's mode-0600 enforcement now only fires when the file actually contains passwords (any `[devices.*].password` or `[daemon].password`). Previously the loader rejected anything not 0600 unconditionally, which made the system fallback file (which has no secrets) impossible to write at the world-readable mode it needs. Behaviour for typical user configs is unchanged: they still have passwords, so the strict check still applies. New tests pin both directions.
+
+### Documentation
+
+- README restructured around three audiences (casual reader, operator, developer). New top-of-doc `## At a glance` block leads with a concrete `breezy ls` table demo + example commands as proof-of-value. New `## Install` triage section points each environment at its own self-contained operator path: `## NixOS` (the module, 4 steps), `## Nix anywhere` (`nix profile install` + standalone CLI), `## Linux + systemd` (binary download + optional hardened systemd unit). New `## Developing` cluster at the bottom collects Build from source / Project layout / Testing / Pointers to deeper docs as ### subsections. Old `## Status` section dissolved (in-scope list folds into the hook, out-of-scope into Known limitations).
+
 ## [1.6.3] - 2026-05-05
 
 ### Documentation
@@ -196,7 +212,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.4...HEAD
+[1.6.4]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.4
 [1.6.3]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.3
 [1.6.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.2
 [1.6.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.1
