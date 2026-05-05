@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-05-05
+
+### Documentation
+
+- README NixOS example trimmed to non-default settings: drops `listen` / `poll_interval` / `discovery` (all defaulted by the loader or the daemon's listen-fallback), collapses `[daemon].password` to dotted-key form, and surfaces the optional per-device `ip` field that wasn't visible in the example before.
+- README NixOS section gains a follow-up snippet for the static-IP fallback: if `journalctl -u breezyd` shows `discovery complete found=0` while your units are reachable, configure each device's `ip` directly and the daemon skips broadcast.
+
 ## [1.6.0] - 2026-05-05
 
 ### Added
@@ -177,7 +184,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.1
 [1.6.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.0
 [1.5.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.2
 [1.5.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.1
