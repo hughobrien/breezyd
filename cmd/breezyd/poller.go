@@ -93,6 +93,24 @@ type Poller struct {
 
 	mu             sync.Mutex
 	settleDeadline time.Time
+
+	// udpMu serialises ALL UDP traffic to this device — both the poller's
+	// own tick and any HTTP handler issuing a write/read. CLAUDE.md's
+	// design intent is "breezyd serialises traffic per device behind a
+	// sync.Mutex"; this is that mutex. Without it, the poll and a write
+	// could interleave at the UDP packet level (separate Client instances,
+	// independent sockets), and the poll's response could overwrite a
+	// just-WriteThrough'd cache value with the device's pre-write reading.
+	udpMu sync.Mutex
+}
+
+// LockUDP acquires the per-device UDP serialisation mutex and returns an
+// unlock function. Callers (the tick loop and HTTP handlers) MUST hold
+// this mutex around any UDP traffic to this device, so the device sees a
+// strictly sequential request stream.
+func (p *Poller) LockUDP() func() {
+	p.udpMu.Lock()
+	return p.udpMu.Unlock
 }
 
 // NoticeWrite is called by the HTTP handler whenever it issues a write to
@@ -131,6 +149,11 @@ func (p *Poller) tick(ctx context.Context) {
 		return
 	}
 	ids := p.idsForThisTick()
+
+	// Hold udpMu for the entire tick — dial, read batches, close — so
+	// concurrent HTTP handler writes can't interleave at the UDP layer.
+	unlock := p.LockUDP()
+	defer unlock()
 
 	client, err := p.dial()
 	if err != nil {

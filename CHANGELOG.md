@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The override-warn line under Fans previously attributed a timer-driven override to "sensors" when no sensor alerts were set. It now reads `⚠ timer active (turbo) — fan above setting` or `⚠ timer active (night) — fan slowed` when the cause is the timer; sensor copy is preserved when sensor alerts are set.
 - `0x0007` is now in `fanWriteIDs`, so the existing 12 s fan-settle window applies after a timer write — fan RPM and air-quality reads are correctly suppressed during the ramp.
+- Per-device UDP traffic is now serialised between the poller goroutine and HTTP handler writes via a shared `Poller.udpMu`. Previously each path opened its own `breezy.Client` (with independent sockets and mutexes), so a poll's read could race a concurrent write at the UDP layer and overwrite a just-written cache value with the device's pre-write reading. Symptom: clicking Power (or any other write) in the webui or HomeKit could show the toggle briefly snap back to the old state until the next poll caught up. CLAUDE.md described the intended serialisation but the implementation hadn't matched it across both code paths.
+- HomeKit accessory order is now deterministic (sorted by device name) so iOS Home's cached aid → tile mapping survives daemon restarts. Previously Go's randomised map iteration could swap accessories across restarts; users would see the "Office" tile drive a different unit until they re-paired.
 
 ## [1.6.9] - 2026-05-05
 

@@ -292,11 +292,35 @@ func (h *Handler) requireDevice(w http.ResponseWriter, name string) (DeviceConfi
 // dial constructs a HandlerClient for name via the configured factory.
 // Errors from the factory propagate as 500/internal; transport-level
 // errors come from individual Read/Write calls.
-func (h *Handler) dial(name string) (HandlerClient, error) {
+//
+// dial also acquires the per-device UDP serialisation mutex (held by the
+// poller during ticks). The returned unlock MUST be deferred by the caller,
+// AND the caller MUST also defer client.Close() — list the defers as
+// `defer unlock(); defer client.Close()` so LIFO ordering closes the socket
+// BEFORE releasing the mutex (otherwise another acquirer could begin UDP
+// traffic while our socket is still draining).
+func (h *Handler) dial(name string) (HandlerClient, func(), error) {
 	if h.ClientFactory == nil {
-		return nil, errors.New("server: ClientFactory not configured")
+		return nil, nil, errors.New("server: ClientFactory not configured")
 	}
-	return h.ClientFactory(name)
+	unlock := h.lockDevice(name)
+	c, err := h.ClientFactory(name)
+	if err != nil {
+		unlock()
+		return nil, nil, err
+	}
+	return c, unlock, nil
+}
+
+// lockDevice acquires the per-device UDP serialisation mutex when a poller
+// is registered for name. Tests that don't wire up Pollers get a no-op
+// unlock (the test's mock client has no real UDP traffic, so serialisation
+// is moot).
+func (h *Handler) lockDevice(name string) func() {
+	if p, ok := h.Pollers[name]; ok && p != nil {
+		return p.LockUDP()
+	}
+	return func() {}
 }
 
 // dialRecording returns a recordingClient that wraps h.dial(name)'s
@@ -305,16 +329,17 @@ func (h *Handler) dial(name string) (HandlerClient, error) {
 // should use this instead of h.dial — the wrapper subsumes the
 // previous "call h.recordWrite at the end" pattern.
 //
-// Returns (wrapper, raw, err). The raw HandlerClient is exposed so the
-// caller can `defer raw.Close()` — the wrapper does not implement Close.
-func (h *Handler) dialRecording(name string) (*recordingClient, HandlerClient, error) {
-	raw, err := h.dial(name)
+// Returns (wrapper, raw, unlock, err). Same defer convention as dial:
+// the caller writes `defer unlock(); defer raw.Close()` so the socket is
+// closed before the mutex releases.
+func (h *Handler) dialRecording(name string) (*recordingClient, HandlerClient, func(), error) {
+	raw, unlock, err := h.dial(name)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	return newRecordingClient(raw, func(ws []breezy.ParamWrite) {
 		h.recordWrite(name, ws)
-	}), raw, nil
+	}), raw, unlock, nil
 }
 
 // notice triggers fan-write settle suppression on the relevant poller after
