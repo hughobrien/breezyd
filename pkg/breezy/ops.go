@@ -86,6 +86,26 @@ func SetHeater(ctx context.Context, c DeviceClient, on bool) error {
 	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0068, Value: []byte{val}}})
 }
 
+// SetTimer activates one of the special-mode timers (parameter 0x0007):
+// "off" stops any active timer, "night" enters the configured-duration
+// quiet/low-fan mode, "turbo" enters the configured-duration boost mode.
+// The active duration is the device-side configured value (0x0302/0x0303);
+// this op only flips the mode byte. Mode strings are case-insensitive.
+func SetTimer(ctx context.Context, c DeviceClient, mode string) error {
+	var val byte
+	switch strings.ToLower(mode) {
+	case "off":
+		val = 0
+	case "night":
+		val = 1
+	case "turbo":
+		val = 2
+	default:
+		return fmt.Errorf("%w: timer mode must be one of off/night/turbo, got %q", ErrInvalidArg, mode)
+	}
+	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0007, Value: []byte{val}}})
+}
+
 // ResetFilter writes 1 to 0x0065, resetting the filter-replacement
 // countdown back to the configured filter_timeout_days.
 func ResetFilter(ctx context.Context, c DeviceClient) error {
