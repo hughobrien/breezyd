@@ -41,6 +41,22 @@ func TestNewBreezyAccessory_ServiceShape(t *testing.T) {
 			t.Error("temperature sensor missing")
 		}
 	}
+
+	// Optional characteristics that Task 2 (sync.go) requires typed handles for.
+	if a.RotationSpeed == nil {
+		t.Error("RotationSpeed characteristic missing")
+	}
+	if a.VOCDensity == nil {
+		t.Error("VOCDensity characteristic missing")
+	}
+	if a.CarbonDioxideLevel == nil {
+		t.Error("CarbonDioxideLevel characteristic missing")
+	}
+
+	// IP must be stored for Task 4's daemon glue.
+	if a.IP != "192.168.1.148" {
+		t.Errorf("IP = %q, want 192.168.1.148", a.IP)
+	}
 }
 
 func TestNewBreezyAccessory_TemperatureSensorNames(t *testing.T) {
