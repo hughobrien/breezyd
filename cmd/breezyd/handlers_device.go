@@ -61,7 +61,7 @@ func (h *Handler) getParam(w http.ResponseWriter, r *http.Request) {
 
 	client, err := h.dial(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer client.Close()
@@ -133,7 +133,7 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()
@@ -167,7 +167,7 @@ func (h *Handler) postPower(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()
@@ -203,7 +203,7 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()
@@ -235,7 +235,7 @@ func (h *Handler) postMode(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()
@@ -265,7 +265,7 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()
@@ -303,7 +303,7 @@ func (h *Handler) postRTC(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()

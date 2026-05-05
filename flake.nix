@@ -15,14 +15,14 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        version = "1.0.0";
+        version = "1.3.0";
         commitOrDirty = if self ? rev then self.rev else "dirty";
 
         breezyd-pkg = pkgs.buildGoModule {
           pname = "breezyd";
           inherit version;
           src = ./.;
-          vendorHash = "sha256-Uk9ODVOI312Gt6CB2/UUORrex1UnLDVR8/f5NGjTT6I=";
+          vendorHash = "sha256-TQW/KUuf9pI7UmkkvkzZcPWwEJDMraHbR582Q4725Vo=";
           subPackages = [ "cmd/breezyd" "cmd/breezy" ];
           # Reproducible: omit `-X main.date=…` so two builds of the same
           # commit produce identical binaries.

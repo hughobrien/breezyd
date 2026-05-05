@@ -97,7 +97,7 @@ func (h *Handler) postFilterReset(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()
@@ -117,7 +117,7 @@ func (h *Handler) postFaultsReset(w http.ResponseWriter, r *http.Request) {
 	}
 	rc, raw, err := h.dialRecording(name)
 	if err != nil {
-		writeErr(w, "internal", err.Error())
+		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
 	defer raw.Close()
