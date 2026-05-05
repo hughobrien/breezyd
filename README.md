@@ -188,94 +188,164 @@ services.breezyd.prometheus.enable = true;
 This injects an entry into `services.prometheus.scrapeConfigs` only when
 both `services.breezyd.enable` and `services.prometheus.enable` are true.
 
-## Configuration
+## Getting started
 
-The daemon and CLI both read `~/.config/breezy/config.toml`. The file must be
-mode `0600` — the loader refuses to start otherwise, because device passwords
-are stored in cleartext.
+The CLI works on its own — you only need the daemon if you want polling,
+caching, the web dashboard, Prometheus metrics, or HomeKit. Most users
+should start in standalone mode:
 
-Example `~/.config/breezy/config.toml`:
+### 1. Find your device IDs
+
+`breezy discover` broadcasts a wildcard request on UDP/4000. Each Breezy
+that hears it answers with its 16-character device ID and unit type:
+
+```sh
+breezy discover
+# 192.168.1.148  id=BREEZY00000000A0  type=17
+# 192.168.1.152  id=BREEZY00000000A1  type=17
+# 192.168.1.160  id=BREEZY00000000A2  type=17
+```
+
+If broadcast comes back empty but you can `ping` the units (Wi-Fi AP
+isolation, mesh hops, or separate VLANs commonly drop broadcasts while
+unicast still works), pass the IPs as positional args — the CLI will
+send the wildcard request unicast to each:
+
+```sh
+breezy discover 192.168.1.148 192.168.1.152 192.168.1.160
+```
+
+If that's *still* empty and you've changed the units off the factory
+password, retry with `-p PASSWORD`. The vendor's spec says wildcard
+discovery is unauthenticated, but some firmware versions silently drop
+mismatched-password requests:
+
+```sh
+breezy discover -p testpwd 192.168.1.148 192.168.1.152 192.168.1.160
+```
+
+`-p` works with broadcast too (`breezy discover -p testpwd`), in case
+your network is fine but only the password is the issue.
+
+### 2. Write the config
+
+Create `~/.config/breezy/config.toml` mode `0600` with one
+`[devices.<name>]` block per unit:
+
+```toml
+[devices.playroom]
+id       = "BREEZY00000000A0"
+password = "testpwd"
+ip       = "192.168.1.148"
+
+[devices.bedroom]
+id       = "BREEZY00000000A1"
+password = "testpwd"
+ip       = "192.168.1.152"
+
+[devices.office]
+id       = "BREEZY00000000A2"
+password = "testpwd"
+ip       = "192.168.1.160"
+```
+
+```sh
+mkdir -p ~/.config/breezy
+$EDITOR ~/.config/breezy/config.toml
+chmod 0600 ~/.config/breezy/config.toml
+```
+
+The mode-0600 check is enforced — the loader refuses to start otherwise.
+
+### 3. Verify
+
+You're done. The CLI works:
+
+```sh
+breezy ls                          # all configured devices, one line each
+breezy playroom status             # full snapshot — sensors, fans, service info
+breezy bedroom speed manual:30     # set bedroom fan to 30 % manual
+breezy office mode regeneration    # switch office to heat-recovery mode
+```
+
+`breezy --help` is the source of truth; see [CLI overview](#cli-overview)
+for the full verb list.
+
+### 4. (Optional) Run the daemon
+
+Run `breezyd` if you want any of:
+
+- **Polling + caching** — every device's state is refreshed on a configurable
+  tick, served from memory. The CLI is faster and doesn't need the device
+  to be reachable for every read.
+- **JSON HTTP API** at `http://127.0.0.1:9876/v1/devices/...`.
+- **Prometheus `/metrics`** for Grafana dashboards / alerts.
+- **Embedded web dashboard** — the screenshot near the top of this README.
+- **HomeKit bridge** — see the [HomeKit](#homekit-optional) section.
+- **Concurrency safety** when multiple processes script `breezy` against the
+  same device. Standalone CLIs don't coordinate with each other; the daemon
+  serializes per-device UDP behind a mutex.
+
+Add a `[daemon]` block to the config and start the daemon:
 
 ```toml
 [daemon]
 listen        = "127.0.0.1:9876"
 poll_interval = "30s"
 discovery     = "on-start"   # "on-start" | "off" | "periodic:<duration>"
+```
 
+```sh
+breezyd                            # logs to stderr; stop with SIGINT/SIGTERM
+```
+
+The CLI auto-detects daemon mode when `[daemon].listen` is set in the
+config or `--daemon URL` is passed. Override with `--daemon http://...`
+to talk to a remote daemon, or omit `[daemon]` entirely to stay
+standalone.
+
+If the config doesn't exist when `breezyd` starts, it writes a sensible
+default (with `[daemon]` commented out, so re-running gets you working
+standalone immediately) and exits with an "edit it" message.
+
+### 5. (Optional) Enable HomeKit
+
+See the [HomeKit (optional)](#homekit-optional) section.
+
+## Configuration reference
+
+`~/.config/breezy/config.toml` — mode `0600` (loader enforces). Both daemon
+and CLI read this file. The CLI uses `[daemon].listen` to decide whether
+to talk HTTP to a daemon or UDP directly to each device, and reads each
+`[devices.<name>]` for standalone-mode unicast targets.
+
+Full schema with defaults:
+
+```toml
+# Optional. Without this block the CLI runs in standalone mode (no HTTP).
+[daemon]
+listen        = "127.0.0.1:9876"   # http listener; required when [daemon] present
+poll_interval = "30s"              # default 30s
+discovery     = "on-start"         # "on-start" | "off" | "periodic:<duration>"
+
+# Optional. Off by default. See HomeKit section.
+[homekit]
+enabled = false
+# bridge_name = "breezyd"
+# port = 0                          # 0 = ephemeral
+# state_dir = "~/.local/state/breezyd/homekit"
+
+# One [devices.<name>] block per Breezy unit. Name = the label used as the
+# CLI's <subject>: "breezy playroom status".
 [devices.playroom]
-id       = "BREEZY00000000A0"
-password = "<your password>"
-ip       = "192.168.1.148"   # optional; if absent, discovery resolves it
-
-[devices.bedroom]
-id       = "BREEZY00000000A1"
-password = "<your password>"
-ip       = "192.168.1.152"
-
-[devices.office]
-id       = "BREEZY00000000A2"
-password = "<your password>"
-ip       = "192.168.1.160"
+id       = "BREEZY00000000A0"      # 16-char device ID; from `breezy discover`
+password = "testpwd"               # protocol password
+ip       = "192.168.1.148"         # required in standalone; optional in daemon mode
 ```
 
-Run `breezy discover` once on a fresh install to learn each unit's 16-character
-device ID; copy them into the config file along with your protocol password.
-
-If your network drops UDP broadcasts (Wi-Fi AP isolation, mesh hops, separate
-VLANs) the broadcast form will return "no Breezy devices found on the LAN"
-even when the units are reachable. In that case ping each unit to confirm
-its IP, then pass the IPs as positional args:
-
-```sh
-breezy discover 192.168.1.148 192.168.1.152 192.168.1.160
-```
-
-`breezy discover` then sends the wildcard request unicast to each address
-and prints `<ip>  id=<id>  type=<n>` for every device that replies.
-
-If your devices are on a non-default protocol password and discovery still
-returns nothing, retry with `-p PASSWORD`. The vendor manual claims wildcard
-discovery is unauthenticated, but some firmware versions silently drop
-wildcard requests with a password mismatch — passing the real password works
-around it. The flag works in both broadcast and unicast modes:
-
-```sh
-breezy discover -p testpwd                                       # broadcast
-breezy discover -p testpwd 192.168.1.148 192.168.1.152           # unicast
-```
-
-## First run
-
-The daemon writes a default config on the first run if one doesn't exist
-yet, so the bootstrap flow is:
-
-```sh
-./breezyd                                     # writes ~/.config/breezy/config.toml
-                                              # at mode 0600 with sensible [daemon]
-                                              # defaults + a commented-out
-                                              # [devices.playroom] block, then
-                                              # exits non-zero with a "edit it"
-                                              # message.
-
-$EDITOR ~/.config/breezy/config.toml          # uncomment + fill in your devices
-                                              # (run `breezy discover` first to
-                                              # find their IDs, if you can — see
-                                              # the discover note in
-                                              # docs/superpowers/specs/2026-05-04-discover-investigation.md
-                                              # for environments where broadcast
-                                              # discovery doesn't work)
-
-./breezyd &                                   # starts on 127.0.0.1:9876
-./breezy ls                                   # one-line summary per device
-./breezy playroom status                      # full structured snapshot
-```
-
-If you'd rather start from a config file you've prepared elsewhere (e.g.,
-sops-nix / agenix), point the daemon at it with `--config /path/to/file`.
-The loader still requires mode `0600`.
-
-The daemon logs to stderr. Stop it with SIGINT/SIGTERM; it shuts down within
-five seconds.
+If you'd rather keep the config elsewhere (e.g. sops-nix / agenix), point
+the daemon at it with `--config /path/to/file`. The mode-0600 check still
+applies. The CLI's config path is fixed at `~/.config/breezy/config.toml`.
 
 ## Web UI
 
@@ -429,25 +499,18 @@ so per-device commands read naturally:
 The CLI exit codes are: `0` success, `1` backend error (HTTP envelope in daemon
 mode, plain error message in standalone mode), `2` local usage error.
 
-### Standalone mode
+### Standalone vs daemon mode
 
-The CLI works without `breezyd`. By default — when no daemon is
-configured — `breezy <name> <verb>` opens a UDP connection to the
-device, issues the requested operation, and exits. This is fine for
-ad-hoc commands and matches the no-install / first-run experience.
+The CLI defaults to standalone mode (UDP directly to each device). See
+[Getting started](#getting-started) for the typical flow and when to
+escalate to daemon mode.
 
-Run the daemon (`breezyd`) when you want polling, caching,
-`/metrics`, the embedded web dashboard, or to coordinate writes
-across multiple CLI processes. Uncomment the `[daemon]` block in
-`~/.config/breezy/config.toml` and start `breezyd`; the CLI then
-prefers daemon mode automatically.
-
-**Concurrency caveat:** the daemon serialises per-device UDP behind
-a mutex. Standalone CLI processes do not coordinate with each other
-— two `breezy` invocations against the same device at the same
-instant can produce silent checksum corruption. If you script
-invocations in parallel against the same device, run the daemon and
-use the CLI in daemon mode.
+**Concurrency caveat:** the daemon serializes per-device UDP behind a
+mutex. Standalone CLI processes do not coordinate with each other —
+two `breezy` invocations against the same device at the same instant
+can produce silent checksum corruption. If you script invocations in
+parallel against the same device, run the daemon and use the CLI in
+daemon mode.
 
 ## Prometheus
 
