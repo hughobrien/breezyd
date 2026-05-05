@@ -144,7 +144,6 @@ Add the flake as an input and import its module:
         ({ pkgs, ... }: {
           services.breezyd = {
             enable = true;
-            package = breezyd.packages.${pkgs.system}.default;
 
             # Inline settings render to a 0600 TOML at /run/breezyd/breezyd.toml.
             # Note: anything in `settings` ends up readable in the world-readable
@@ -175,6 +174,22 @@ systemd with hardening (`NoNewPrivileges`, `ProtectSystem=strict`,
 `network-online.target`. Set `services.breezyd.openFirewall = true` if
 you bind the listener to a non-loopback address.
 
+The module ships **only the daemon** — it does not put the `breezy` CLI on
+every user's `PATH`. The CLI is a separate binary (same derivation) used
+either ad-hoc against the daemon's HTTP API or in standalone mode without
+a daemon at all. To expose it system-wide, add the package to
+`environment.systemPackages`:
+
+```nix
+environment.systemPackages = [
+  breezyd.packages.${pkgs.stdenv.hostPlatform.system}.default
+];
+```
+
+(`default` ships both `breezyd` and `breezy`. If you only want the CLI on
+hosts that don't run the daemon, the `.breezy` and `.breezyd` outputs are
+the same derivation under different names — use whichever reads better.)
+
 To automatically register a Prometheus scrape job for `/metrics` when
 the host also runs `services.prometheus`:
 
@@ -201,9 +216,9 @@ that hears it answers with its 16-character device ID and unit type:
 
 ```sh
 breezy discover
-# 192.168.1.148  id=BREEZY00000000A0  type=17
-# 192.168.1.152  id=BREEZY00000000A1  type=17
-# 192.168.1.160  id=BREEZY00000000A2  type=17
+# 192.168.1.148  id=BREEZY00000000A0  type=17 (Breezy 160)
+# 192.168.1.152  id=BREEZY00000000A1  type=17 (Breezy 160)
+# 192.168.1.160  id=BREEZY00000000A2  type=17 (Breezy 160)
 ```
 
 If broadcast comes back empty but you can `ping` the units (Wi-Fi AP
