@@ -423,7 +423,6 @@ function renderControls(name, snap, stale) {
     <div class="ctrl">
       <span class="ctrl-label">Timer</span>
       <div class="seg">
-        ${timerBtn("off",   "off")}
         ${timerBtn("night", "night")}
         ${timerBtn("turbo", "turbo")}
       </div>
@@ -493,10 +492,14 @@ document.addEventListener("click", async (ev) => {
       await postWrite(name, "heater", "/v1/devices/" + encodeURIComponent(name) + "/heater",
                       { on: !snap.configured?.heater_enabled });
       break;
-    case "timer":
+    case "timer": {
+      // Toggle: clicking the already-active mode stops the timer.
+      const current = snap.live?.special_mode || "off";
+      const next = current === value ? "off" : value;
       await postWrite(name, "timer", "/v1/devices/" + encodeURIComponent(name) + "/timer",
-                      { mode: value });
+                      { mode: next });
       break;
+    }
     case "edit-threshold":
       editingThreshold[name] = kind;
       render();

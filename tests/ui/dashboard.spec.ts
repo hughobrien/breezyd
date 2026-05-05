@@ -332,7 +332,7 @@ test("timer turbo: button pressed and countdown line rendered", async ({ page })
     card.locator('button[data-action="timer"][data-value="turbo"]'),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
-    card.locator('button[data-action="timer"][data-value="off"]'),
+    card.locator('button[data-action="timer"][data-value="night"]'),
   ).toHaveAttribute("aria-pressed", "false");
   await expect(card).toContainText("1h 30m remaining");
 });
@@ -363,6 +363,25 @@ test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/timer"));
   expect(post).toBeTruthy();
   expect(post!.body).toEqual({ mode: "night" });
+});
+
+test("timer click on active mode: POSTs {mode:'off'} to stop the timer", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: {
+        special_mode: "night",
+        special_mode_remaining_seconds: 3600,
+        in_user_control: false,
+        sensor_alerts: { humidity: false, co2: false, voc: false },
+      },
+    }),
+  });
+  await page.click('button[data-action="timer"][data-name="playroom"][data-value="night"]');
+  await page.waitForTimeout(150);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/timer"));
+  expect(post).toBeTruthy();
+  expect(post!.body).toEqual({ mode: "off" });
 });
 
 test("threshold: sensor row shows current and alert threshold", async ({ page }) => {
