@@ -135,12 +135,23 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 	return a
 }
 
-// attachName adds the optional Name characteristic to a service so the
-// iOS Home app shows the supplied label rather than an unnamed tile.
+// attachName adds Name + ConfiguredName characteristics to a service so
+// iOS Home shows the supplied label rather than the generic service-type
+// fallback ("Switch", "Switch 2", …).
+//
+// Name (UUID 0x23) is the HAP spec's mandatory identifier when an
+// accessory has multiple services of the same type; ConfiguredName
+// (UUID 0xE3) is the user-editable label iOS Home actually displays in
+// the per-service rows. Setting both means iOS shows the right label by
+// default AND lets the user rename in Home settings.
 func attachName(s *service.S, name string) {
 	n := characteristic.NewName()
 	n.SetValue(name)
 	s.AddC(n.C)
+
+	cn := characteristic.NewConfiguredName()
+	cn.SetValue(name)
+	s.AddC(cn.C)
 }
 
 func newNamedSwitch(name string) *service.Switch {

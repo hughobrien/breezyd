@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.8] - 2026-05-05
+
+### Fixed
+
+- HomeKit sub-services (Supply Only / Extract Only switches and the four temperature sensors) now display their proper labels in iOS Home instead of the generic `Switch` / `Switch 2` / `Sensor` / `Sensor 2` fallbacks. We were setting the `Name` characteristic, which the HAP spec mandates for multi-service-of-same-type accessories — but iOS Home actually reads `ConfiguredName` (the user-editable label) for the per-service rows. Now we set both: the right label appears by default AND the user can rename in Home settings.
+
 ## [1.6.7] - 2026-05-05
 
 ### Changed
@@ -235,7 +241,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.7...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.8...HEAD
+[1.6.8]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.8
 [1.6.7]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.7
 [1.6.6]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.6
 [1.6.5]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.5
