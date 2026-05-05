@@ -150,22 +150,19 @@ Add the flake as an input and import its module:
             # Nix store. Use `configFile` with sops-nix / agenix for real device
             # passwords.
             settings = {
-              daemon = {
-                listen = "127.0.0.1:9876";
-                poll_interval = "30s";
-                discovery = "on-start";
-                # Fleet-wide protocol password. Used for the daemon's
-                # wildcard discovery probes and inherited by any device
-                # that doesn't set its own. Most users have all units on
-                # the same password — set it once here.
-                password = "your-protocol-password";
-              };
-              # Devices inherit daemon.password unless they override it.
+              # Fleet-wide protocol password. Used for the daemon's
+              # wildcard discovery probes and inherited by any device
+              # that doesn't set its own.
+              daemon.password = "your-protocol-password";
+
+              # `ip` is optional — when present the daemon polls
+              # immediately; when absent it's resolved at startup by
+              # discovery. Per-device `password` overrides daemon.password.
               devices.bedroom  = { id = "BREEZY00000000A0"; };
-              devices.office   = { id = "BREEZY00000000A1"; };
+              devices.office   = { id = "BREEZY00000000A1"; ip = "192.168.1.148"; };
               devices.playroom = {
                 id = "BREEZY00000000A2";
-                password = "different-password";  # per-device override
+                password = "different-password";
               };
             };
           };
