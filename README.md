@@ -27,7 +27,7 @@ against the same device.
   <img src="tests/ui/screenshots/homekit-accessories.png" width="45%" alt="Each Breezy as a separate AirPurifier accessory in the Apple Home rooms list" />
 </p>
 
-The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
+The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater/timer. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
 
 ## At a glance
 
@@ -57,7 +57,7 @@ What's covered:
   fan RPMs, recovery efficiency, filter remaining time, motor lifetime, RTC
   battery, fault codes.
 - Control: power, airflow mode (ventilation / regeneration / supply / extract),
-  speed (preset 1-3 or manual 10-100 %), heater, filter timer reset, fault
+  speed (preset 1-3 or manual 10-100 %), heater, night/turbo special-mode timer, filter timer reset, fault
   reset, RTC set.
 - Per-device snapshots and Prometheus metrics.
 - `breezy discover` for first-time bootstrap.
@@ -731,6 +731,7 @@ so per-device commands read naturally:
 | `breezy bedroom speed 2`             | switch to preset 2                           |
 | `breezy office mode regeneration`    | airflow mode (ventilation / regeneration / supply / extract) |
 | `breezy office heater on`            | toggle the auxiliary heater                  |
+| `breezy bedroom timer night`         | start night-mode timer (or `turbo`/`off`)    |
 | `breezy playroom faults`             | list active fault codes                      |
 | `breezy playroom firmware`           | firmware version + build date                |
 | `breezy playroom efficiency`         | recovery efficiency %                        |
