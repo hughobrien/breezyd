@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New night/turbo special-mode timer support across the stack:
+  - `pkg/breezy.SetTimer(ctx, c, mode)` writes `0x0007` (off/night/turbo).
+  - `POST /v1/devices/{name}/timer` daemon endpoint with body `{"mode":"off|night|turbo"}`.
+  - `breezy <name> timer <off|night|turbo>` CLI verb.
+  - Web dashboard now shows a Timer row in the Controls block with a 3-way segmented control and a `Xh Ym remaining` countdown when active.
+
+### Fixed
+
+- The override-warn line under Fans previously attributed a timer-driven override to "sensors" when no sensor alerts were set. It now reads `⚠ timer active (turbo) — fan above setting` or `⚠ timer active (night) — fan slowed` when the cause is the timer; sensor copy is preserved when sensor alerts are set.
+- `0x0007` is now in `fanWriteIDs`, so the existing 12 s fan-settle window applies after a timer write — fan RPM and air-quality reads are correctly suppressed during the ramp.
+
 ## [1.6.9] - 2026-05-05
 
 ### Changed
