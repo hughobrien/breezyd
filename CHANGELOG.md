@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-05-05
+
+### Changed
+
+- Dashboard "Device Info" `<details>` summary is renamed to "Device" (just the noun).
+- Mode and Timer rows in the Controls block are reordered so Mode appears before Timer.
+- The Device `<details>` open-state now persists across the 5 s grid re-render. Previously every poll wiped the user's manual expand. A capture-phase `toggle` listener tracks per-card state in a small `deviceInfoOpen` dict; the auto-expand-on-fault rule still wins when an alarm appears mid-session.
+
 ## [1.7.1] - 2026-05-05
 
 ### Changed
