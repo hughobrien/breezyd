@@ -521,7 +521,9 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 ProtectProc=invisible
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK is needed by Go's net.Interfaces() on Linux; without it
+# the HomeKit bridge runs but advertises on zero interfaces (mDNS-deaf).
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
