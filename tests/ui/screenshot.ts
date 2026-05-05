@@ -25,6 +25,8 @@ function snapshot(name: string) {
     live: {
       fan_supply_rpm: name === "office" ? 0 : (name === "playroom" ? 5340 : 3120),
       fan_extract_rpm: name === "office" ? 0 : (name === "playroom" ? 5400 : 3180),
+      fan_supply_pct: name === "office" ? 0 : (name === "playroom" ? 30 : 55),
+      fan_extract_pct: name === "office" ? 0 : (name === "playroom" ? 30 : 60),
       heater_running: false,
       in_user_control: name !== "playroom" && name !== "bedroom",
       sensor_alerts: name === "playroom"

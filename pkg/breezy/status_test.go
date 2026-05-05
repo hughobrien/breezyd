@@ -52,6 +52,70 @@ func TestBuildStatus_PowerSpeedMode(t *testing.T) {
 	}
 }
 
+func TestBuildStatus_FanPct_Manual(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x0002: {0xFF},
+		0x0044: {30},
+		0x004A: {0xD4, 0x14}, // 5332 rpm
+		0x004B: {0xE0, 0x14}, // 5344 rpm
+	}
+	s := BuildStatus(values, "n", "i", "ip", nil)
+	if s.Live["fan_supply_pct"] != 30 {
+		t.Errorf("fan_supply_pct: want 30, got %v", s.Live["fan_supply_pct"])
+	}
+	if s.Live["fan_extract_pct"] != 30 {
+		t.Errorf("fan_extract_pct: want 30, got %v", s.Live["fan_extract_pct"])
+	}
+}
+
+func TestBuildStatus_FanPct_Preset(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x0002: {2},          // preset 2
+		0x003C: {55},         // preset2_supply_pct
+		0x003D: {60},         // preset2_extract_pct
+		0x004A: {0x10, 0x0E}, // 3600 rpm
+		0x004B: {0x40, 0x0E}, // 3648 rpm
+	}
+	s := BuildStatus(values, "n", "i", "ip", nil)
+	if s.Live["fan_supply_pct"] != 55 {
+		t.Errorf("fan_supply_pct: want 55 (preset2_supply_pct), got %v", s.Live["fan_supply_pct"])
+	}
+	if s.Live["fan_extract_pct"] != 60 {
+		t.Errorf("fan_extract_pct: want 60 (preset2_extract_pct), got %v", s.Live["fan_extract_pct"])
+	}
+}
+
+func TestBuildStatus_FanPct_RPMZeroForcesPctZero(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x0002: {0xFF}, // manual
+		0x0044: {50},   // commanded 50%
+		0x004A: {0, 0}, // supply 0 rpm (e.g. extract-only mode)
+		0x004B: {0xD4, 0x14},
+	}
+	s := BuildStatus(values, "n", "i", "ip", nil)
+	if s.Live["fan_supply_pct"] != 0 {
+		t.Errorf("fan_supply_pct with 0 rpm: want 0, got %v", s.Live["fan_supply_pct"])
+	}
+	if s.Live["fan_extract_pct"] != 50 {
+		t.Errorf("fan_extract_pct: want 50, got %v", s.Live["fan_extract_pct"])
+	}
+}
+
+func TestBuildStatus_FanPct_MissingSpeedMode(t *testing.T) {
+	// No 0x0002 → can't determine commanded pct → field omitted entirely.
+	values := map[ParamID][]byte{
+		0x004A: {0xD4, 0x14},
+		0x004B: {0xE0, 0x14},
+	}
+	s := BuildStatus(values, "n", "i", "ip", nil)
+	if _, ok := s.Live["fan_supply_pct"]; ok {
+		t.Errorf("fan_supply_pct should be absent when speed_mode unknown, got %v", s.Live["fan_supply_pct"])
+	}
+	if _, ok := s.Live["fan_extract_pct"]; ok {
+		t.Errorf("fan_extract_pct should be absent when speed_mode unknown")
+	}
+}
+
 func TestBuildStatus_TempSensorSentinels(t *testing.T) {
 	values := map[ParamID][]byte{
 		0x001F: {0x00, 0x80},

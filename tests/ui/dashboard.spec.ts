@@ -28,6 +28,8 @@ function baseSnapshot(name: string, overrides: Record<string, unknown> = {}) {
     live: {
       fan_supply_rpm: 5340,
       fan_extract_rpm: 5400,
+      fan_supply_pct: 30,
+      fan_extract_pct: 30,
       heater_running: false,
       in_user_control: true,
       sensor_alerts: { humidity: false, co2: false, voc: false },
@@ -176,6 +178,40 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await expect(card).toContainText("3500 ppm");
   await expect(card).toContainText("20.8 °C");
   await expect(card).toContainText("85%");
+});
+
+test("fans: pct and rpm both rendered on each fan row", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: {
+        fan_supply_rpm: 5340,
+        fan_extract_rpm: 5400,
+        fan_supply_pct: 30,
+        fan_extract_pct: 30,
+      },
+    }),
+  });
+  const fans = page.locator(".card .block", { hasText: "Fans" });
+  await expect(fans).toContainText("30% / 5340 rpm");
+  await expect(fans).toContainText("30% / 5400 rpm");
+});
+
+test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { power: false },
+      live: {
+        fan_supply_rpm: 0,
+        fan_extract_rpm: 0,
+        fan_supply_pct: 0,
+        fan_extract_pct: 0,
+      },
+    }),
+  });
+  const fans = page.locator(".card .block", { hasText: "Fans" });
+  await expect(fans).toContainText("0% / 0 rpm");
 });
 
 test("stale indicator: old last_poll desaturates the card", async ({ page }) => {
