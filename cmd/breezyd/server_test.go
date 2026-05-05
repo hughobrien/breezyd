@@ -695,7 +695,7 @@ func TestHandler_PostTimer(t *testing.T) {
 		{"turbo", "02"},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
-			h, _, _ := newServerHandler(t)
+			h, rp, _ := newServerHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/timer", map[string]any{"mode": mode.name})
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -705,6 +705,9 @@ func TestHandler_PostTimer(t *testing.T) {
 			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
 			if resp["hex"] != mode.hex {
 				t.Errorf("timer mode = %v, want %s", resp["hex"], mode.hex)
+			}
+			if !hasNotice(rp.all(), "playroom", 0x0007) {
+				t.Errorf("NoticeWrite(0x0007) was not called for mode=%q", mode.name)
 			}
 		})
 	}
