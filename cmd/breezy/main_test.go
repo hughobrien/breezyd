@@ -1002,8 +1002,7 @@ func TestDiscover_PasswordFlagMissingValue(t *testing.T) {
 
 // TestDiscover_UnicastNoReply: the daemon-side fakedevice isn't
 // running, so the unicast target receives no reply within the
-// discover timeout. We expect exit 0 and a "no devices replied"
-// message tailored to the unicast path (not the broadcast hint).
+// discover timeout. We expect exit 0 and the unified guidance block.
 func TestDiscover_UnicastNoReply(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
@@ -1012,11 +1011,10 @@ func TestDiscover_UnicastNoReply(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "no Breezy devices replied at the supplied targets") {
-		t.Errorf("expected unicast-no-reply message, got:\n%s", stdout.String())
+	if !strings.Contains(stdout.String(), "no Breezy devices found") {
+		t.Errorf("expected no-devices message, got:\n%s", stdout.String())
 	}
-	// The broadcast hint should NOT show in the unicast no-reply path.
-	if strings.Contains(stdout.String(), "AP isolation") {
-		t.Errorf("broadcast-hint leaked into unicast path:\n%s", stdout.String())
+	if !strings.Contains(stdout.String(), "things to check:") {
+		t.Errorf("expected guidance block, got:\n%s", stdout.String())
 	}
 }

@@ -475,26 +475,16 @@ func cmdDiscover(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if len(found) == 0 {
-		switch {
-		case len(targets) == 0:
-			fmt.Fprintln(stdout, "no Breezy devices found on the LAN")
-			fmt.Fprintln(stdout, "  hint: if your network drops UDP broadcasts (Wi-Fi AP isolation,")
-			fmt.Fprintln(stdout, "        mesh hops, VLAN), pass each device's IP as a positional arg:")
-			fmt.Fprintln(stdout, "        breezy discover 192.168.1.148 192.168.1.152")
-			fmt.Fprintln(stdout, "  hint: also confirm UDP/4000 is open on this host — a local firewall")
-			fmt.Fprintln(stdout, "        dropping inbound replies looks identical to no devices answering.")
-		case password == breezy.DefaultDiscoveryPassword:
-			fmt.Fprintln(stdout, "no Breezy devices replied at the supplied targets")
-			fmt.Fprintln(stdout, "  hint: if your devices are on a non-default password, retry with")
-			fmt.Fprintln(stdout, "        -p PASSWORD — some firmware drops wildcard requests with a")
-			fmt.Fprintln(stdout, "        password mismatch despite the spec.")
-			fmt.Fprintln(stdout, "  hint: also confirm UDP/4000 is open on this host — a local firewall")
-			fmt.Fprintln(stdout, "        dropping inbound replies looks identical to no devices answering.")
-		default:
-			fmt.Fprintln(stdout, "no Breezy devices replied at the supplied targets")
-			fmt.Fprintln(stdout, "  hint: confirm UDP/4000 is open on this host — a local firewall")
-			fmt.Fprintln(stdout, "        dropping inbound replies looks identical to no devices answering.")
-		}
+		fmt.Fprintln(stdout, "no Breezy devices found")
+		fmt.Fprintln(stdout, "  things to check:")
+		fmt.Fprintln(stdout, "    - UDP/4000 is open on this host (a local firewall drop")
+		fmt.Fprintln(stdout, "      looks identical to no devices answering)")
+		fmt.Fprintln(stdout, "    - if your LAN drops UDP broadcasts (Wi-Fi AP isolation,")
+		fmt.Fprintln(stdout, "      VLANs, mesh hops), pass each device's IP directly:")
+		fmt.Fprintln(stdout, "      breezy discover 192.168.1.148 192.168.1.152")
+		fmt.Fprintln(stdout, "    - if your devices use a non-default password, pass")
+		fmt.Fprintln(stdout, "      -p PASSWORD — some firmware drops mismatched wildcard")
+		fmt.Fprintln(stdout, "      requests despite the spec saying discovery is unauthenticated")
 		return 0
 	}
 	for _, f := range found {

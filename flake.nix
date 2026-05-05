@@ -13,7 +13,8 @@
     # (this is a third-party flake) — and throws on evaluation.
     defaultModule = { pkgs, lib, ... }: {
       imports = [ ./nix/module.nix ];
-      services.breezyd.package = lib.mkDefault self.packages.${pkgs.system}.default;
+      services.breezyd.package = lib.mkDefault
+        self.packages.${pkgs.stdenv.hostPlatform.system}.default;
     };
     moduleOutputs = {
       nixosModules.default = defaultModule;
@@ -23,7 +24,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
 
-        version = "1.5.1";
+        version = "1.5.2";
         commitOrDirty = if self ? rev then self.rev else "dirty";
 
         breezyd-pkg = pkgs.buildGoModule {

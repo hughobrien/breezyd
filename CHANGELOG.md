@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-05-05
+
+### Changed
+
+- `breezy discover` empty-result output is now a single unified guidance block (`things to check:` — UDP/4000, broadcast suppression, password mismatch) regardless of broadcast vs unicast mode, instead of branching on the path. The previous v1.5.1 form repeated the firewall hint across two of three branches; this is tighter and reads as one checklist instead of overlapping advice.
+
+### Fixed
+
+- `flake.nix` no longer triggers the deprecated-alias evaluation warning by replacing `pkgs.system` with `pkgs.stdenv.hostPlatform.system` in the `nixosModules.default` wrapper, per the upstream nixpkgs rename. No behavior change; just silences the warning on recent nixpkgs.
+
 ## [1.5.1] - 2026-05-04
 
 ### Changed
@@ -159,7 +169,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.2
 [1.5.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.1
 [1.5.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.0
 [1.4.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.4.0
