@@ -185,6 +185,9 @@ function renderCard(name, snap) {
       <span class="${powerCls}">● ${powerLabel}</span>
     </div>
     <div class="row">
+      <span class="ip">${esc(snap.id || "?")}</span>
+    </div>
+    <div class="row">
       <span class="ip">${esc(snap.ip || "?")}</span>
       <span class="ts${stale ? " red" : ""}">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span>
     </div>
