@@ -167,6 +167,78 @@ func TestDecodeResponse_Truncated(t *testing.T) {
 	}
 }
 
+// TestDecodeDiscoveryResponse_RealWireFormat is a regression test for the
+// discover-empty-result bug uncovered on 2026-05-04 via tcpdump against
+// three real Breezy 160 units: real firmware replies to a wildcard
+// discovery request with the device's OWN 16-byte ID in the frame header
+// and SIZE_PWD=0, NOT echoing the wildcard ID + password the client sent.
+//
+// The strict DecodeResponse rejects such replies with ErrIDMismatch /
+// ErrPwdMismatch. DecodeDiscoveryResponse must accept them.
+func TestDecodeDiscoveryResponse_RealWireFormat(t *testing.T) {
+	// Build a frame that mimics what real firmware sent: device ID in
+	// the header is the unit's own ID, password slot is empty, FUNC=
+	// FuncResponse (0x06), DATA carries 0x00B9 (unit type) and 0x007C
+	// (device ID echoed in the data block).
+	realID := "0025001A5646570E"
+
+	// Hand-build the response data block: 0x007C param value (16 bytes)
+	// + 0x00B9 param value (2 bytes uint16 = 17 = unit type "Breezy 160").
+	//
+	// Multi-byte values use the FE <size> <id> <bytes...> framing; the
+	// 16-byte ID is multi-byte, the 2-byte unit type is also multi-byte.
+	dataBlock := []byte{
+		// FE 10 7C <16-byte ID>
+		0xFE, 0x10, 0x7C,
+	}
+	dataBlock = append(dataBlock, []byte(realID)...)
+	dataBlock = append(dataBlock,
+		// FE 02 B9 11 00  (unit type 17, little-endian)
+		0xFE, 0x02, 0xB9, 0x11, 0x00,
+	)
+
+	// Frame: real ID + empty password.
+	frame := EncodeRequest(realID, "", FuncResponse, dataBlock)
+
+	gotID, fn, body, err := DecodeDiscoveryResponse(frame)
+	if err != nil {
+		t.Fatalf("DecodeDiscoveryResponse: %v", err)
+	}
+	if gotID != realID {
+		t.Errorf("frame ID = %q, want %q", gotID, realID)
+	}
+	if fn != FuncResponse {
+		t.Errorf("function = 0x%02X, want 0x%02X", fn, FuncResponse)
+	}
+	parsed, err := ParseDataBlock(body)
+	if err != nil {
+		t.Fatalf("ParseDataBlock: %v", err)
+	}
+	var sawID, sawType bool
+	for _, p := range parsed {
+		switch p.ID {
+		case 0x007C:
+			if string(p.Value) == realID {
+				sawID = true
+			}
+		case 0x00B9:
+			if len(p.Value) == 2 && p.Value[0] == 0x11 && p.Value[1] == 0x00 {
+				sawType = true
+			}
+		}
+	}
+	if !sawID || !sawType {
+		t.Errorf("data block missing 0x007C/0x00B9 (sawID=%v sawType=%v)", sawID, sawType)
+	}
+
+	// Belt-and-braces: confirm the strict DecodeResponse REJECTS the
+	// same frame, so DecodeDiscoveryResponse is the only valid path.
+	_, _, err = DecodeResponse(frame, DefaultDeviceID, "huffpuff")
+	if err == nil {
+		t.Errorf("strict DecodeResponse should have rejected this real-wire frame")
+	}
+}
+
 // ----- Round-trip property test -----
 
 func TestRoundTrip_EncodeDecode(t *testing.T) {

@@ -191,6 +191,73 @@ func DecodeResponse(raw []byte, deviceID, password string) (byte, []byte, error)
 	return function, raw[dataStart:dataEnd], nil
 }
 
+// DecodeDiscoveryResponse is the relaxed decoder for replies to a wildcard
+// (DEFAULT_DEVICEID) discovery request. Real Breezy firmware echoes the
+// device's *own* 16-character ID in the frame header and SIZE_PWD=0 — not
+// the wildcard ID and password we sent. The strict DecodeResponse rejects
+// these as ErrIDMismatch / ErrPwdMismatch, so the discovery code path must
+// not use it.
+//
+// This decoder validates header magic, protocol type, ID-size byte, and
+// the trailing checksum, then extracts the device's own 16-byte ID from
+// the frame, the function code, and the DATA block. Auth-failure replies
+// (FUNC=0x07) surface as ErrAuth in the same way DecodeResponse does.
+//
+// On success returns (frameDeviceID, function, dataBlock, nil). The
+// returned slices alias raw — copy if you intend to retain them past the
+// next read.
+func DecodeDiscoveryResponse(raw []byte) (string, byte, []byte, error) {
+	if len(raw) < 24 {
+		return "", 0, nil, ErrTruncated
+	}
+	if raw[0] != headerByte0 || raw[1] != headerByte1 {
+		return "", 0, nil, ErrBadHeader
+	}
+	if raw[2] != protoType {
+		return "", 0, nil, fmt.Errorf("%w: TYPE=0x%02x", ErrBadHeader, raw[2])
+	}
+	if raw[3] != idSize {
+		return "", 0, nil, fmt.Errorf("%w: SIZE_ID=0x%02x", ErrBadHeader, raw[3])
+	}
+
+	idStart := 4
+	idEnd := idStart + int(idSize) // 20
+	frameID := string(raw[idStart:idEnd])
+
+	sizePwdIdx := idEnd
+	sizePwd := int(raw[sizePwdIdx])
+	if sizePwd > 8 {
+		return "", 0, nil, fmt.Errorf("%w: SIZE_PWD=%d", ErrBadHeader, sizePwd)
+	}
+	pwdEnd := sizePwdIdx + 1 + sizePwd
+	// FUNC + at least 0 bytes data + 2 cksum after PWD.
+	if pwdEnd+1+2 > len(raw) {
+		return "", 0, nil, ErrTruncated
+	}
+
+	funcIdx := pwdEnd
+	function := raw[funcIdx]
+	dataStart := funcIdx + 1
+	dataEnd := len(raw) - 2
+	if dataEnd < dataStart {
+		return "", 0, nil, ErrTruncated
+	}
+
+	var sum uint16
+	for _, b := range raw[2:dataEnd] {
+		sum += uint16(b)
+	}
+	want := uint16(raw[dataEnd]) | uint16(raw[dataEnd+1])<<8
+	if sum != want {
+		return "", function, nil, ErrChecksum
+	}
+
+	if function == FuncAuthFailure {
+		return frameID, function, raw[dataStart:dataEnd], ErrAuth
+	}
+	return frameID, function, raw[dataStart:dataEnd], nil
+}
+
 // BuildReadDataBlock composes the DATA block for a read request covering
 // arbitrary parameter IDs. Pages (high bytes) are switched transparently
 // with FF <hi> commands as needed. The default page at packet start is

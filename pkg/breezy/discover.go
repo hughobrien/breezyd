@@ -224,7 +224,7 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool, pas
 			// Read deadline fired or socket closed — listen loop is done.
 			break
 		}
-		f, ok := parseDiscoveryResponse(buf[:n], peer, password)
+		f, ok := parseDiscoveryResponse(buf[:n], peer)
 		if !ok {
 			continue
 		}
@@ -249,11 +249,12 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool, pas
 // parseDiscoveryResponse decodes one UDP reply to a wildcard probe. It
 // returns ok=false (and skips the response) when the frame is malformed,
 // authentication-tagged, or doesn't carry a real device ID.
-func parseDiscoveryResponse(raw []byte, peer net.Addr, password string) (Found, bool) {
-	// The response echoes our outgoing wildcard ID and password — that's
-	// what we used to encode the request, so that's what DecodeResponse
-	// must compare against.
-	_, body, err := DecodeResponse(raw, DefaultDeviceID, password)
+func parseDiscoveryResponse(raw []byte, peer net.Addr) (Found, bool) {
+	// Real firmware replies with the device's OWN 16-byte ID and an
+	// empty SIZE_PWD — not the wildcard ID + password we sent. So we
+	// can't use the strict DecodeResponse here; it would reject every
+	// real reply with ErrIDMismatch / ErrPwdMismatch.
+	frameID, _, body, err := DecodeDiscoveryResponse(raw)
 	if err != nil {
 		return Found{}, false
 	}
@@ -263,6 +264,9 @@ func parseDiscoveryResponse(raw []byte, peer net.Addr, password string) (Found, 
 		return Found{}, false
 	}
 
+	// Prefer the explicit param 0x007C from the data block (canonical
+	// device ID per the vendor spec); fall back to the frame header ID
+	// since real firmware puts the same value there.
 	var realID string
 	var unitType uint16
 	for _, p := range parsed {
@@ -278,8 +282,10 @@ func parseDiscoveryResponse(raw []byte, peer net.Addr, password string) (Found, 
 		}
 	}
 	if realID == "" {
-		// Without a real ID we can't dedupe or address the device, so
-		// drop the response.
+		realID = frameID
+	}
+	if realID == "" || realID == DefaultDeviceID {
+		// No usable ID (frame ID was the wildcard echo or empty) — drop.
 		return Found{}, false
 	}
 

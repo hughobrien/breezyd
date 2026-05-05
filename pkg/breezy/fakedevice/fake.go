@@ -222,11 +222,13 @@ func extractRequestDeviceID(raw []byte) (string, bool) {
 
 // handleDiscovery responds to a request whose deviceID field is the
 // DEFAULT_DEVICEID wildcard. Per the vendor manual, discovery is
-// unauthenticated — any password works. We bypass the password check by
-// telling DecodeResponse to expect whatever password the client sent. The
-// response is encoded with deviceID=DEFAULT_DEVICEID so the client can
-// match against its outgoing request's ID; the real device ID is conveyed
-// in the data block (param 0x007C from our snapshot).
+// unauthenticated — any password works.
+//
+// Real Breezy firmware (verified against three units on 2026-05-04 via
+// tcpdump on UDP/4000) replies with the device's OWN 16-byte ID in the
+// frame header and SIZE_PWD=0 — NOT echoing the wildcard ID + password
+// the client sent. We mirror that here so the discovery integration
+// path matches real wire format.
 func (s *Server) handleDiscovery(req []byte, peer *net.UDPAddr) {
 	clientPwd, ok := extractRequestPassword(req)
 	if !ok {
@@ -243,7 +245,11 @@ func (s *Server) handleDiscovery(req []byte, peer *net.UDPAddr) {
 	}
 	ids := parseReadDataBlock(data)
 	respData := s.buildResponseDataBlock(ids)
-	resp := breezy.EncodeRequest(breezy.DefaultDeviceID, clientPwd, breezy.FuncResponse, respData)
+	// Reply with the real device ID + empty password, matching real
+	// firmware. The device ID also appears in the data block via 0x007C
+	// — clients can read either, but the frame ID is canonical and
+	// what real units fill in.
+	resp := breezy.EncodeRequest(s.deviceID, "", breezy.FuncResponse, respData)
 	_, _ = s.conn.WriteToUDP(resp, peer)
 }
 
