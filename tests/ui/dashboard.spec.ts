@@ -456,3 +456,43 @@ test("threshold: cancel reverts without POSTing", async ({ page }) => {
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/threshold"));
   expect(post).toBeFalsy();
 });
+
+test("service block: collapsed by default", async ({ page }) => {
+  await loadDashboard(page, { devices: [{ name: "playroom" }] });
+  const card = page.locator(".card").first();
+  const svc = card.locator("details.block", { hasText: "Service" });
+  await expect(svc).toHaveCount(1);
+  await expect(svc).not.toHaveAttribute("open", "");
+  // Body rows aren't visible while collapsed.
+  await expect(svc.locator("text=clean")).toBeHidden();
+});
+
+test("service block: auto-expanded when fault is active", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { fault_level: "alarm" },
+    }),
+  });
+  const svc = page.locator("details.block", { hasText: "Service" }).first();
+  await expect(svc).toHaveAttribute("open", "");
+});
+
+test("service block: auto-expanded when filter is soiled", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { filter_status: "soiled" },
+    }),
+  });
+  const svc = page.locator("details.block", { hasText: "Service" }).first();
+  await expect(svc).toHaveAttribute("open", "");
+});
+
+test("service block: clicking summary toggles open", async ({ page }) => {
+  await loadDashboard(page, { devices: [{ name: "playroom" }] });
+  const svc = page.locator("details.block", { hasText: "Service" }).first();
+  await expect(svc).not.toHaveAttribute("open", "");
+  await svc.locator("summary").click();
+  await expect(svc).toHaveAttribute("open", "");
+});
