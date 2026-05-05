@@ -85,6 +85,28 @@
   }
   .toggle-row { display: flex; gap: 0.5rem; }
   .toggle-cell { flex: 1 1 0; min-width: 0; }
+  .alert-fire { color: #c00; }
+  .value-clickable { cursor: pointer; }
+  .value-clickable:hover {
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+  }
+  .thresh-edit { display: inline-flex; align-items: center; gap: 0.25rem; }
+  .thresh-input {
+    width: 4.5rem; padding: 0.1rem 0.25rem;
+    font-family: inherit; font-size: 0.85rem;
+    border: 1px solid #aaa; border-radius: 3px;
+  }
+  .thresh-edit button {
+    font-family: inherit; font-size: 0.85rem;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid #aaa; background: #fafafa;
+    border-radius: 3px; cursor: pointer;
+  }
+  .thresh-edit button:hover:not(:disabled) { background: #eee; border-color: #888; }
+  .thresh-edit button:disabled,
+  .thresh-input:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -106,6 +128,20 @@ const lastSnapshots = {}; // name -> {snapshot fields, _fetchedAt}
 const inFlight = {}; // name -> bool
 // Per-control toasts. Cleared on next successful poll.
 const toasts = {}; // name -> { control: msg }
+// Per-card threshold editor state. name -> "humidity" | "co2" | "voc".
+// Only one threshold can be edited per card at a time.
+const editingThreshold = {}; // name -> kind
+
+// Per-kind config for the editable sensor rows. Mirrors the daemon's
+// SetThreshold validation: humidity 40-80, co2 400-2000 step 10, voc 50-250.
+const THRESHOLD_KINDS = {
+  humidity: { label: "RH",   suffix: "%",     min: 40,  max: 80,   step: 1,
+              valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity" },
+  co2:      { label: "eCO₂", suffix: " ppm", min: 400, max: 2000, step: 10,
+              valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2" },
+  voc:      { label: "VOC",  suffix: "",      min: 50,  max: 250,  step: 1,
+              valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc" },
+};
 
 async function bootstrap() {
   try {
@@ -191,9 +227,9 @@ function renderCard(name, snap) {
 
     <div class="block">
       <h3>Sensors</h3>
-      ${kv("RH",       fmt(snap.sensors?.humidity_pct, "—", "%"))}
-      ${kv("eCO₂",     fmt(snap.sensors?.eco2_ppm, "—", " ppm"))}
-      ${kv("VOC",      fmt(snap.sensors?.voc_index, "—"))}
+      ${thresholdRow(name, "humidity", snap)}
+      ${thresholdRow(name, "co2",      snap)}
+      ${thresholdRow(name, "voc",      snap)}
       ${kv("outdoor",  tempC(snap.sensors?.temp_outdoor_c))}
       ${kv("supply",   tempC(snap.sensors?.temp_supply_c))}
       ${kv("recovery", fmt(snap.sensors?.recovery_efficiency_pct, "—", "%"))}
@@ -222,6 +258,54 @@ function renderCard(name, snap) {
 
 function kv(k, v) {
   return `<div class="row"><span class="k">${esc(k)}</span><span>${v}</span></div>`;
+}
+
+function thresholdRow(name, kind, snap) {
+  const cfg = THRESHOLD_KINDS[kind];
+  const live = snap.sensors?.[cfg.valueKey];
+  const thresh = snap.configured?.[cfg.thresholdKey];
+  const alerting = snap.live?.sensor_alerts?.[cfg.alertKey] === true;
+  const editing = editingThreshold[name] === kind;
+  const t = toasts[name] || {};
+  const toastKey = "threshold-" + kind;
+  const stale = (snap._fetchedAt
+    ? (Date.now() - new Date(snap.last_poll).getTime()) > STALE_THRESHOLD_MS
+    : false);
+  const disabled = inFlight[name] || stale;
+  const dis = disabled ? "disabled" : "";
+
+  const liveStr = (live === null || live === undefined) ? "—" : `${live}${cfg.suffix}`;
+  const liveCls = alerting ? "alert-fire" : "";
+  const toastEl = t[toastKey] ? `<div class="toast" role="alert">${esc(t[toastKey])}</div>` : "";
+
+  if (editing) {
+    const inputVal = (thresh === null || thresh === undefined) ? cfg.min : thresh;
+    return `<div class="row">
+      <span class="k">${esc(cfg.label)}</span>
+      <span class="thresh-edit">
+        <span class="${liveCls}">${esc(liveStr)}</span>
+        · alert
+        <input type="number" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}"
+               value="${inputVal}"
+               data-name="${esc(name)}" data-kind="${esc(kind)}"
+               class="thresh-input" ${dis}>${esc(cfg.suffix)}
+        <button data-action="threshold-save" data-name="${esc(name)}" data-kind="${esc(kind)}" ${dis}>✓</button>
+        <button data-action="threshold-cancel" data-name="${esc(name)}" data-kind="${esc(kind)}" ${dis}>✕</button>
+      </span>
+    </div>${toastEl}`;
+  }
+
+  const threshStr = (thresh === null || thresh === undefined)
+    ? ""
+    : ` · alert ${esc(String(thresh))}${esc(cfg.suffix)}`;
+  return `<div class="row">
+    <span class="k">${esc(cfg.label)}</span>
+    <span>
+      <span class="value-clickable ${liveCls}"
+            data-action="edit-threshold" data-name="${esc(name)}" data-kind="${esc(kind)}"
+            >${esc(liveStr)}</span>${threshStr}
+    </span>
+  </div>${toastEl}`;
 }
 
 function tempC(v) {
@@ -379,13 +463,16 @@ function renderControls(name, snap, stale) {
   </div>`;
 }
 
-// Single delegated click handler for all control buttons.
+// Single delegated click handler for all control buttons and clickable
+// values (the threshold edit-target). Match any [data-action] so spans
+// like the threshold value can dispatch alongside <button>s.
 document.addEventListener("click", async (ev) => {
-  const btn = ev.target.closest("button[data-action]");
-  if (!btn) return;
-  const name = btn.dataset.name;
-  const action = btn.dataset.action;
-  const value = btn.dataset.value;
+  const el = ev.target.closest("[data-action]");
+  if (!el) return;
+  const name = el.dataset.name;
+  const action = el.dataset.action;
+  const value = el.dataset.value;
+  const kind = el.dataset.kind;
   const snap = lastSnapshots[name];
   if (!snap) return;
 
@@ -410,8 +497,52 @@ document.addEventListener("click", async (ev) => {
       await postWrite(name, "timer", "/v1/devices/" + encodeURIComponent(name) + "/timer",
                       { mode: value });
       break;
+    case "edit-threshold":
+      editingThreshold[name] = kind;
+      render();
+      // Focus the freshly-rendered input so users can type immediately.
+      const input = document.querySelector(
+        `.thresh-input[data-name="${name}"][data-kind="${kind}"]`);
+      if (input) { input.focus(); input.select(); }
+      break;
+    case "threshold-save":
+      await saveThreshold(name, kind);
+      break;
+    case "threshold-cancel":
+      delete editingThreshold[name];
+      render();
+      break;
   }
 });
+
+// Enter saves, Escape cancels while inside a threshold-edit input.
+document.addEventListener("keydown", async (ev) => {
+  const el = ev.target;
+  if (!el.classList || !el.classList.contains("thresh-input")) return;
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    await saveThreshold(el.dataset.name, el.dataset.kind);
+  } else if (ev.key === "Escape") {
+    ev.preventDefault();
+    delete editingThreshold[el.dataset.name];
+    render();
+  }
+});
+
+async function saveThreshold(name, kind) {
+  const input = document.querySelector(
+    `.thresh-input[data-name="${name}"][data-kind="${kind}"]`);
+  if (!input) return;
+  const value = parseInt(input.value, 10);
+  if (isNaN(value)) return;
+  const ok = await postWrite(name, "threshold-" + kind,
+    "/v1/devices/" + encodeURIComponent(name) + "/threshold",
+    { kind, value });
+  if (ok) {
+    delete editingThreshold[name];
+    render();
+  }
+}
 
 // Slider handler — fires on `change` (mouseup/blur), not `input`.
 document.addEventListener("change", async (ev) => {
@@ -426,6 +557,7 @@ document.addEventListener("change", async (ev) => {
 async function postWrite(name, controlKey, url, body) {
   inFlight[name] = true;
   render();
+  let ok = false;
   try {
     const r = await fetch(url, {
       method: "POST",
@@ -440,6 +572,7 @@ async function postWrite(name, controlKey, url, body) {
       } catch {}
       setToast(name, controlKey, msg);
     } else {
+      ok = true;
       clearToast(name, controlKey);
       // Refresh this device immediately so the user sees feedback before
       // the next 5s tick. Other devices unaffected.
@@ -456,6 +589,7 @@ async function postWrite(name, controlKey, url, body) {
     inFlight[name] = false;
     render();
   }
+  return ok;
 }
 
 function setToast(name, controlKey, msg) {

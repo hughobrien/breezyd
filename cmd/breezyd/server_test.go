@@ -734,6 +734,61 @@ func TestHandler_PostTimer_MissingMode(t *testing.T) {
 	}
 }
 
+func TestHandler_PostThreshold(t *testing.T) {
+	for _, c := range []struct {
+		kind  string
+		value int
+		id    string
+		hex   string
+	}{
+		{"humidity", 65, "0x0019", "41"},
+		{"co2", 1500, "0x001A", "dc05"},
+		{"voc", 200, "0x031F", "c800"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			h, _, _ := newServerHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold",
+				map[string]any{"kind": c.kind, "value": c.value})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/"+c.id, nil)
+			var resp map[string]any
+			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
+			if resp["hex"] != c.hex {
+				t.Errorf("%s threshold = %v, want %s", c.kind, resp["hex"], c.hex)
+			}
+		})
+	}
+}
+
+func TestHandler_PostThreshold_BadInputs(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		body map[string]any
+	}{
+		{"missing kind", map[string]any{"value": 50}},
+		{"missing value", map[string]any{"kind": "humidity"}},
+		{"unknown kind", map[string]any{"kind": "temperature", "value": 50}},
+		{"out of range humidity", map[string]any{"kind": "humidity", "value": 90}},
+		{"co2 not multiple of 10", map[string]any{"kind": "co2", "value": 1505}},
+		{"out of range voc", map[string]any{"kind": "voc", "value": 300}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, _, _ := newServerHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold", c.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+			}
+			var env map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &env)
+			if env["code"] != "bad_request" {
+				t.Errorf("error code = %v, want bad_request", env["code"])
+			}
+		})
+	}
+}
+
 func TestHandler_PostFilterReset(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/filter/reset", nil)

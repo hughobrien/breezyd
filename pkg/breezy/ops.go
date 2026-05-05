@@ -106,6 +106,40 @@ func SetTimer(ctx context.Context, c DeviceClient, mode string) error {
 	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0007, Value: []byte{val}}})
 }
 
+// SetThreshold writes one of the per-sensor over-threshold setpoints. The
+// firmware fires the alert (visible in 0x84) and boosts the fan when the
+// matching live reading exceeds this value. Kinds (case-insensitive):
+//
+//   - "humidity" (0x0019, uint8, 40..80 RH%)
+//   - "co2"      (0x001A, uint16 LE, 400..2000 ppm in 10-ppm steps)
+//   - "voc"      (0x031F, uint16 LE, 50..250 VOC index)
+//
+// Out-of-range values and unknown kinds return ErrInvalidArg with no write.
+func SetThreshold(ctx context.Context, c DeviceClient, kind string, value int) error {
+	switch strings.ToLower(kind) {
+	case "humidity":
+		if value < 40 || value > 80 {
+			return fmt.Errorf("%w: humidity threshold must be 40..80, got %d", ErrInvalidArg, value)
+		}
+		return c.WriteParams(ctx, []ParamWrite{{ID: 0x0019, Value: []byte{byte(value)}}})
+	case "co2":
+		if value < 400 || value > 2000 {
+			return fmt.Errorf("%w: co2 threshold must be 400..2000, got %d", ErrInvalidArg, value)
+		}
+		if value%10 != 0 {
+			return fmt.Errorf("%w: co2 threshold must be a multiple of 10, got %d", ErrInvalidArg, value)
+		}
+		return c.WriteParams(ctx, []ParamWrite{{ID: 0x001A, Value: []byte{byte(value), byte(value >> 8)}}})
+	case "voc":
+		if value < 50 || value > 250 {
+			return fmt.Errorf("%w: voc threshold must be 50..250, got %d", ErrInvalidArg, value)
+		}
+		return c.WriteParams(ctx, []ParamWrite{{ID: 0x031F, Value: []byte{byte(value), byte(value >> 8)}}})
+	default:
+		return fmt.Errorf("%w: threshold kind must be one of humidity/co2/voc, got %q", ErrInvalidArg, kind)
+	}
+}
+
 // ResetFilter writes 1 to 0x0065, resetting the filter-replacement
 // countdown back to the configured filter_timeout_days.
 func ResetFilter(ctx context.Context, c DeviceClient) error {

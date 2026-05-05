@@ -208,6 +208,7 @@ func (h *Handler) routes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/devices/{name}/mode", h.postMode)
 	mux.HandleFunc("POST /v1/devices/{name}/heater", h.postHeater)
 	mux.HandleFunc("POST /v1/devices/{name}/timer", h.postTimer)
+	mux.HandleFunc("POST /v1/devices/{name}/threshold", h.postThreshold)
 	mux.HandleFunc("POST /v1/devices/{name}/filter/reset", h.postFilterReset)
 	mux.HandleFunc("POST /v1/devices/{name}/faults/reset", h.postFaultsReset)
 	mux.HandleFunc("POST /v1/devices/{name}/rtc", h.postRTC)

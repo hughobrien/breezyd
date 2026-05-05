@@ -193,6 +193,69 @@ func TestOps_SetTimer(t *testing.T) {
 	}
 }
 
+func TestOps_SetThreshold(t *testing.T) {
+	type happy struct {
+		kind  string
+		value int
+		id    ParamID
+		bytes []byte
+	}
+	for _, c := range []happy{
+		{"humidity", 60, 0x0019, []byte{60}},
+		{"HUMIDITY", 40, 0x0019, []byte{40}},
+		{"humidity", 80, 0x0019, []byte{80}},
+		{"co2", 400, 0x001A, []byte{0x90, 0x01}},
+		{"co2", 1500, 0x001A, []byte{0xDC, 0x05}},
+		{"Co2", 2000, 0x001A, []byte{0xD0, 0x07}},
+		{"voc", 50, 0x031F, []byte{0x32, 0x00}},
+		{"voc", 250, 0x031F, []byte{0xFA, 0x00}},
+		{"VOC", 175, 0x031F, []byte{0xAF, 0x00}},
+	} {
+		rc := &recordingClient{}
+		if err := SetThreshold(context.Background(), rc, c.kind, c.value); err != nil {
+			t.Errorf("SetThreshold(%q,%d): %v", c.kind, c.value, err)
+			continue
+		}
+		if len(rc.writes) != 1 || len(rc.writes[0]) != 1 {
+			t.Errorf("SetThreshold(%q,%d): want one packet with one write, got %v", c.kind, c.value, rc.writes)
+			continue
+		}
+		got := rc.writes[0][0]
+		if got.ID != c.id {
+			t.Errorf("SetThreshold(%q,%d): wrote ID 0x%04X, want 0x%04X", c.kind, c.value, uint16(got.ID), uint16(c.id))
+		}
+		if !reflect.DeepEqual(got.Value, c.bytes) {
+			t.Errorf("SetThreshold(%q,%d): wrote bytes %v, want %v", c.kind, c.value, got.Value, c.bytes)
+		}
+	}
+
+	type bad struct {
+		kind  string
+		value int
+		why   string
+	}
+	for _, c := range []bad{
+		{"humidity", 39, "below range"},
+		{"humidity", 81, "above range"},
+		{"co2", 399, "below range"},
+		{"co2", 2001, "above range"},
+		{"co2", 1505, "not a multiple of 10"},
+		{"voc", 49, "below range"},
+		{"voc", 251, "above range"},
+		{"unknown", 100, "unknown kind"},
+		{"", 60, "empty kind"},
+	} {
+		rc := &recordingClient{}
+		err := SetThreshold(context.Background(), rc, c.kind, c.value)
+		if !errors.Is(err, ErrInvalidArg) {
+			t.Errorf("SetThreshold(%q,%d) [%s]: want ErrInvalidArg, got %v", c.kind, c.value, c.why, err)
+		}
+		if len(rc.writes) != 0 {
+			t.Errorf("SetThreshold(%q,%d) [%s]: should not have issued any writes", c.kind, c.value, c.why)
+		}
+	}
+}
+
 func TestOps_ResetFilter(t *testing.T) {
 	c := &recordingClient{}
 	if err := ResetFilter(context.Background(), c); err != nil {
