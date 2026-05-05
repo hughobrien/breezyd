@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-04
+
 ### Added
 
 - `breezy discover` accepts positional IP arguments and sends the wildcard discovery request unicast to each, instead of broadcasting. Workaround for networks that drop UDP broadcasts (Wi-Fi AP isolation, mesh hops, separate VLANs) where pinging the device works but broadcast doesn't reach it. Bare-arg form: `breezy discover 192.168.1.148 192.168.1.152`. The bare `breezy discover` form (no args) still broadcasts as before.
@@ -133,7 +135,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.4.0
 [1.3.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.3.0
 [1.2.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.2.0
 [1.1.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.1.0
