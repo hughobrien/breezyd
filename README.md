@@ -13,8 +13,9 @@ Assistant integration. LAN only.
 The CLI works on its own — `breezy <name> <verb>` opens UDP to the
 configured device and exits — and that's the default for a fresh install.
 Add the optional daemon (`breezyd`) when you want polling, caching, a JSON
-HTTP API, Prometheus `/metrics`, the embedded web dashboard, or to
-serialize writes across multiple processes against the same device.
+HTTP API, Prometheus `/metrics`, the embedded web dashboard, the HomeKit
+bridge to Apple Home, or to serialize writes across multiple processes
+against the same device.
 
 ![breezy dashboard — three Breezy units on the LAN](tests/ui/screenshots/dashboard-3col.png)
 
@@ -40,9 +41,11 @@ only been tested against the 160 model.
 
 Feature-complete for the operator's stated workflow. v1.0 shipped the
 library + daemon + CLI + Prometheus surface; v1.1 added the embedded
-web dashboard and the optional NixOS-nginx integration. The unreleased
-trunk adds standalone CLI mode (CLI works without `breezyd`; daemon is
-opt-in) — see `CHANGELOG.md` for the per-version breakdown.
+web dashboard and the optional NixOS-nginx integration; v1.2 flipped
+the CLI default to standalone (daemon is opt-in) and added the
+`breezy param` registry lister; v1.3 added the optional HomeKit
+bridge to Apple Home. See `CHANGELOG.md` for the per-version
+breakdown.
 
 In scope:
 - Sensor metrics: humidity, eCO2, VOC, supply/extract/exhaust temperatures,
@@ -56,6 +59,9 @@ In scope:
 - Single-page web dashboard at `GET /` on the daemon, served from the
   same binary; auto-refreshes every 5 s; covers sensors, fans, service
   info, and the four high-level controls (power / mode / speed / heater).
+- Optional HomeKit bridge: each Breezy appears in the Apple Home app
+  with power, fan speed, supply/extract switches, and the full sensor
+  surface (RH, eCO2, VOC, four temperatures).
 
 Out of scope (see "Known limitations" below):
 - No schedule editing. Scheduling is on-device and the CLI does not poke at it.
