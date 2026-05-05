@@ -21,6 +21,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -78,10 +79,21 @@ func (h *Handler) StartHomekit(ctx context.Context, cfg config.Homekit, devices 
 		Model:        "breezyd",
 	})
 
-	// Build per-device accessories and stash them.
+	// Build per-device accessories and stash them. Iterate device names in
+	// sorted order so brutella/hap assigns the same Accessory ID to the
+	// same device on every daemon restart — Go's map iteration is randomised,
+	// and HAP's add() at server.go:270 hands out aids sequentially in slice
+	// order. iOS Home caches the (aid → tile) mapping locally, so a swap on
+	// restart would have the "Office" tile driving the bedroom unit.
 	h.homekitAccessories = make(map[string]*homekit.Accessory, len(devices))
+	names := make([]string, 0, len(devices))
+	for name := range devices {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	children := make([]*hapaccessory.A, 0, len(devices))
-	for name, d := range devices {
+	for _, name := range names {
+		d := devices[name]
 		a := homekit.NewBreezyAccessory(name, d.ID, d.IP)
 		h.homekitAccessories[name] = a
 		children = append(children, a.A)
