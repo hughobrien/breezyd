@@ -20,12 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Each editable sensor row now reads `value · alert threshold`; clicking the value opens an inline editor with the right min/max/step constraints.
 - The dashboard's Fans block shows the commanded fan percentage alongside RPM (`X% / Y rpm`); preset percentages (`0x003A`-`0x003F`) are now polled so the value is correct in preset modes too.
 - The card header now shows the 16-byte FDFD device ID between the device name and IP.
+- HomeKit bridge gains five new services per Breezy and one optional characteristic on the existing AirPurifier:
+  - `FilterMaintenance` — iOS shows a native filter-replacement indicator and Apple Home's "reset filter" gesture writes through `breezy.ResetFilter`. `FilterLifeLevel` is computed from the configured filter-replacement interval (`0x0063`, also added to the daemon's JSON status as `service.filter_total_seconds`).
+  - `BatteryService` for the RTC coin-cell. Voltage maps linearly to 0-100% across 2.5-3.0 V, with `StatusLowBattery=1` at ≤2.7 V (~40%).
+  - `Heater`, `Night`, `Turbo` — three named `Switch` services wired to `breezy.SetHeater` and `breezy.SetTimer`. Night and Turbo are mutually exclusive (turning on either cancels the other; turning off either cancels the timer entirely).
+  - `StatusFault` characteristic on the AirPurifier service — `1` when `service.fault_level != "none"` so iOS shows the fault badge.
 
 ### Changed
 
 - The dashboard's current sensor value goes red when the firmware's over-threshold flag is set, giving a glanceable alert state alongside the existing `⚠` warn line under Fans.
 - The Power and Heater toggles now share a 2-wide row at the top of the Controls block instead of stacking vertically.
 - The Speed control no longer has an explicit "manual" button — interacting with the slider is the gesture; preset 1/2/3 deselect when the slider moves.
+- HomeKit's RotationSpeed slider now reflects `live.fan_supply_pct` (the firmware's currently-commanded percentage) instead of `configured.manual_pct`, so the slider position is correct in preset modes too. Drag-to-change still writes the manual percentage as before.
 
 ### Fixed
 

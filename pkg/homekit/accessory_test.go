@@ -53,6 +53,24 @@ func TestNewBreezyAccessory_ServiceShape(t *testing.T) {
 		t.Error("CarbonDioxideLevel characteristic missing")
 	}
 
+	// Heater/Night/Turbo control switches.
+	if a.Heater == nil || a.Night == nil || a.Turbo == nil {
+		t.Error("Heater/Night/Turbo Switch services missing")
+	}
+
+	// Filter maintenance + battery service.
+	if a.Filter == nil || a.FilterLifeLevel == nil || a.ResetFilter == nil {
+		t.Error("FilterMaintenance service or its optional characteristics missing")
+	}
+	if a.Battery == nil {
+		t.Error("BatteryService missing")
+	}
+
+	// StatusFault on the AirPurifier.
+	if a.StatusFault == nil {
+		t.Error("StatusFault characteristic missing")
+	}
+
 	// IP must be stored for Task 4's daemon glue.
 	if a.IP != "192.168.1.148" {
 		t.Errorf("IP = %q, want 192.168.1.148", a.IP)

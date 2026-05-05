@@ -642,8 +642,11 @@ endpoint even after authenticating to nginx.
 
 The daemon includes an opt-in HomeKit bridge. When enabled, each
 configured Breezy appears in the Apple Home app as one accessory
-with power, fan speed, supply-only / extract-only switches, and the
-full sensor surface (humidity, eCO2, VOC, four temperatures).
+with power, fan speed, supply-only / extract-only / heater / night /
+turbo switches, the full sensor surface (humidity, eCO2, VOC, four
+temperatures), a filter-maintenance service with iOS's native
+"change filter" indicator, and a battery service for the RTC
+coin-cell (low-battery warning at ~40 %).
 
 Enable it by adding to `~/.config/breezy/config.toml`:
 
