@@ -148,6 +148,8 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 		return cmdMode(b, name, vargs, stdout, stderr)
 	case "heater":
 		return cmdHeater(b, name, vargs, stdout, stderr)
+	case "timer":
+		return cmdTimer(b, name, vargs, stdout, stderr)
 	case "reset-filter":
 		return cmdResetFilter(b, name, stdout, stderr)
 	case "reset-faults":
@@ -183,6 +185,7 @@ Per-device verbs:
   speed manual:<pct>    manual % (10..100)
   mode <ventilation|regeneration|supply|extract>
   heater on|off
+  timer <off|night|turbo>  start/stop the special-mode timer
   reset-filter          reset filter timer
   reset-faults          clear active faults
   faults                list active faults
