@@ -201,25 +201,31 @@ Globals:
   param                 list known parameters (id, type, unit, caps)
 `
 
-// loadConfig reads ~/.config/breezy/config.toml. Errors silently fall
-// through to nil — running breezy on a fresh box without a config
-// should still produce useful behavior (standalone mode).
+// loadConfig reads the CLI's config. Tries ~/.config/breezy/config.toml
+// first, then falls back to /etc/breezy/config.toml so a system-wide
+// install (e.g. the NixOS module) can hand the CLI the daemon URL
+// without every user writing their own home-directory config.
+//
+// Errors silently fall through to nil — running breezy on a fresh box
+// without any config should still produce useful behavior (standalone
+// mode).
 func loadConfig() *config.Config {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return nil
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if cfg, err := config.Load(filepath.Join(home, ".config", "breezy", "config.toml")); err == nil {
+			return cfg
+		}
 	}
-	cfg, err := config.Load(filepath.Join(home, ".config", "breezy", "config.toml"))
-	if err != nil {
-		return nil
+	if cfg, err := config.Load("/etc/breezy/config.toml"); err == nil {
+		return cfg
 	}
-	return cfg
+	return nil
 }
 
 // resolveBackend picks a backend based on the precedence:
 //
 //  1. --daemon URL flag (explicit override).
-//  2. ~/.config/breezy/config.toml [daemon].listen.
+//  2. [daemon].listen from ~/.config/breezy/config.toml or
+//     /etc/breezy/config.toml (in that precedence order).
 //  3. Standalone (direct UDP via pkg/breezy/ops).
 //
 // There is no fallback URL: if neither a flag nor config opts in to

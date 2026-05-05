@@ -17,9 +17,53 @@ HTTP API, Prometheus `/metrics`, the embedded web dashboard, the HomeKit
 bridge to Apple Home, or to serialize writes across multiple processes
 against the same device.
 
+> **Heads up:** the device firmware leaks its protocol password and WiFi credentials in cleartext to anyone on the LAN who knows the device ID. Put these units on an IoT VLAN. Details in [Security](#security).
+
 ![breezy dashboard — three Breezy units on the LAN](tests/ui/screenshots/dashboard-3col.png)
 
 The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state.
+
+## At a glance
+
+```sh
+$ breezy ls
+NAME      IP                  POWER  MODE          LAST POLL
+bedroom   192.168.1.152:4000  on     supply        29s ago
+office    192.168.1.160:4000  on     regeneration  29s ago
+playroom  192.168.1.148:4000  off    extract       29s ago
+
+$ breezy playroom status            # sensors + fans + service info
+$ breezy bedroom speed manual:30    # set bedroom fan to 30 % manual
+$ breezy office mode regeneration   # heat-recovery mode
+$ breezy playroom faults            # active fault codes (if any)
+```
+
+v1.0 shipped the library, daemon, and CLI; v1.1 added the embedded web
+dashboard and the optional NixOS-nginx integration; v1.2 made the CLI
+default to standalone (the daemon is opt-in); v1.3 added the HomeKit
+bridge; v1.6 added a fleet-wide password inheritance and a NixOS
+module that auto-detects the daemon for every user on the host. See
+`CHANGELOG.md` for the per-version detail.
+
+What's covered:
+
+- Sensor metrics: humidity, eCO2, VOC, supply/extract/exhaust temperatures,
+  fan RPMs, recovery efficiency, filter remaining time, motor lifetime, RTC
+  battery, fault codes.
+- Control: power, airflow mode (ventilation / regeneration / supply / extract),
+  speed (preset 1-3 or manual 10-100 %), heater, filter timer reset, fault
+  reset, RTC set.
+- Per-device snapshots and Prometheus metrics.
+- `breezy discover` for first-time bootstrap.
+- Single-page web dashboard at `GET /` on the daemon, served from the
+  same binary; auto-refreshes every 5 s; covers sensors, fans, service
+  info, and the four high-level controls (power / mode / speed / heater).
+- Optional HomeKit bridge: each Breezy appears in the Apple Home app
+  with power, fan speed, supply/extract switches, and the full sensor
+  surface (RH, eCO2, VOC, four temperatures).
+
+What's deliberately out: schedule editing, WiFi reconfig, MQTT bridge,
+Home Assistant component. See [Known limitations](#known-limitations).
 
 ### Supported devices
 
@@ -37,110 +81,21 @@ Breezy Eco 200) report different unit-type bytes (`20`, `22`, `24`) but use
 the same wire protocol; this project should work against them although it has
 only been tested against the 160 model.
 
-## Status
-
-Feature-complete for the operator's stated workflow. v1.0 shipped the
-library + daemon + CLI + Prometheus surface; v1.1 added the embedded
-web dashboard and the optional NixOS-nginx integration; v1.2 flipped
-the CLI default to standalone (daemon is opt-in) and added the
-`breezy param` registry lister; v1.3 added the optional HomeKit
-bridge to Apple Home. See `CHANGELOG.md` for the per-version
-breakdown.
-
-In scope:
-- Sensor metrics: humidity, eCO2, VOC, supply/extract/exhaust temperatures,
-  fan RPMs, recovery efficiency, filter remaining time, motor lifetime, RTC
-  battery, fault codes.
-- Control: power, airflow mode (ventilation / regeneration / supply / extract),
-  speed (preset 1-3 or manual 10-100 %), heater, filter timer reset, fault
-  reset, RTC set.
-- Per-device snapshots and Prometheus metrics.
-- `breezy discover` for first-time bootstrap.
-- Single-page web dashboard at `GET /` on the daemon, served from the
-  same binary; auto-refreshes every 5 s; covers sensors, fans, service
-  info, and the four high-level controls (power / mode / speed / heater).
-- Optional HomeKit bridge: each Breezy appears in the Apple Home app
-  with power, fan speed, supply/extract switches, and the full sensor
-  surface (RH, eCO2, VOC, four temperatures).
-
-Out of scope (see "Known limitations" below):
-- No schedule editing. Scheduling is on-device and the CLI does not poke at it.
-- No WiFi reconfig.
-- No MQTT bridge or Home Assistant component.
-
-Security caveat: the device leaks its protocol password and WiFi credentials in
-cleartext to any LAN client that knows the device ID. Put these units on an
-IoT VLAN. Details in the [Security](#security) section.
-
 ## Install
 
-Pre-built binaries for Linux (amd64/arm64), macOS (amd64/arm64), and Windows
-(amd64) are published on the [GitHub Releases
-page](https://github.com/hughobrien/breezyd/releases). Download the archive
-for your platform and extract `breezyd` and `breezy` somewhere on `$PATH`:
+Pick the path that matches your environment. Each one ends with a working
+`breezy ls`:
 
-```sh
-# Linux amd64 example
-curl -sSL -o breezyd.tar.gz \
-  https://github.com/hughobrien/breezyd/releases/latest/download/breezyd_Linux_x86_64.tar.gz
-tar -xzf breezyd.tar.gz breezyd breezy
-sudo install -m 0755 breezyd breezy /usr/local/bin/
-breezyd --version
-```
+- **NixOS host** → [NixOS](#nixos) — 4 steps; daemon + CLI + dashboard, all module-managed.
+- **macOS or non-NixOS Linux with Nix installed** → [Nix anywhere](#nix-anywhere) — `nix profile install` lands the binaries on `$PATH`.
+- **Linux without Nix** → [Linux + systemd](#linux--systemd) — pre-built binary download + an optional hardened systemd unit.
 
-## Build from source
-
-Requires Go 1.22+ (developed on 1.26). No other system dependencies for the
-binaries themselves; the race-detector recipe (`just test-race`) needs a
-working C toolchain.
-
-```sh
-just build       # produces ./breezyd and ./breezy
-just check       # vet + fast tests (pre-commit gate)
-just test-race   # full race-detector run (the CI command)
-```
-
-`just test-race` already sets `CGO_ENABLED=1 CC=clang`, so the recipe works
-out of the box on dev hosts whose default `gcc` lacks the TSan runtime.
-
-## Run with Nix
-
-The repo is a Nix flake; if you have Nix with flakes enabled, you can run
-either binary directly without cloning anywhere persistent or installing Go:
-
-```sh
-# Run the daemon (defaults to ~/.config/breezy/config.toml)
-nix run github:hughobrien/breezyd
-
-# Run the CLI (subcommands of `breezy`)
-nix run github:hughobrien/breezyd#breezy -- ls
-nix run github:hughobrien/breezyd#breezy -- playroom status
-
-# Install both binaries into your user profile (lands them on $PATH).
-# Faster than `nix run` for repeated use — that re-checks the flake on
-# every invocation. Works on NixOS, nix-darwin, and any non-Nix host
-# that has the Nix package manager.
-nix profile install github:hughobrien/breezyd
-breezy ls
-
-# Build standalone binaries into ./result/bin/
-nix build github:hughobrien/breezyd
-./result/bin/breezyd --version
-
-# Drop into a dev shell with Go, gopls, goreleaser, etc.
-nix develop github:hughobrien/breezyd
-```
-
-The flake exposes three packages (`breezyd`, `breezy`, `default = breezyd`),
-three apps (`default`, `breezyd`, `breezy`), a `devShells.default`, and a
-`nixosModules.default` for running the daemon as a NixOS service.
-
-### NixOS service
+## NixOS
 
 Four steps: add the flake input, discover your devices, configure the
 module, rebuild and use it.
 
-#### 1. Add the flake input + module import
+### 1. Add the flake input + module import
 
 ```nix
 {
@@ -158,7 +113,7 @@ module, rebuild and use it.
 }
 ```
 
-#### 2. Discover your devices
+### 2. Discover your devices
 
 You need each unit's 16-character device ID before you can configure
 it. Run discovery before the module is in place — `nix run` doesn't
@@ -186,7 +141,7 @@ nix run github:hughobrien/breezyd#breezy -- discover -p huffpuff \
 
 Note the IDs and IPs — both go into the next step.
 
-#### 3. Configure the module
+### 3. Configure the module
 
 ```nix
 # breezyd.nix
@@ -215,10 +170,13 @@ but anything you put there ends up readable in the world-readable Nix
 store. For real device passwords use `services.breezyd.configFile`
 with sops-nix or agenix to point at a secrets-managed file instead.
 
-#### 4. Rebuild and use it
+### 4. Rebuild and use it
 
-After `nixos-rebuild switch`, the daemon starts and the `breezy` CLI
-is on every user's PATH:
+After `nixos-rebuild switch`, the daemon starts, the `breezy` CLI
+lands on every user's PATH, and the module also writes a tiny
+`/etc/breezy/config.toml` with just `[daemon].listen = "..."` — so the
+CLI auto-detects the daemon and talks to it without anyone writing a
+`~/.config/breezy/config.toml`:
 
 ```sh
 $ breezy ls
@@ -243,16 +201,18 @@ journalctl -u breezyd -n 50 | grep -E 'discovery|no IP'
 replies — go back to step 2 and add `ip = "..."` per device, which
 bypasses discovery entirely.
 
-#### What the module does
+### What the module does
 
 Creates a `breezyd` system user, runs the daemon under systemd with
 hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`,
 `MemoryDenyWriteExecute`, etc.), starts after `network-online.target`,
-and adds the `breezy` CLI to `environment.systemPackages` so it's on
-every user's PATH. Set `services.breezyd.openFirewall = true` if you
-bind the listener to a non-loopback address.
+adds the `breezy` CLI to `environment.systemPackages` so it's on
+every user's PATH, and writes `/etc/breezy/config.toml` (mode 0644,
+just `[daemon].listen`) so the CLI auto-detects the daemon. Set
+`services.breezyd.openFirewall = true` if you bind the listener to a
+non-loopback address.
 
-#### Prometheus (optional)
+### Prometheus (optional)
 
 ```nix
 services.breezyd.prometheus.enable = true;
@@ -265,7 +225,7 @@ Injects an entry into `services.prometheus.scrapeConfigs` only when
 both `services.breezyd.enable` and `services.prometheus.enable` are
 true.
 
-#### HomeKit (optional)
+### HomeKit (optional)
 
 ```nix
 services.breezyd.homekit.enable = true;
@@ -288,11 +248,37 @@ yourself with sops-nix / agenix), enabling `homekit` still adjusts the
 systemd unit (state directory, firewall) but does **not** inject a
 `[homekit]` block into your file — add it yourself.
 
-## Getting started
+## Nix anywhere
 
-The CLI works on its own — you only need the daemon if you want polling,
-caching, the web dashboard, Prometheus metrics, or HomeKit. Most users
-should start in standalone mode:
+If you have Nix installed (NixOS, nix-darwin, or any Linux/macOS
+host with the Nix package manager), the fastest install is
+`nix profile install`. The CLI and daemon are the same derivation, so
+both binaries land on `$PATH`:
+
+```sh
+nix profile install github:hughobrien/breezyd
+breezy --version
+```
+
+Other entry points the flake exposes:
+
+```sh
+# Run either binary without installing — slower per-invocation because
+# `nix run` re-checks the flake every time, but useful for one-offs.
+nix run github:hughobrien/breezyd                    # daemon
+nix run github:hughobrien/breezyd#breezy -- ls       # CLI
+
+# Build standalone binaries into ./result/bin/
+nix build github:hughobrien/breezyd
+./result/bin/breezyd --version
+
+# Drop into a dev shell with Go, gopls, goreleaser, etc.
+nix develop github:hughobrien/breezyd
+```
+
+The flake exposes three packages (`breezyd`, `breezy`, `default = breezyd`),
+three apps (`default`, `breezyd`, `breezy`), a `devShells.default`, and a
+`nixosModules.default` for running the daemon as a NixOS service.
 
 ### 1. Find your device IDs
 
@@ -359,8 +345,6 @@ The mode-0600 check is enforced — the loader refuses to start otherwise.
 
 ### 3. Verify
 
-You're done. The CLI works:
-
 ```sh
 breezy ls                          # all configured devices, one line each
 breezy playroom status             # full snapshot — sensors, fans, service info
@@ -381,7 +365,7 @@ Run `breezyd` if you want any of:
 - **JSON HTTP API** at `http://127.0.0.1:9876/v1/devices/...`.
 - **Prometheus `/metrics`** for Grafana dashboards / alerts.
 - **Embedded web dashboard** — the screenshot near the top of this README.
-- **HomeKit bridge** — see the [HomeKit](#homekit-optional) section.
+- **HomeKit bridge** — see the [HomeKit](#homekit) section.
 - **Concurrency safety** when multiple processes script `breezy` against the
   same device. Standalone CLIs don't coordinate with each other; the daemon
   serializes per-device UDP behind a mutex.
@@ -408,44 +392,153 @@ If the config doesn't exist when `breezyd` starts, it writes a sensible
 default (with `[daemon]` commented out, so re-running gets you working
 standalone immediately) and exits with an "edit it" message.
 
-### 5. (Optional) Enable HomeKit
+If you want the daemon to run on boot under systemd, see
+[Linux + systemd](#linux--systemd) — that section's unit file works
+unchanged whether you got the binary from `nix profile install` or
+from a release archive.
 
-See the [HomeKit (optional)](#homekit-optional) section.
+## Linux + systemd
 
-## Configuration reference
+For Ubuntu / Debian / Arch / Fedora / etc. without Nix.
 
-`~/.config/breezy/config.toml` — mode `0600` (loader enforces). Both daemon
-and CLI read this file. The CLI uses `[daemon].listen` to decide whether
-to talk HTTP to a daemon or UDP directly to each device, and reads each
-`[devices.<name>]` for standalone-mode unicast targets.
+### 1. Download the binary
 
-Full schema with defaults:
+Pre-built binaries for Linux (amd64/arm64), macOS (amd64/arm64), and Windows
+(amd64) are published on the [GitHub Releases
+page](https://github.com/hughobrien/breezyd/releases). Download the archive
+for your platform and extract `breezyd` and `breezy` somewhere on `$PATH`:
 
-```toml
-# Optional. Without this block the CLI runs in standalone mode (no HTTP).
-[daemon]
-listen        = "127.0.0.1:9876"   # http listener; required when [daemon] present
-poll_interval = "30s"              # default 30s
-discovery     = "on-start"         # "on-start" | "off" | "periodic:<duration>"
-
-# Optional. Off by default. See HomeKit section.
-[homekit]
-enabled = false
-# bridge_name = "breezyd"
-# port = 0                          # 0 = ephemeral
-# state_dir = "~/.local/state/breezyd/homekit"
-
-# One [devices.<name>] block per Breezy unit. Name = the label used as the
-# CLI's <subject>: "breezy playroom status".
-[devices.playroom]
-id       = "BREEZY00000000A0"      # 16-char device ID; from `breezy discover`
-password = "testpwd"               # protocol password
-ip       = "192.168.1.148"         # required in standalone; optional in daemon mode
+```sh
+# Linux amd64 example
+curl -sSL -o breezyd.tar.gz \
+  https://github.com/hughobrien/breezyd/releases/latest/download/breezyd_Linux_x86_64.tar.gz
+tar -xzf breezyd.tar.gz breezyd breezy
+sudo install -m 0755 breezyd breezy /usr/local/bin/
+breezyd --version
 ```
 
-If you'd rather keep the config elsewhere (e.g. sops-nix / agenix), point
-the daemon at it with `--config /path/to/file`. The mode-0600 check still
-applies. The CLI's config path is fixed at `~/.config/breezy/config.toml`.
+### 2. Find your device IDs
+
+```sh
+breezy discover
+# 192.168.1.148  id=BREEZY00000000A0  type=17 (Breezy 160)
+# 192.168.1.152  id=BREEZY00000000A1  type=17 (Breezy 160)
+# 192.168.1.160  id=BREEZY00000000A2  type=17 (Breezy 160)
+```
+
+If broadcast is empty, pass each IP as a positional arg, and add
+`-p PASSWORD` if your devices use a non-default password:
+
+```sh
+breezy discover -p huffpuff 192.168.1.148 192.168.1.152 192.168.1.160
+```
+
+### 3. Standalone CLI use
+
+If you only want the CLI (no daemon, no service), this is enough:
+write `~/.config/breezy/config.toml` mode 0600 with the discovered
+IDs, then run `breezy ls`. Same shape as the
+[Nix-anywhere standalone config](#2-write-the-config). Skip to step 4
+only if you want the daemon polling in the background.
+
+### 4. (Optional) Run breezyd as a system service
+
+Create a system user, drop the daemon's config under `/etc/breezyd/`,
+and add a tiny `/etc/breezy/config.toml` so users get auto-detect:
+
+```sh
+# Create the daemon's user and config directory.
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin breezyd
+sudo install -d -m 0750 -o breezyd -g breezyd /etc/breezyd
+
+# Write the daemon's config (with passwords). Mode 0600.
+sudo tee /etc/breezyd/breezyd.toml <<'EOF' >/dev/null
+[daemon]
+listen        = "127.0.0.1:9876"
+poll_interval = "30s"
+discovery     = "on-start"
+password      = "huffpuff"
+
+[devices.bedroom]
+id = "BREEZY00000000A0"
+ip = "192.168.1.148"
+
+[devices.office]
+id = "BREEZY00000000A1"
+ip = "192.168.1.152"
+
+[devices.playroom]
+id = "BREEZY00000000A2"
+ip = "192.168.1.160"
+EOF
+sudo chown breezyd:breezyd /etc/breezyd/breezyd.toml
+sudo chmod 0600 /etc/breezyd/breezyd.toml
+
+# Write the CLI's system fallback (no passwords). Mode 0644 so any
+# user on the host can read it; the CLI tries this when there's no
+# ~/.config/breezy/config.toml.
+sudo install -d -m 0755 /etc/breezy
+sudo tee /etc/breezy/config.toml <<'EOF' >/dev/null
+[daemon]
+listen = "127.0.0.1:9876"
+EOF
+```
+
+Save the following as `/etc/systemd/system/breezyd.service` (the
+hardening mirrors what the NixOS module sets up):
+
+```ini
+[Unit]
+Description=Vents Twinfresh Breezy / Elite 160 Pro daemon
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/breezyd --config /etc/breezyd/breezyd.toml
+User=breezyd
+Group=breezyd
+Restart=on-failure
+RestartSec=5s
+
+# Hardening — breezyd only needs outbound UDP and an HTTP listener.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now breezyd
+journalctl -u breezyd -f               # tail the log to confirm it's polling
+breezy ls                              # any user can talk to the daemon now
+```
+
+If you turn on `[homekit]` in the config, also add
+`StateDirectory=breezyd` to `[Service]` so systemd creates
+`/var/lib/breezyd/` for the HAP server's pairing state.
 
 ## Web UI
 
@@ -519,7 +612,7 @@ direct-listen path lacks. The daemon's full `/v1/...` API remains on
 loopback, so a compromised LAN device can't reach the raw param write
 endpoint even after authenticating to nginx.
 
-## HomeKit (optional)
+## HomeKit
 
 The daemon includes an opt-in HomeKit bridge. When enabled, each
 configured Breezy appears in the Apple Home app as one accessory
@@ -551,66 +644,13 @@ The next daemon start regenerates the PIN.
 - `port`: TCP port for the HAP server. Default 0 (OS-assigned).
 - `state_dir`: where pairing keys + the PIN live.
 
-On NixOS, enable the bridge via the module:
-
-```nix
-services.breezyd.homekit.enable = true;
-# Optional tunables, defaults shown:
-# services.breezyd.homekit.bridgeName = "breezyd";
-# services.breezyd.homekit.port = 0;  # 0 = OS-assigned; set a fixed port if you need firewall rules
-# services.breezyd.homekit.stateDir = "/var/lib/breezyd/homekit";
-```
-
-When `services.breezyd.openFirewall = true` and `homekit.port` is non-zero,
-the module opens that port in the firewall automatically. Port 0 (ephemeral)
-cannot be pre-opened; if you need a fixed firewall hole, set a specific port.
+On NixOS the bridge is one knob — see [HomeKit (optional)](#homekit-optional)
+under the NixOS section above.
 
 The HomeKit bridge always uses the daemon path — writes go through
 `pkg/breezy/ops` with the same per-device mutex serialisation and fan-settle
 window as the HTTP handlers. The standalone-CLI concurrency caveat is
 unrelated; the HomeKit bridge never opens its own UDP socket.
-
-## CLI overview
-
-`breezy --help` is the source of truth. The shape is "subject before verb",
-so per-device commands read naturally:
-
-| Command                              | What it does                                 |
-| ------------------------------------ | -------------------------------------------- |
-| `breezy ls`                          | one-line table of every configured device   |
-| `breezy discover [-p PWD] [ip...]`   | LAN broadcast (or unicast to each IP); `-p` overrides the wildcard discovery password |
-| `breezy param`                       | list known parameters (id, type, unit, caps; use `name` with `get`/`set`) |
-| `breezy playroom status`             | full structured snapshot                     |
-| `breezy bedroom on` / `off`          | power                                        |
-| `breezy bedroom speed manual:30`     | set fan to 30 % manual                       |
-| `breezy bedroom speed 2`             | switch to preset 2                           |
-| `breezy office mode regeneration`    | airflow mode (ventilation / regeneration / supply / extract) |
-| `breezy office heater on`            | toggle the auxiliary heater                  |
-| `breezy playroom faults`             | list active fault codes                      |
-| `breezy playroom firmware`           | firmware version + build date                |
-| `breezy playroom efficiency`         | recovery efficiency %                        |
-| `breezy playroom rtc`                | show device clock                            |
-| `breezy playroom rtc set 2026-05-03T22:00:00-07:00` | set device clock          |
-| `breezy playroom reset-filter`       | clear the filter timer                       |
-| `breezy playroom reset-faults`       | clear active fault flags                     |
-| `breezy playroom get humidity`       | raw param read by name or hex                |
-| `breezy playroom set 0x25 1e`        | raw param write (hex)                        |
-
-The CLI exit codes are: `0` success, `1` backend error (HTTP envelope in daemon
-mode, plain error message in standalone mode), `2` local usage error.
-
-### Standalone vs daemon mode
-
-The CLI defaults to standalone mode (UDP directly to each device). See
-[Getting started](#getting-started) for the typical flow and when to
-escalate to daemon mode.
-
-**Concurrency caveat:** the daemon serializes per-device UDP behind a
-mutex. Standalone CLI processes do not coordinate with each other —
-two `breezy` invocations against the same device at the same instant
-can produce silent checksum corruption. If you script invocations in
-parallel against the same device, run the daemon and use the CLI in
-daemon mode.
 
 ## Prometheus
 
@@ -649,61 +689,97 @@ time() - breezy_last_poll_timestamp > 300
 otherwise; the corresponding `breezy_last_poll_timestamp` is the unix time of
 the last successful read.
 
-## Project layout
+On NixOS the auto-scrape integration is one knob — see
+[Prometheus (optional)](#prometheus-optional) under the NixOS section.
 
+## CLI overview
+
+`breezy --help` is the source of truth. The shape is "subject before verb",
+so per-device commands read naturally:
+
+| Command                              | What it does                                 |
+| ------------------------------------ | -------------------------------------------- |
+| `breezy ls`                          | one-line table of every configured device   |
+| `breezy discover [-p PWD] [ip...]`   | LAN broadcast (or unicast to each IP); `-p` overrides the wildcard discovery password |
+| `breezy param`                       | list known parameters (id, type, unit, caps; use `name` with `get`/`set`) |
+| `breezy playroom status`             | full structured snapshot                     |
+| `breezy bedroom on` / `off`          | power                                        |
+| `breezy bedroom speed manual:30`     | set fan to 30 % manual                       |
+| `breezy bedroom speed 2`             | switch to preset 2                           |
+| `breezy office mode regeneration`    | airflow mode (ventilation / regeneration / supply / extract) |
+| `breezy office heater on`            | toggle the auxiliary heater                  |
+| `breezy playroom faults`             | list active fault codes                      |
+| `breezy playroom firmware`           | firmware version + build date                |
+| `breezy playroom efficiency`         | recovery efficiency %                        |
+| `breezy playroom rtc`                | show device clock                            |
+| `breezy playroom rtc set 2026-05-03T22:00:00-07:00` | set device clock          |
+| `breezy playroom reset-filter`       | clear the filter timer                       |
+| `breezy playroom reset-faults`       | clear active fault flags                     |
+| `breezy playroom get humidity`       | raw param read by name or hex                |
+| `breezy playroom set 0x25 1e`        | raw param write (hex)                        |
+
+The CLI exit codes are: `0` success, `1` backend error (HTTP envelope in daemon
+mode, plain error message in standalone mode), `2` local usage error.
+
+### Standalone vs daemon mode
+
+The CLI defaults to standalone mode (UDP directly to each device). The
+typical flow is in [Nix anywhere](#nix-anywhere) for Nix users and
+[Linux + systemd](#linux--systemd) for everyone else; both end with a
+working `breezy ls` either with or without the daemon running.
+
+**Concurrency caveat:** the daemon serializes per-device UDP behind a
+mutex. Standalone CLI processes do not coordinate with each other —
+two `breezy` invocations against the same device at the same instant
+can produce silent checksum corruption. If you script invocations in
+parallel against the same device, run the daemon and use the CLI in
+daemon mode.
+
+## Configuration reference
+
+`~/.config/breezy/config.toml` — mode `0600` (loader enforces when the file
+contains passwords). Both daemon and CLI read this file. The CLI uses
+`[daemon].listen` to decide whether to talk HTTP to a daemon or UDP directly
+to each device, and reads each `[devices.<name>]` for standalone-mode unicast
+targets.
+
+The CLI also tries `/etc/breezy/config.toml` as a fallback when no
+home-directory config exists. The system fallback is typically just
+`[daemon].listen = "..."` (no passwords), which the loader accepts at
+mode 0644 so every user on the host can read it. The NixOS module
+writes this file automatically when `services.breezyd.enable = true`.
+
+Full schema with defaults:
+
+```toml
+# Optional. Without this block the CLI runs in standalone mode (no HTTP).
+[daemon]
+listen        = "127.0.0.1:9876"   # http listener; required when [daemon] present
+poll_interval = "30s"              # default 30s
+discovery     = "on-start"         # "on-start" | "off" | "periodic:<duration>"
+password      = ""                 # optional fleet-wide protocol password; used for
+                                   # the daemon's discovery probes and inherited by
+                                   # any [devices.<name>] block that omits its own
+
+# Optional. Off by default. See HomeKit section.
+[homekit]
+enabled = false
+# bridge_name = "breezyd"
+# port = 0                          # 0 = ephemeral
+# state_dir = "~/.local/state/breezyd/homekit"
+
+# One [devices.<name>] block per Breezy unit. Name = the label used as the
+# CLI's <subject>: "breezy playroom status".
+[devices.playroom]
+id       = "BREEZY00000000A0"      # 16-char device ID; from `breezy discover`
+password = "testpwd"               # protocol password; falls back to [daemon].password if absent
+ip       = "192.168.1.148"         # required in standalone; optional in daemon mode
 ```
-breezyd/
-├── pkg/breezy/                # protocol library (importable)
-│   ├── frame.go               # FDFD/02 packet codec
-│   ├── client.go              # UDP transport, retries, timeouts
-│   ├── params.go              # parameter registry (id, type, R/W, units)
-│   ├── values.go              # typed value codecs
-│   ├── discover.go            # LAN broadcast
-│   └── fakedevice/            # in-process protocol-speaking fake for tests
-├── cmd/breezyd/               # the daemon (HTTP + Prometheus + poller)
-├── cmd/breezy/                # the CLI (standalone UDP by default; daemon mode opt-in)
-├── internal/config/           # TOML config loader, shared by both
-├── tools/                     # Phase 0 Python probes (one-off, kept for reference)
-└── docs/superpowers/specs/    # design doc, parameter map, vendor PDF manual
-```
 
-## Testing
-
-```sh
-just test                       # unit tests (uses fakedevice)
-just test-race                  # same, with -race (the CI command)
-just lint                       # go vet + gofmt-drift check
-just check                      # lint + fast tests (pre-commit gate)
-just check-all                  # check + test-race + Playwright UI suite
-```
-
-UI tests are end-to-end Playwright specs under `tests/ui/` that mock the
-daemon's `/v1/...` endpoints via `page.route()` — no real `breezyd` needed:
-
-```sh
-just test-ui-install            # one-time: pnpm install + chromium download
-just test-ui                    # 11 specs, ~3 s
-just screenshot                 # re-render tests/ui/screenshots/*.png
-```
-
-Run a single Go package or test with raw `go`:
-
-```sh
-go test ./pkg/breezy/...
-go test ./cmd/breezyd -run TestPoller_FanSettle
-```
-
-Live integration tests against real hardware are gated by both the
-`integration` build tag and `BREEZY_INTEGRATION=1`, plus three env vars
-identifying the target device. The `just test-integration` recipe wraps
-all of that:
-
-```sh
-just test-integration 192.168.1.148 BREEZY00000000A0 <your password>
-```
-
-These tests write to the device — each one registers a `t.Cleanup` that
-restores the prior value, so re-runs leave the unit in its original state.
+If you'd rather keep the config elsewhere (e.g. sops-nix / agenix), point
+the daemon at it with `--config /path/to/file`. The mode-0600 check still
+applies whenever the file contains passwords. The CLI's config path order
+is fixed at `~/.config/breezy/config.toml` then `/etc/breezy/config.toml`.
 
 ## Security
 
@@ -746,7 +822,82 @@ spec for the full rationale.
   integration can build a REST sensor on top of `/v1/devices/<name>` or
   scrape `/metrics`.
 
-## Pointers to deeper docs
+## Developing
+
+Working on breezyd itself? Start here.
+
+### Build from source
+
+Requires Go 1.22+ (developed on 1.26). No other system dependencies for the
+binaries themselves; the race-detector recipe (`just test-race`) needs a
+working C toolchain.
+
+```sh
+just build       # produces ./breezyd and ./breezy
+just check       # vet + fast tests (pre-commit gate)
+just test-race   # full race-detector run (the CI command)
+```
+
+`just test-race` already sets `CGO_ENABLED=1 CC=clang`, so the recipe works
+out of the box on dev hosts whose default `gcc` lacks the TSan runtime.
+
+### Project layout
+
+```
+breezyd/
+├── pkg/breezy/                # protocol library (importable)
+│   ├── frame.go               # FDFD/02 packet codec
+│   ├── client.go              # UDP transport, retries, timeouts
+│   ├── params.go              # parameter registry (id, type, R/W, units)
+│   ├── values.go              # typed value codecs
+│   ├── discover.go            # LAN broadcast
+│   └── fakedevice/            # in-process protocol-speaking fake for tests
+├── cmd/breezyd/               # the daemon (HTTP + Prometheus + poller)
+├── cmd/breezy/                # the CLI (standalone UDP by default; daemon mode opt-in)
+├── internal/config/           # TOML config loader, shared by both
+├── tools/                     # Phase 0 Python probes (one-off, kept for reference)
+└── docs/superpowers/specs/    # design doc, parameter map, vendor PDF manual
+```
+
+### Testing
+
+```sh
+just test                       # unit tests (uses fakedevice)
+just test-race                  # same, with -race (the CI command)
+just lint                       # go vet + gofmt-drift check
+just check                      # lint + fast tests (pre-commit gate)
+just check-all                  # check + test-race + Playwright UI suite
+```
+
+UI tests are end-to-end Playwright specs under `tests/ui/` that mock the
+daemon's `/v1/...` endpoints via `page.route()` — no real `breezyd` needed:
+
+```sh
+just test-ui-install            # one-time: pnpm install + chromium download
+just test-ui                    # 11 specs, ~3 s
+just screenshot                 # re-render tests/ui/screenshots/*.png
+```
+
+Run a single Go package or test with raw `go`:
+
+```sh
+go test ./pkg/breezy/...
+go test ./cmd/breezyd -run TestPoller_FanSettle
+```
+
+Live integration tests against real hardware are gated by both the
+`integration` build tag and `BREEZY_INTEGRATION=1`, plus three env vars
+identifying the target device. The `just test-integration` recipe wraps
+all of that:
+
+```sh
+just test-integration 192.168.1.148 BREEZY00000000A0 <your password>
+```
+
+These tests write to the device — each one registers a `t.Cleanup` that
+restores the prior value, so re-runs leave the unit in its original state.
+
+### Pointers to deeper docs
 
 - `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md` — full v1 design
   doc: protocol decisions, daemon architecture, error semantics, status-line

@@ -228,6 +228,47 @@ password = "testpwd"
 	}
 }
 
+func TestLoad_PasswordFreeWorldReadableAccepted(t *testing.T) {
+	// A system fallback like /etc/breezy/config.toml with only
+	// [daemon].listen (no passwords) must be loadable at mode 0644 so
+	// every user on the host can read it.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(`
+[daemon]
+listen = "127.0.0.1:9876"
+`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("password-free 0644 should load, got: %v", err)
+	}
+	if cfg.Daemon.Listen != "127.0.0.1:9876" {
+		t.Errorf("Listen = %q, want 127.0.0.1:9876", cfg.Daemon.Listen)
+	}
+}
+
+func TestLoad_DaemonPasswordTriggersModeCheck(t *testing.T) {
+	// [daemon].password counts as a secret too — a config with only a
+	// fleet-wide password and no [devices] still requires mode 0600.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(`
+[daemon]
+password = "fleetpwd"
+`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for daemon-password at 0644, got nil")
+	}
+	if !strings.Contains(err.Error(), "0600") {
+		t.Errorf("error should mention 0600: %v", err)
+	}
+}
+
 func TestLoad_BadDeviceIDLength(t *testing.T) {
 	path := writeConfig(t, `
 [devices.playroom]

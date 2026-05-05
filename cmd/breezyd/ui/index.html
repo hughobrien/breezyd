@@ -311,10 +311,10 @@ function renderControls(name, snap, stale) {
     <div class="ctrl">
       <span class="ctrl-label">Mode</span>
       <div class="seg">
-        ${modeBtn("vent",  "ventilation")}
-        ${modeBtn("regen", "regeneration")}
-        ${modeBtn("sup",   "supply")}
-        ${modeBtn("ext",   "extract")}
+        ${modeBtn("auto",    "ventilation")}
+        ${modeBtn("regen",   "regeneration")}
+        ${modeBtn("supply",  "supply")}
+        ${modeBtn("extract", "extract")}
       </div>
       ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
     </div>
