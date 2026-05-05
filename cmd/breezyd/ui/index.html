@@ -246,8 +246,17 @@ function overrideLine(live) {
   if (!live || live.in_user_control !== false) return "";
   const alerts = live.sensor_alerts || {};
   const reasons = ["humidity", "co2", "voc"].filter(k => alerts[k]);
-  const reasonText = reasons.length ? ` (${reasons.join(", ")})` : "";
-  return `<div class="warn">⚠ sensor override${reasonText} — fan above setting</div>`;
+  if (reasons.length > 0) {
+    return `<div class="warn">⚠ sensor override (${reasons.join(", ")}) — fan above setting</div>`;
+  }
+  if (live.special_mode === "turbo") {
+    return `<div class="warn">⚠ timer active (turbo) — fan above setting</div>`;
+  }
+  if (live.special_mode === "night") {
+    return `<div class="warn">⚠ timer active (night) — fan slowed</div>`;
+  }
+  // Frost protection or unknown override; stay silent (out of scope).
+  return "";
 }
 
 function humanAgo(ms) {
@@ -283,6 +292,13 @@ function renderControls(name, snap, stale) {
   const dis = disabled ? "disabled" : "";
   const t = toasts[name] || {};
 
+  const specialMode = snap.live?.special_mode || "off";  // "off" | "night" | "turbo"
+  const remainingSecs = snap.live?.special_mode_remaining_seconds;
+
+  const timerBtn = (label, value) =>
+    `<button data-action="timer" data-name="${esc(name)}" data-value="${esc(value)}" ${dis}
+        aria-pressed="${specialMode === value ? "true" : "false"}">${esc(label)}</button>`;
+
   const modeBtn = (label, value) =>
     `<button data-action="mode" data-name="${esc(name)}" data-value="${esc(value)}" ${dis}
         aria-pressed="${mode === value ? "true" : "false"}">${esc(label)}</button>`;
@@ -306,6 +322,19 @@ function renderControls(name, snap, stale) {
         Power ${power ? "● on" : "○ off"}
       </button>
       ${t.power ? `<div class="toast" role="alert">${esc(t.power)}</div>` : ""}
+    </div>
+
+    <div class="ctrl">
+      <span class="ctrl-label">Timer</span>
+      <div class="seg">
+        ${timerBtn("off",   "off")}
+        ${timerBtn("night", "night")}
+        ${timerBtn("turbo", "turbo")}
+      </div>
+      ${specialMode !== "off" && typeof remainingSecs === "number"
+        ? `<div class="ctrl-label">${esc(humanSeconds(remainingSecs))} remaining</div>`
+        : ""}
+      ${t.timer ? `<div class="toast" role="alert">${esc(t.timer)}</div>` : ""}
     </div>
 
     <div class="ctrl">
@@ -382,6 +411,10 @@ document.addEventListener("click", async (ev) => {
     case "heater":
       await postWrite(name, "heater", "/v1/devices/" + encodeURIComponent(name) + "/heater",
                       { on: !snap.configured?.heater_enabled });
+      break;
+    case "timer":
+      await postWrite(name, "timer", "/v1/devices/" + encodeURIComponent(name) + "/timer",
+                      { mode: value });
       break;
   }
 });
