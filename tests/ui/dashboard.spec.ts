@@ -23,6 +23,9 @@ function baseSnapshot(name: string, overrides: Record<string, unknown> = {}) {
       manual_pct: 30,
       airflow_mode: "regeneration",
       heater_enabled: false,
+      humidity_threshold_pct: 60,
+      co2_threshold_ppm: 1500,
+      voc_threshold_index: 250,
       ...((overrides as any).configured ?? {}),
     },
     live: {
@@ -360,4 +363,77 @@ test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/timer"));
   expect(post).toBeTruthy();
   expect(post!.body).toEqual({ mode: "night" });
+});
+
+test("threshold: sensor row shows current and alert threshold", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      sensors: { humidity_pct: 52 },
+      configured: { humidity_threshold_pct: 70 },
+    }),
+  });
+  const sensors = page.locator(".card .block", { hasText: "Sensors" });
+  await expect(sensors).toContainText("52%");
+  await expect(sensors).toContainText("alert 70%");
+});
+
+test("threshold: alert-fire class on the value when sensor_alerts is true", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      sensors: { eco2_ppm: 3500 },
+      configured: { co2_threshold_ppm: 1500 },
+      live: {
+        in_user_control: false,
+        sensor_alerts: { humidity: false, co2: true, voc: false },
+      },
+    }),
+  });
+  const eco2 = page.locator('[data-action="edit-threshold"][data-kind="co2"]').first();
+  await expect(eco2).toContainText("3500");
+  await expect(eco2).toHaveClass(/alert-fire/);
+});
+
+test("threshold: clicking the value reveals an editor with current threshold", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { humidity_threshold_pct: 65 },
+    }),
+  });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue("65");
+  await expect(input).toHaveAttribute("min", "40");
+  await expect(input).toHaveAttribute("max", "80");
+});
+
+test("threshold: save POSTs {kind, value} to /threshold and exits edit mode", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+  });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
+  await input.fill("55");
+  await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
+  await page.waitForTimeout(200);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/threshold"));
+  expect(post).toBeTruthy();
+  expect(post!.body).toEqual({ kind: "humidity", value: 55 });
+  await expect(input).toHaveCount(0);
+});
+
+test("threshold: cancel reverts without POSTing", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+  });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
+  await expect(input).toBeVisible();
+  await page.click('button[data-action="threshold-cancel"][data-name="playroom"][data-kind="humidity"]');
+  await expect(input).toHaveCount(0);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/threshold"));
+  expect(post).toBeFalsy();
 });

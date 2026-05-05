@@ -21,6 +21,9 @@ function snapshot(name: string) {
       manual_pct: name === "playroom" ? 30 : 50,
       airflow_mode: name === "playroom" ? "regeneration" : "ventilation",
       heater_enabled: false,
+      humidity_threshold_pct: 60,
+      co2_threshold_ppm: 1500,
+      voc_threshold_index: 250,
     },
     live: {
       fan_supply_rpm: name === "office" ? 0 : (name === "playroom" ? 5340 : 3120),

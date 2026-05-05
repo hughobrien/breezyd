@@ -278,6 +278,44 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// postThreshold writes one of the three sensor over-threshold setpoints
+// (humidity 0x0019, co2 0x001A, voc 0x031F). Body: {"kind":"...", "value":N}.
+// Per-kind range and step validation lives in breezy.SetThreshold.
+func (h *Handler) postThreshold(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.requireDevice(w, name); !ok {
+		return
+	}
+	var body struct {
+		Kind  string `json:"kind"`
+		Value *int   `json:"value"`
+	}
+	if !readBody(w, r, &body) {
+		return
+	}
+	if body.Kind == "" {
+		writeErr(w, "bad_request", "missing 'kind' field (humidity|co2|voc)")
+		return
+	}
+	if body.Value == nil {
+		writeErr(w, "bad_request", "missing 'value' field")
+		return
+	}
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, classifyClientErr(err), err.Error())
+		return
+	}
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetThreshold(ctx, rc, body.Kind, *body.Value); err != nil {
+		writeErr(w, classifyClientErr(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // postTimer activates a special-mode timer (0x0007). Body: {"mode":"off|night|turbo"}.
 // Mirrors postHeater's shape; the recording client wraps the write so cache
 // update and Poller.NoticeWrite fire automatically.
