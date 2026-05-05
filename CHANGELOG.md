@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-05-05
+
+### Changed
+
+- Dashboard card header restructured: serial / ip / firmware version / firmware date now live inside a top-of-card "Device Info" `<details>` element, collapsed by default. The standalone Service block is gone — its rows (filter, motor, RTC, faults) merged into Device Info. Auto-expands when `fault_level != "none"` or `filter_status != "clean"`. The bottom `fw 0.11 · …` line is removed.
+- Sensor threshold rows show only the live value by default. Clicking the value opens an inline editor labelled "set alert ≥ N" with the threshold input, save, and cancel buttons, so the gesture's intent is unambiguous and the row stays uncluttered when not editing.
+- Stale cards (no poll in >90 s) now also receive `filter: grayscale(1)` in addition to the existing 50% opacity, so the green power dot, red alert values, red heater toggle, etc. all desaturate to grey — colour signals can't mislead while the data is potentially out of date.
+- Power and Heater toggle labels are lowercase (`power`, `heater`) to match the dashboard's prevailing lowercase aesthetic.
+- Manual-speed slider has a left-side spacer that mirrors the right `%` readout's width, so the slider track sits visually centred in the row instead of pushed left.
+- Unit-suffixed numbers drop their preceding space: `20.8°C`, `3500ppm`, `5340rpm`. `%` was already space-less.
+
 ## [1.7.0] - 2026-05-05
 
 ### Added

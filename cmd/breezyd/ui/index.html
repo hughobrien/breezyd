@@ -24,7 +24,11 @@
     padding: 1rem;
     transition: opacity 0.3s;
   }
-  .card.stale { opacity: 0.5; }
+  /* Stale card (no poll for >90 s): half-transparent AND fully desaturated.
+     Greyscale kills the green power dot, red alerts, heater red, etc., so
+     colour signals can't mislead while the underlying data is potentially
+     out of date. The .ts.red timestamp still tells the user why. */
+  .card.stale { opacity: 0.5; filter: grayscale(1); }
   .card h2 {
     margin: 0; font-size: 1rem; font-weight: 600;
     /* Long device names shouldn't push the on/off indicator off-card. */
