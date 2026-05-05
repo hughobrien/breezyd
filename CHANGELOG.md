@@ -122,6 +122,7 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.2.0
 [1.1.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.1.0
 [1.0.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.0.0

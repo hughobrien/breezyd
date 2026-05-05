@@ -4,40 +4,40 @@
     {
       "id": 14,
       "subject": "P1T1: pkg/homekit foundation — brutella/hap dep + airquality + accessory builder",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Add `github.com/brutella/hap` dependency. Create `pkg/homekit/airquality.go` (VOC index → 5-level AirQuality enum) and `pkg/homekit/accessory.go` (per-Breezy accessory tree: AirPurifier + 2 Switches + sensors). Pure library, no daemon code. Both with table tests.\n\n**Files:** Modify `go.mod`/`go.sum`/`flake.nix`. Create `pkg/homekit/{airquality,accessory}.go` + tests.\n\n**Verify:** `go test ./pkg/homekit -v` PASS; `just check-all` exit 0.\n\n```json:metadata\n{\"files\": [\"go.mod\", \"go.sum\", \"flake.nix\", \"pkg/homekit/airquality.go\", \"pkg/homekit/airquality_test.go\", \"pkg/homekit/accessory.go\", \"pkg/homekit/accessory_test.go\"], \"verifyCommand\": \"go test ./pkg/homekit -v && just check-all\", \"acceptanceCriteria\": [\"brutella/hap pinned in go.mod\", \"AirQuality boundaries 0/50/100/150/200\", \"NewBreezyAccessory builds AirPurifier + 2 Switch + Humidity + CO2 + AirQuality + 4 TemperatureSensor\", \"Accessory.Info has Vents/Twinfresh Breezy 160/deviceID\", \"tests pass\"]}\n```"
     },
     {
       "id": 15,
       "subject": "P1T2: pkg/homekit/sync.go — Status → characteristic updates",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [14],
       "description": "**Goal:** `Sync(a *Accessory, s breezy.Status)` writes Status values into characteristics. Sentinel handling for temps; VOC→AirQuality via Task 1 helper; CarbonDioxideDetected when above threshold; AirPurifier Active/RotationSpeed/Current/Target derived from Configured + Live; Supply/Extract switches derived from airflow_mode.\n\n**Files:** Create `pkg/homekit/sync.go` + `sync_test.go`.\n\n**Verify:** `go test ./pkg/homekit -run TestSync -v` PASS.\n\n```json:metadata\n{\"files\": [\"pkg/homekit/sync.go\", \"pkg/homekit/sync_test.go\"], \"verifyCommand\": \"go test ./pkg/homekit -run TestSync -v && just check-all\", \"acceptanceCriteria\": [\"temperature sentinels skip the characteristic\", \"VOC index buckets via AirQuality()\", \"CO2Detected when eco2 > co2_threshold\", \"AirPurifier characteristics derived from Status\", \"Switch states derived from airflow_mode\"]}\n```"
     },
     {
       "id": 16,
       "subject": "P1T3: internal/config [homekit] block",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Add `Homekit` struct + TOML decoding + validation + state_dir resolution (XDG/`~`).\n\n**Files:** Modify `internal/config/{config,config_test}.go`.\n\n**Verify:** `go test ./internal/config -v` PASS; `just check-all` exit 0.\n\n```json:metadata\n{\"files\": [\"internal/config/config.go\", \"internal/config/config_test.go\"], \"verifyCommand\": \"go test ./internal/config -v && just check-all\", \"acceptanceCriteria\": [\"Homekit{Enabled, BridgeName, Port, StateDir}\", \"bridge_name ≤ 32 chars validation\", \"port 0 or 1024-65535 validation\", \"default bridge_name = breezyd\", \"default state_dir = $XDG_STATE_HOME/breezyd/homekit\", \"~/ expansion\"]}\n```"
     },
     {
       "id": 17,
       "subject": "P1T4: cmd/breezyd HAP server lifecycle + PIN + write callbacks + Switch mutex",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [14, 15, 16],
       "description": "**Goal:** `Handler.StartHomekit(ctx, cfg, devices) → (stop, err)`. PIN auto-gen via crypto/rand (skip weak list), persist to `<state_dir>/pin.txt` mode 0600, print on every start. Build bridge + child accessories. Register HAP write callbacks per characteristic dispatching to pkg/breezy/ops via `dialRecording`. Switch mutex enforcement (Supply/Extract) in callbacks; both off → SetMode(\"regeneration\").\n\n**Files:** Create `cmd/breezyd/{homekit,homekit_test}.go`. Modify `cmd/breezyd/server.go` (add `homekitAccessories` field).\n\n**Verify:** `go test ./cmd/breezyd -run TestHomekit -v` PASS for PIN tests + disabled-noop; `just check-all` exit 0.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/homekit.go\", \"cmd/breezyd/homekit_test.go\", \"cmd/breezyd/server.go\"], \"verifyCommand\": \"go test ./cmd/breezyd -run TestHomekit -v && just check-all\", \"acceptanceCriteria\": [\"StartHomekit no-op when Enabled=false\", \"PIN generated via crypto/rand, weak list filtered, persisted to pin.txt mode 0600\", \"PIN reused across runs\", \"write callbacks registered for Active/RotationSpeed/TargetState/Supply/Extract\", \"Supply/Extract mutex via switchAirflow helper\"]}\n```"
     },
     {
       "id": 18,
       "subject": "P1T5: Poller OnPoll hook + main.go wiring + integration test",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [17],
       "description": "**Goal:** Add `Poller.OnPoll(name, snap)` callback fired after every successful tick. Add `Handler.SyncHomekit(name, snap)` that BuildStatus + homekit.Sync. Wire into `cmd/breezyd/main.go::run`: start HomeKit after pollers; thread OnPoll through `startPollers`. End-to-end integration test: drive a snapshot through SyncHomekit, assert HumiditySensor characteristic updated.\n\n**Files:** Modify `cmd/breezyd/{poller,poller_test,homekit,homekit_test,main}.go`.\n\n**Verify:** `just check-all` exit 0; `go test ./cmd/breezyd -run TestHomekit -v` PASS.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/poller.go\", \"cmd/breezyd/poller_test.go\", \"cmd/breezyd/homekit.go\", \"cmd/breezyd/homekit_test.go\", \"cmd/breezyd/main.go\"], \"verifyCommand\": \"just check-all\", \"acceptanceCriteria\": [\"Poller.OnPoll fires only on successful ticks\", \"SyncHomekit no-op when device unknown or homekit disabled\", \"main.go starts HomeKit after pollers, defers stop\", \"startPollers threads OnPoll\", \"integration test drives a fakedevice snapshot through SyncHomekit and asserts HumiditySensor.CurrentRelativeHumidity\"]}\n```"
     },
     {
       "id": 19,
       "subject": "P1T6: NixOS module + README + CLAUDE.md + CHANGELOG",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [18],
       "description": "**Goal:** Surface the HomeKit feature to operators and AI-assistants. NixOS module options (`services.breezyd.homekit.{enable, port, bridgeName, stateDir}`) mirror the prometheus/nginx integration shape. README HomeKit section covers enable/pair/reset. CLAUDE.md Architecture mentions the bridge as opt-in. CHANGELOG `[Unreleased]` Added entry.\n\n**Files:** Modify `nix/module.nix`, `README.md`, `CLAUDE.md`, `CHANGELOG.md`.\n\n**Verify:** `just check-all` exit 0; `just nix-check` exit 0; manual scan of README/CLAUDE.md.\n\n```json:metadata\n{\"files\": [\"nix/module.nix\", \"README.md\", \"CLAUDE.md\", \"CHANGELOG.md\"], \"verifyCommand\": \"just check-all && just nix-check\", \"acceptanceCriteria\": [\"services.breezyd.homekit.{enable, port, bridgeName, stateDir} options\", \"stateDir default /var/lib/breezyd/homekit\", \"TOML rendering when enable=true\", \"openFirewall opens HK port when both enabled\", \"README HomeKit section with enable/pair/reset\", \"CLAUDE.md Architecture mention\", \"CHANGELOG [Unreleased] Added entry\"]}\n```"
     }
