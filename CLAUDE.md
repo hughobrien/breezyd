@@ -59,6 +59,10 @@ The CLI also runs without the daemon — opening UDP per-invocation via `pkg/bre
 
 Concurrent UDP request/response with checksums isn't safe to fan out from independent CLI invocations: overlapping retries and packet collisions cause silent corruption. `breezyd` serialises traffic per device behind a `sync.Mutex` in `pkg/breezy.Client` and a single per-device poller goroutine. The CLI in standalone mode opens its own UDP socket for the duration of the command, which is safe for a single sequential invocation but unsafe if multiple processes run concurrently against the same device.
 
+### HomeKit bridge (opt-in via `[homekit].enabled`)
+
+When enabled, the daemon runs a brutella/hap HAP server that exposes each configured Breezy as a HomeKit accessory (AirPurifier + airflow-mode Switches + sensor services for humidity, eCO2, VOC, and four temperatures). The bridge runs in-process; writes flow through `pkg/breezy/ops` via the same `dialRecording` wrapper as the HTTP handlers, so every protocol invariant (packet ordering, fan-settle, validation) holds. PIN auto-generated on first run and persisted to `state_dir`. Pure accessory logic lives in `pkg/homekit`; daemon glue in `cmd/breezyd/homekit.go`.
+
 ### Cache vs. passthrough
 
 - `GET /v1/devices`, `GET /v1/devices/{name}`, `/metrics` → in-memory cache populated by the poller. Reads are cheap and never block on UDP.
@@ -118,4 +122,4 @@ No schedule editing, no WiFi reconfig, no MQTT bridge, no Home Assistant compone
 ## Release plumbing
 
 - `goreleaser` builds cross-platform archives on tag pushes. Build metadata (`version`, `commit`, `date`) is injected via `-ldflags` into both binaries' `main` package. The Nix derivation deliberately omits `-X main.date=…` for reproducibility.
-- `nix/module.nix` exposes a NixOS service with hardened systemd settings; inline `settings` end up in the world-readable Nix store, so production deployments must use `configFile` with sops-nix/agenix for real device passwords. The module has two opt-in integrations that mirror each other in shape: `services.breezyd.prometheus.{enable,jobName,scrapeInterval}` auto-registers a Prometheus scrape job when both services are enabled; `services.breezyd.nginx.{enable,virtualHost,basicAuthFile}` attaches a `proxy_pass` location to a named virtual host so the dashboard can be exposed on the LAN while the daemon stays loopback-bound.
+- `nix/module.nix` exposes a NixOS service with hardened systemd settings; inline `settings` end up in the world-readable Nix store, so production deployments must use `configFile` with sops-nix/agenix for real device passwords. The module has three opt-in integrations that mirror each other in shape: `services.breezyd.prometheus.{enable,jobName,scrapeInterval}` auto-registers a Prometheus scrape job when both services are enabled; `services.breezyd.nginx.{enable,virtualHost,basicAuthFile}` attaches a `proxy_pass` location to a named virtual host so the dashboard can be exposed on the LAN while the daemon stays loopback-bound; `services.breezyd.homekit.{enable,port,bridgeName,stateDir}` enables the HomeKit bridge and manages the state directory and optional firewall port.

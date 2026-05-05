@@ -116,6 +116,34 @@ in {
       };
     };
 
+    homekit = {
+      enable = lib.mkEnableOption "HomeKit bridge that exposes configured Breezy units to Apple Home";
+
+      port = lib.mkOption {
+        type = lib.types.port;
+        default = 0;
+        description = ''
+          TCP port the HAP server binds to. 0 = ephemeral (OS-assigned).
+          Pin a port if the firewall needs a fixed hole.
+        '';
+      };
+
+      bridgeName = lib.mkOption {
+        type = lib.types.str;
+        default = "breezyd";
+        description = "Name shown in iOS during HomeKit pairing.";
+      };
+
+      stateDir = lib.mkOption {
+        type = lib.types.path;
+        default = "/var/lib/breezyd/homekit";
+        description = ''
+          Directory where the HAP server persists pairing keys + the
+          generated PIN. Delete to factory-reset HomeKit pairing.
+        '';
+      };
+    };
+
     nginx = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -192,6 +220,16 @@ in {
       preStart = lib.optionalString (cfg.configFile == null) ''
         install -m 0600 -o ${cfg.user} -g ${cfg.group} \
           ${generatedConfig} /run/breezyd/breezyd.toml
+        ${lib.optionalString cfg.homekit.enable ''
+        cat >> /run/breezyd/breezyd.toml <<'EOF'
+
+[homekit]
+enabled     = true
+bridge_name = "${cfg.homekit.bridgeName}"
+port        = ${toString cfg.homekit.port}
+state_dir   = "${cfg.homekit.stateDir}"
+EOF
+        ''}
       '';
     in {
       description = "Vents Twinfresh Breezy / Elite 160 Pro daemon";
@@ -207,6 +245,10 @@ in {
         Group = cfg.group;
         Restart = "on-failure";
         RestartSec = "5s";
+
+        # Give systemd ownership of /var/lib/breezyd so the daemon can create
+        # subdirectories (e.g. the HomeKit state dir) at runtime.
+        StateDirectory = lib.mkIf cfg.homekit.enable "breezyd";
 
         # Hardening — breezyd only needs outbound UDP and an HTTP listener.
         NoNewPrivileges = true;
@@ -234,9 +276,10 @@ in {
     };
 
     # Optional firewall opening; assumes the listen string is host:port TCP.
-    networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [
-      (lib.toInt (lib.last (lib.splitString ":" (cfg.settings.daemon.listen or "127.0.0.1:9876"))))
-    ];
+    networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall (
+      [ (lib.toInt (lib.last (lib.splitString ":" (cfg.settings.daemon.listen or "127.0.0.1:9876")))) ]
+      ++ lib.optional (cfg.homekit.enable && cfg.homekit.port != 0) cfg.homekit.port
+    );
 
     # Auto-wire a Prometheus scrape job when both services are enabled.
     services.prometheus.scrapeConfigs = lib.mkIf

@@ -320,6 +320,57 @@ direct-listen path lacks. The daemon's full `/v1/...` API remains on
 loopback, so a compromised LAN device can't reach the raw param write
 endpoint even after authenticating to nginx.
 
+## HomeKit (optional)
+
+The daemon includes an opt-in HomeKit bridge. When enabled, each
+configured Breezy appears in the Apple Home app as one accessory
+with power, fan speed, supply-only / extract-only switches, and the
+full sensor surface (humidity, eCO2, VOC, four temperatures).
+
+Enable it by adding to `~/.config/breezy/config.toml`:
+
+```toml
+[homekit]
+enabled = true
+```
+
+Restart `breezyd`. The startup log includes a line like:
+
+    homekit: bridge ready name="breezyd" pin="123-45-678" state_dir="..."
+
+Open the Apple Home app on iPhone → Add Accessory → enter the PIN
+manually. All configured Breezy units appear together; each gets
+its own tile.
+
+**Reset pairing:** delete the state directory (`~/.local/state/
+breezyd/homekit` by default, `/var/lib/breezyd/homekit` on NixOS).
+The next daemon start regenerates the PIN.
+
+**Tunables** (all optional):
+
+- `bridge_name`: name shown during pairing. Default `"breezyd"`.
+- `port`: TCP port for the HAP server. Default 0 (OS-assigned).
+- `state_dir`: where pairing keys + the PIN live.
+
+On NixOS, enable the bridge via the module:
+
+```nix
+services.breezyd.homekit.enable = true;
+# Optional tunables, defaults shown:
+# services.breezyd.homekit.bridgeName = "breezyd";
+# services.breezyd.homekit.port = 0;  # 0 = OS-assigned; set a fixed port if you need firewall rules
+# services.breezyd.homekit.stateDir = "/var/lib/breezyd/homekit";
+```
+
+When `services.breezyd.openFirewall = true` and `homekit.port` is non-zero,
+the module opens that port in the firewall automatically. Port 0 (ephemeral)
+cannot be pre-opened; if you need a fixed firewall hole, set a specific port.
+
+The HomeKit bridge always uses the daemon path — writes go through
+`pkg/breezy/ops` with the same per-device mutex serialisation and fan-settle
+window as the HTTP handlers. The standalone-CLI concurrency caveat is
+unrelated; the HomeKit bridge never opens its own UDP socket.
+
 ## CLI overview
 
 `breezy --help` is the source of truth. The shape is "subject before verb",
