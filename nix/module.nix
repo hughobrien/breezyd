@@ -296,7 +296,13 @@ EOF
         ProtectClock = true;
         ProtectHostname = true;
         ProtectProc = "invisible";
-        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
+        # AF_NETLINK is required by Go's net.Interfaces() on Linux, which
+        # the brutella/hap mDNS responder calls via dnssd.MulticastInterfaces()
+        # to discover which interfaces to advertise on. Without netlink the
+        # call silently returns an empty list — the HAP server runs, but
+        # advertises on zero interfaces, so iPhones never see the bridge.
+        # No log, no error; just dead silence on UDP/5353.
+        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" "AF_NETLINK" ];
         RestrictNamespaces = true;
         RestrictRealtime = true;
         RestrictSUIDSGID = true;
