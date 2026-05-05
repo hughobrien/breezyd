@@ -228,9 +228,8 @@ function renderCard(name, snap) {
   const powerLabel = power === true ? "on" : power === false ? "off" : "?";
   const powerCls  = power === true ? "power-on" : "power-off";
 
-  const fw = snap.firmware
-    ? `${esc(snap.firmware.version || "?")} · ${esc(snap.firmware.build_date || "?")}`
-    : "—";
+  const fwVersion = snap.firmware?.version ? esc(snap.firmware.version) : "—";
+  const fwDate = snap.firmware?.build_date ? esc(snap.firmware.build_date) : "—";
   return `<div class="card${stale ? " stale" : ""}">
     <div class="row">
       <h2>${esc(name)}</h2>
@@ -249,13 +248,14 @@ function renderCard(name, snap) {
       return needs ? " open" : "";
     })()}>
       <summary>Device Info</summary>
-      ${kv("serial", esc(snap.id || "?"))}
-      ${kv("ip",     esc(snap.ip || "?"))}
-      ${kv("fw",     fw)}
-      ${kv("filter", filterStatus(snap.service))}
-      ${kv("motor",  humanSeconds(snap.service?.motor_lifetime_seconds))}
-      ${kv("RTC",    fmt(snap.service?.rtc_battery_volts, "—", " V"))}
-      ${kv("faults", fmt(snap.service?.fault_level, "—"))}
+      ${kv("serial",           esc(snap.id || "?"))}
+      ${kv("ip",               esc(snap.ip || "?"))}
+      ${kv("firmware version", fwVersion)}
+      ${kv("firmware date",    fwDate)}
+      ${kv("filter",           filterStatus(snap.service))}
+      ${kv("motor",            humanSeconds(snap.service?.motor_lifetime_seconds))}
+      ${kv("RTC",              fmt(snap.service?.rtc_battery_volts, "—", " V"))}
+      ${kv("faults",           fmt(snap.service?.fault_level, "—"))}
     </details>
 
     <div class="block">
