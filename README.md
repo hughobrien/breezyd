@@ -228,9 +228,12 @@ true.
 ### HomeKit (optional)
 
 ```nix
-services.breezyd.homekit.enable = true;
-# Optional tunables, defaults shown:
-# services.breezyd.homekit.port       = 0;          # 0 = ephemeral; pin if firewalling
+services.breezyd.homekit = {
+  enable = true;
+  port   = 51827;  # pin a fixed TCP port so the firewall hole is reachable
+};
+services.breezyd.openFirewall = true;  # opens HAP TCP + UDP/5353 for mDNS
+# Other tunables, defaults shown:
 # services.breezyd.homekit.bridgeName = "breezyd";  # name shown during pairing
 # services.breezyd.homekit.stateDir   = "/var/lib/breezyd/homekit";
 ```
@@ -239,9 +242,14 @@ Each configured Breezy appears as a HomeKit accessory in Apple Home.
 The module appends a `[homekit]` block to the generated config and
 manages the state directory under `/var/lib/breezyd`. The pairing PIN
 is auto-generated on first start and printed in the log; reset by
-deleting the state directory. If `port` is non-zero and you want it
-reachable from your phone, set `services.breezyd.openFirewall = true`
-(opens the daemon's listener and the HomeKit port).
+deleting the state directory.
+
+`openFirewall` is `false` by default. When you flip it on alongside
+`homekit.enable`, the module opens both the HAP TCP port (only if
+`homekit.port != 0`) and **UDP/5353 for mDNS** — the latter is what
+lets iPhones discover the bridge on the LAN. With `port = 0` (default)
+the OS picks an ephemeral port at start-up and the firewall can't
+pre-open it, so pin a fixed `port` whenever the host firewall is on.
 
 If you use `services.breezyd.configFile` (i.e. you manage the TOML
 yourself with sops-nix / agenix), enabling `homekit` still adjusts the
@@ -536,9 +544,16 @@ journalctl -u breezyd -f               # tail the log to confirm it's polling
 breezy ls                              # any user can talk to the daemon now
 ```
 
-If you turn on `[homekit]` in the config, also add
-`StateDirectory=breezyd` to `[Service]` so systemd creates
-`/var/lib/breezyd/` for the HAP server's pairing state.
+If you turn on `[homekit]` in the config, also:
+
+- Add `StateDirectory=breezyd` to `[Service]` so systemd creates
+  `/var/lib/breezyd/` for the HAP server's pairing state.
+- Pin a fixed `port = N` in `[homekit]` (default `0` is ephemeral
+  and can't be firewalled), then open the host firewall:
+  `ufw allow N/tcp` (or `firewall-cmd --add-port=N/tcp`).
+- Open **UDP/5353 for mDNS** so iPhones can discover the bridge:
+  `ufw allow 5353/udp`. Without this the bridge won't appear in
+  the Add Accessory list, even though pairing would otherwise work.
 
 ## Web UI
 

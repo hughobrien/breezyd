@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-05-05
+
+### Fixed
+
+- NixOS module now opens **UDP/5353 for mDNS** (in addition to the HAP TCP port) when `services.breezyd.openFirewall = true` and `services.breezyd.homekit.enable = true`. Without this, iPhones couldn't discover the bridge in Apple Home even though pairing would have otherwise worked. The HAP library does its own mDNS broadcasting (no avahi needed), so the only ingredient missing was the firewall hole.
+
+### Documentation
+
+- README NixOS HomeKit example now shows `openFirewall = true` + a pinned `homekit.port` explicitly, with a paragraph explaining why both are needed (default `port = 0` is ephemeral and can't be pre-opened in the firewall).
+- README Linux + systemd HomeKit caveat lists all three firewall steps a non-NixOS host needs: `StateDirectory=breezyd`, pinned TCP port + `ufw allow N/tcp`, and `ufw allow 5353/udp` for mDNS.
+
 ## [1.6.4] - 2026-05-05
 
 ### Added
@@ -212,7 +223,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.4...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.6.5...HEAD
+[1.6.5]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.5
 [1.6.4]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.4
 [1.6.3]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.3
 [1.6.2]: https://github.com/hughobrien/breezyd/releases/tag/v1.6.2

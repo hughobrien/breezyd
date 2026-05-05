@@ -314,6 +314,13 @@ EOF
       ++ lib.optional (cfg.homekit.enable && cfg.homekit.port != 0) cfg.homekit.port
     );
 
+    # HomeKit needs mDNS (UDP/5353) for iPhones to discover the bridge.
+    # The HAP library does its own mDNS — no avahi needed — but inbound
+    # UDP/5353 has to reach the daemon for pairing and ongoing
+    # connectivity. Open it whenever openFirewall + homekit are both on.
+    networking.firewall.allowedUDPPorts =
+      lib.mkIf (cfg.openFirewall && cfg.homekit.enable) [ 5353 ];
+
     # Auto-wire a Prometheus scrape job when both services are enabled.
     services.prometheus.scrapeConfigs = lib.mkIf
       (cfg.prometheus.enable && config.services.prometheus.enable) [{
