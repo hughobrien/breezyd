@@ -116,6 +116,13 @@ nix run github:hughobrien/breezyd
 nix run github:hughobrien/breezyd#breezy -- ls
 nix run github:hughobrien/breezyd#breezy -- playroom status
 
+# Install both binaries into your user profile (lands them on $PATH).
+# Faster than `nix run` for repeated use — that re-checks the flake on
+# every invocation. Works on NixOS, nix-darwin, and any non-Nix host
+# that has the Nix package manager.
+nix profile install github:hughobrien/breezyd
+breezy ls
+
 # Build standalone binaries into ./result/bin/
 nix build github:hughobrien/breezyd
 ./result/bin/breezyd --version
@@ -199,21 +206,14 @@ Find each device's ID/IP pair with `breezy discover` (or
 `breezy discover 192.168.1.148 192.168.1.152 …` if broadcasts are
 dropped on your LAN).
 
-The module ships **only the daemon** — it does not put the `breezy` CLI on
-every user's `PATH`. The CLI is a separate binary (same derivation) used
-either ad-hoc against the daemon's HTTP API or in standalone mode without
-a daemon at all. To expose it system-wide, add the package to
-`environment.systemPackages`:
+The module ships only the daemon — to put the `breezy` CLI on every
+user's `PATH`, reuse the package the module already resolved:
 
 ```nix
-environment.systemPackages = [
-  breezyd.packages.${pkgs.stdenv.hostPlatform.system}.default
-];
+environment.systemPackages = [ config.services.breezyd.package ];
 ```
 
-(`default` ships both `breezyd` and `breezy`. If you only want the CLI on
-hosts that don't run the daemon, the `.breezy` and `.breezyd` outputs are
-the same derivation under different names — use whichever reads better.)
+(The same derivation produces both `breezyd` and `breezy`.)
 
 To automatically register a Prometheus scrape job for `/metrics` when
 the host also runs `services.prometheus`:
