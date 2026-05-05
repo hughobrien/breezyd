@@ -83,6 +83,8 @@
     padding: 0.3rem 0.4rem; border-radius: 4px; font-size: 0.75rem;
     margin-top: 0.25rem;
   }
+  .toggle-row { display: flex; gap: 0.5rem; }
+  .toggle-cell { flex: 1 1 0; min-width: 0; }
 </style>
 </head>
 <body>
@@ -320,11 +322,22 @@ function renderControls(name, snap, stale) {
     <h3>Controls</h3>
 
     <div class="ctrl">
-      <button class="toggle" data-action="power" data-name="${esc(name)}" ${dis}
-        aria-pressed="${power ? "true" : "false"}">
-        Power ${power ? "● on" : "○ off"}
-      </button>
-      ${t.power ? `<div class="toast" role="alert">${esc(t.power)}</div>` : ""}
+      <div class="toggle-row">
+        <div class="toggle-cell">
+          <button class="toggle" data-action="power" data-name="${esc(name)}" ${dis}
+            aria-pressed="${power ? "true" : "false"}">
+            Power ${power ? "● on" : "○ off"}
+          </button>
+          ${t.power ? `<div class="toast" role="alert">${esc(t.power)}</div>` : ""}
+        </div>
+        <div class="toggle-cell">
+          <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
+            aria-pressed="${heater ? "true" : "false"}">
+            Heater ${heater ? "● on" : "○ off"}
+          </button>
+          ${t.heater ? `<div class="toast" role="alert">${esc(t.heater)}</div>` : ""}
+        </div>
+      </div>
     </div>
 
     <div class="ctrl">
@@ -368,13 +381,6 @@ function renderControls(name, snap, stale) {
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
 
-    <div class="ctrl">
-      <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
-        aria-pressed="${heater ? "true" : "false"}">
-        Heater ${heater ? "● on" : "○ off"}
-      </button>
-      ${t.heater ? `<div class="toast" role="alert">${esc(t.heater)}</div>` : ""}
-    </div>
   </div>`;
 }
 
