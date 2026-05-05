@@ -51,6 +51,13 @@ type Daemon struct {
 	PollInterval time.Duration
 	// Discovery is one of "on-start", "off", or "periodic:<duration>".
 	Discovery string
+	// Password is the fleet-wide protocol password used by the daemon's
+	// startup/periodic discovery probes and inherited by any
+	// [devices.NAME] block that omits its own `password`. Empty means
+	// no fleet default — discovery falls back to the factory wildcard
+	// "1111", and devices without their own password are treated as
+	// "no password set" (which the firmware will reject at poll time).
+	Password string
 }
 
 // Homekit holds HomeKit bridge settings. The bridge is opt-in via
@@ -100,6 +107,7 @@ type rawDaemon struct {
 	Listen       string `toml:"listen"`
 	PollInterval string `toml:"poll_interval"`
 	Discovery    string `toml:"discovery"`
+	Password     string `toml:"password"`
 }
 
 type rawDevice struct {
@@ -134,6 +142,7 @@ func Load(path string) (*Config, error) {
 		Daemon: Daemon{
 			Listen:    raw.Daemon.Listen,
 			Discovery: raw.Daemon.Discovery,
+			Password:  raw.Daemon.Password,
 		},
 		Devices: make(map[string]Device, len(raw.Devices)),
 	}
@@ -209,9 +218,13 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: device %q: id must be exactly 16 "+
 				"ASCII chars, got %d (%q)", name, len(rd.ID), rd.ID)
 		}
+		pw := rd.Password
+		if pw == "" {
+			pw = cfg.Daemon.Password
+		}
 		cfg.Devices[name] = Device{
 			ID:       rd.ID,
-			Password: rd.Password,
+			Password: pw,
 			IP:       rd.IP,
 		}
 	}
@@ -270,6 +283,10 @@ const defaultConfigTemplate = `# breezyd configuration. See:
 # listen        = "127.0.0.1:9876"
 # poll_interval = "30s"
 # discovery     = "on-start"   # "on-start" | "off" | "periodic:<duration>"
+# # Optional fleet-wide protocol password. Used for the daemon's wildcard
+# # discovery probes (works around firmware that drops mismatched wildcards)
+# # and inherited by any [devices.NAME] block that omits its own password.
+# password      = "your-protocol-password"
 
 # One [devices.<name>] block per Breezy unit. Run ` + "`breezy discover`" + ` to
 # find device IDs on your LAN, then uncomment one of the blocks below

@@ -117,7 +117,7 @@ func run(parent context.Context) error {
 	devices := NewDeviceRegistry(buildDeviceMap(cfg))
 
 	if cfg.Daemon.Discovery == "on-start" {
-		if err := runDiscovery(parent, devices); err != nil {
+		if err := runDiscovery(parent, devices, cfg.Daemon.Password); err != nil {
 			slog.Warn("discovery failed", "err", err)
 		}
 	}
@@ -143,7 +143,7 @@ func run(parent context.Context) error {
 	// already done above; off is a no-op; anything else has been validated
 	// by the config loader.
 	if d, ok := parsePeriodicDiscovery(cfg.Daemon.Discovery); ok {
-		go runPeriodicDiscovery(rootCtx, devices, d)
+		go runPeriodicDiscovery(rootCtx, devices, d, cfg.Daemon.Password)
 	}
 
 	homekitStop, err := handler.StartHomekit(rootCtx, cfg.Homekit, devices.Snapshot())
@@ -358,8 +358,20 @@ var defaultDiscover discoverFunc = breezy.Discover
 // INFO so the operator sees them once on next startup. Errors from
 // net.ListenPacket are returned; per-target errors and "no devices
 // answered" are silently OK.
-func runDiscovery(parent context.Context, devices *DeviceRegistry) error {
-	return runDiscoveryWith(parent, devices, defaultDiscover)
+//
+// password is the wildcard probe password — typically cfg.Daemon.Password.
+// When empty, the factory-default "1111" is used (matches breezy.Discover).
+// When set, breezy.DiscoverWithPassword is called instead, which works
+// around firmware variants that silently drop wildcard requests with a
+// password mismatch despite the spec saying discovery is unauthenticated.
+func runDiscovery(parent context.Context, devices *DeviceRegistry, password string) error {
+	fn := defaultDiscover
+	if password != "" && password != breezy.DefaultDiscoveryPassword {
+		fn = func(ctx context.Context) ([]breezy.Found, error) {
+			return breezy.DiscoverWithPassword(ctx, password)
+		}
+	}
+	return runDiscoveryWith(parent, devices, fn)
 }
 
 // runDiscoveryWith is runDiscovery's testable form: tests inject a stub
@@ -423,7 +435,7 @@ func parsePeriodicDiscovery(s string) (time.Duration, bool) {
 // Cancellation via ctx exits cleanly. Errors from each tick are logged
 // at WARN; the loop continues so a transient network issue doesn't
 // permanently disable IP refresh.
-func runPeriodicDiscovery(ctx context.Context, devices *DeviceRegistry, interval time.Duration) {
+func runPeriodicDiscovery(ctx context.Context, devices *DeviceRegistry, interval time.Duration, password string) {
 	slog.Info("periodic discovery enabled", "interval", interval)
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -432,7 +444,7 @@ func runPeriodicDiscovery(ctx context.Context, devices *DeviceRegistry, interval
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := runDiscovery(ctx, devices); err != nil {
+			if err := runDiscovery(ctx, devices, password); err != nil {
 				slog.Warn("periodic discovery tick failed", "err", err)
 			}
 		}
