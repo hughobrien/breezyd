@@ -59,6 +59,23 @@ func TestNewBreezyAccessory_ServiceShape(t *testing.T) {
 	}
 }
 
+func TestTitleCaseName(t *testing.T) {
+	cases := map[string]string{
+		"playroom":   "Playroom",
+		"bedroom":    "Bedroom",
+		"office":     "Office",
+		"guest_room": "Guest Room",
+		"upper-deck": "Upper Deck",
+		"GuestRoom":  "GuestRoom", // existing capital preserved
+		"":           "",
+	}
+	for in, want := range cases {
+		if got := titleCaseName(in); got != want {
+			t.Errorf("titleCaseName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestNewBreezyAccessory_TemperatureSensorNames(t *testing.T) {
 	a := NewBreezyAccessory("playroom", "BREEZY00000000A0", "192.168.1.148")
 	cases := map[string]*TemperatureSensor{

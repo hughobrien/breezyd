@@ -3,6 +3,9 @@
 package homekit
 
 import (
+	"strings"
+	"unicode"
+
 	"github.com/brutella/hap/accessory"
 	"github.com/brutella/hap/characteristic"
 	"github.com/brutella/hap/service"
@@ -69,8 +72,9 @@ type Accessory struct {
 // Call once per configured device; the daemon glue registers the
 // resulting accessory with the HAP bridge and wires write callbacks.
 func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
+	displayName := titleCaseName(name)
 	info := accessory.Info{
-		Name:         name,
+		Name:         displayName,
 		SerialNumber: deviceID,
 		Manufacturer: "Vents",
 		Model:        "Twinfresh Breezy 160",
@@ -80,6 +84,9 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 	a := &Accessory{
 		A:  base,
 		IP: ip,
+		// Info.Name keeps the original config-key form so internal callers
+		// (metric labels, log lines, the daemon's device map) see what the
+		// operator typed. Only HAP-visible labels are title-cased.
 		Info: AccessoryInfo{
 			Name:         name,
 			SerialNumber: deviceID,
@@ -92,7 +99,7 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 	a.AirPurifier = service.NewAirPurifier()
 	a.RotationSpeed = characteristic.NewRotationSpeed()
 	a.AirPurifier.AddC(a.RotationSpeed.C)
-	attachName(a.AirPurifier.S, name)
+	attachName(a.AirPurifier.S, displayName)
 
 	// Switches with Name characteristics so iOS Home can distinguish them.
 	a.SupplyOnly = newNamedSwitch("Supply Only")
@@ -133,6 +140,32 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 		base.AddS(s)
 	}
 	return a
+}
+
+// titleCaseName converts a config-key device name like "playroom" or
+// "guest_room" into a display label like "Playroom" or "Guest Room".
+// Underscores and hyphens become spaces; the first letter of each word
+// is uppercased. Already-capital letters are left alone, so a key like
+// "GuestRoom" round-trips unchanged.
+func titleCaseName(s string) string {
+	s = strings.ReplaceAll(s, "_", " ")
+	s = strings.ReplaceAll(s, "-", " ")
+	var b strings.Builder
+	capNext := true
+	for _, r := range s {
+		if r == ' ' {
+			capNext = true
+			b.WriteRune(r)
+			continue
+		}
+		if capNext {
+			b.WriteRune(unicode.ToUpper(r))
+			capNext = false
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // attachName adds Name + ConfiguredName characteristics to a service so
