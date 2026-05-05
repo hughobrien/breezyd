@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/hughobrien/breezyd/pkg/homekit"
 )
 
 // HandlerClient is the subset of breezy.Client the HTTP handler needs.
@@ -159,6 +160,11 @@ type Handler struct {
 	// inject this directly; production code leaves it nil and Pollers is
 	// used instead. Either path is exercised in handleWriteSuccess.
 	NoticeFunc func(device string, id breezy.ParamID)
+
+	// homekitAccessories holds the per-device HomeKit accessory built by
+	// StartHomekit. Task 5's SyncHomekit reads this map to push poll
+	// results into characteristic values. Nil until StartHomekit runs.
+	homekitAccessories map[string]*homekit.Accessory
 
 	// mux is built lazily by routes() and cached. muxOnce guards the
 	// initialisation against a data race on the first concurrent burst
