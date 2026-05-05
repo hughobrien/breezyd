@@ -685,6 +685,52 @@ func TestHandler_PostHeater(t *testing.T) {
 	}
 }
 
+func TestHandler_PostTimer(t *testing.T) {
+	for _, mode := range []struct {
+		name string
+		hex  string
+	}{
+		{"off", "00"},
+		{"night", "01"},
+		{"turbo", "02"},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			h, _, _ := newServerHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/timer", map[string]any{"mode": mode.name})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0007", nil)
+			var resp map[string]any
+			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
+			if resp["hex"] != mode.hex {
+				t.Errorf("timer mode = %v, want %s", resp["hex"], mode.hex)
+			}
+		})
+	}
+}
+
+func TestHandler_PostTimer_BadMode(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/timer", map[string]any{"mode": "sleep"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	var env map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env["code"] != "bad_request" {
+		t.Errorf("error code = %v, want bad_request", env["code"])
+	}
+}
+
+func TestHandler_PostTimer_MissingMode(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/timer", map[string]any{})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandler_PostFilterReset(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/filter/reset", nil)

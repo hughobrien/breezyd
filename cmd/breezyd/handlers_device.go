@@ -278,6 +278,39 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// postTimer activates a special-mode timer (0x0007). Body: {"mode":"off|night|turbo"}.
+// Mirrors postHeater's shape; the recording client wraps the write so cache
+// update and Poller.NoticeWrite fire automatically.
+func (h *Handler) postTimer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.requireDevice(w, name); !ok {
+		return
+	}
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if !readBody(w, r, &body) {
+		return
+	}
+	if body.Mode == "" {
+		writeErr(w, "bad_request", "missing 'mode' field (off|night|turbo)")
+		return
+	}
+	rc, raw, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, classifyClientErr(err), err.Error())
+		return
+	}
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetTimer(ctx, rc, body.Mode); err != nil {
+		writeErr(w, classifyClientErr(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // postRTC sets both 0x6F (3-byte sec/min/hr) and 0x70 (4-byte day/dow/month/year)
 // in a single write packet. Day-of-week and year range validation are
 // handled by breezy.SetRTC; parse errors from time.Parse are caught here.
