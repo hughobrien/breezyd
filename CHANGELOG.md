@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-05-04
+
+### Changed
+
+- `breezy discover` now prints the human-readable model name alongside the raw `device_type` byte (e.g. `type=17 (Breezy 160)`) instead of just the magic number. New exported helper `pkg/breezy.UnitTypeName(uint16) string` maps the four known codes (17/20/22/24) and returns `unknown(<n>)` for anything else, sourced from `docs/superpowers/specs/2026-05-03-param-map.md`.
+- `breezy discover` no-results output now nudges the operator to check that UDP/4000 is open on the host. A local firewall silently dropping inbound replies looks identical to no devices answering, and that's the next thing to rule out after broadcast-suppression / password-mismatch.
+
+### Fixed
+
+- `nixosModules.default` now defaults `services.breezyd.package` to the flake's own build for the host's system, instead of throwing because `pkgs.breezyd` doesn't exist in nixpkgs. Users importing `inputs.breezyd.nixosModules.default` no longer have to set the package manually. (The option is still settable for overrides.)
+
 ## [1.5.0] - 2026-05-04
 
 ### Fixed
@@ -148,7 +159,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.1
 [1.5.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.5.0
 [1.4.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.4.0
 [1.3.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.3.0

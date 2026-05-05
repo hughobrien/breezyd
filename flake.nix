@@ -7,15 +7,23 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }: let
+    # Wrap the bare module so it defaults services.breezyd.package to the
+    # flake's own build for the host's system. Without this wrapper, the
+    # module falls back to pkgs.breezyd — which doesn't exist in nixpkgs
+    # (this is a third-party flake) — and throws on evaluation.
+    defaultModule = { pkgs, lib, ... }: {
+      imports = [ ./nix/module.nix ];
+      services.breezyd.package = lib.mkDefault self.packages.${pkgs.system}.default;
+    };
     moduleOutputs = {
-      nixosModules.default = ./nix/module.nix;
-      nixosModules.breezyd = ./nix/module.nix;
+      nixosModules.default = defaultModule;
+      nixosModules.breezyd = defaultModule;
     };
   in moduleOutputs // flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
 
-        version = "1.5.0";
+        version = "1.5.1";
         commitOrDirty = if self ? rev then self.rev else "dirty";
 
         breezyd-pkg = pkgs.buildGoModule {

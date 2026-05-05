@@ -12,6 +12,7 @@ package breezy
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"net"
 	"time"
 )
@@ -54,7 +55,27 @@ type Found struct {
 
 	// UnitType is the model code reported via parameter 0x00B9 (e.g. 17 =
 	// Breezy 160). Zero if the device didn't include the parameter.
+	// Use UnitTypeName for the human-readable model.
 	UnitType uint16
+}
+
+// UnitTypeName maps the device_type byte (parameter 0x00B9) to the
+// vendor's marketing name. Values are sourced from the param map at
+// docs/superpowers/specs/2026-05-03-param-map.md. Returns
+// "unknown(<n>)" for unrecognised codes so CLIs can still surface the
+// raw byte for diagnostic purposes.
+func UnitTypeName(t uint16) string {
+	switch t {
+	case 17:
+		return "Breezy 160"
+	case 20:
+		return "Breezy Eco 160"
+	case 22:
+		return "Breezy 200"
+	case 24:
+		return "Breezy Eco 200"
+	}
+	return fmt.Sprintf("unknown(%d)", t)
 }
 
 // localBroadcasts returns the directed-broadcast address for every

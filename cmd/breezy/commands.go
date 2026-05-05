@@ -481,18 +481,24 @@ func cmdDiscover(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "  hint: if your network drops UDP broadcasts (Wi-Fi AP isolation,")
 			fmt.Fprintln(stdout, "        mesh hops, VLAN), pass each device's IP as a positional arg:")
 			fmt.Fprintln(stdout, "        breezy discover 192.168.1.148 192.168.1.152")
+			fmt.Fprintln(stdout, "  hint: also confirm UDP/4000 is open on this host — a local firewall")
+			fmt.Fprintln(stdout, "        dropping inbound replies looks identical to no devices answering.")
 		case password == breezy.DefaultDiscoveryPassword:
 			fmt.Fprintln(stdout, "no Breezy devices replied at the supplied targets")
 			fmt.Fprintln(stdout, "  hint: if your devices are on a non-default password, retry with")
 			fmt.Fprintln(stdout, "        -p PASSWORD — some firmware drops wildcard requests with a")
 			fmt.Fprintln(stdout, "        password mismatch despite the spec.")
+			fmt.Fprintln(stdout, "  hint: also confirm UDP/4000 is open on this host — a local firewall")
+			fmt.Fprintln(stdout, "        dropping inbound replies looks identical to no devices answering.")
 		default:
 			fmt.Fprintln(stdout, "no Breezy devices replied at the supplied targets")
+			fmt.Fprintln(stdout, "  hint: confirm UDP/4000 is open on this host — a local firewall")
+			fmt.Fprintln(stdout, "        dropping inbound replies looks identical to no devices answering.")
 		}
 		return 0
 	}
 	for _, f := range found {
-		fmt.Fprintf(stdout, "%s  id=%s  type=%d\n", f.IP, f.DeviceID, f.UnitType)
+		fmt.Fprintf(stdout, "%s  id=%s  type=%d (%s)\n", f.IP, f.DeviceID, f.UnitType, breezy.UnitTypeName(f.UnitType))
 	}
 	return 0
 }
