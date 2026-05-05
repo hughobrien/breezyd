@@ -573,11 +573,14 @@ http://127.0.0.1:9876/
 ```
 
 Three columns of cards (one per configured device) showing live sensor
-readings, fan RPMs, service info (filter, motor lifetime, RTC battery,
-faults), firmware version, plus controls for the four high-level
-options: power, airflow mode, speed (preset 1-3 or manual %), and the
-auxiliary heater. The page auto-refreshes every 5 s; cards desaturate
-when their last poll is more than 90 s old.
+readings (humidity / eCO₂ / VOC each with their alert threshold; clicking
+a value opens an inline editor for the threshold), fan RPMs and
+commanded percentages, service info (filter, motor lifetime, RTC
+battery, faults), firmware version, plus controls for power, airflow
+mode, fan speed (preset 1-3 or a manual % slider), heater, and the
+night/turbo special-mode timer. Sensor values display in red when the
+firmware's over-threshold flag is set. The page auto-refreshes every
+5 s; cards desaturate when their last poll is more than 90 s old.
 
 The default `[daemon].listen` is `127.0.0.1:9876`, which means the
 dashboard is reachable only from the host running `breezyd`. To use it
