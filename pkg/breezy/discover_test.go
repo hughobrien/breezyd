@@ -225,3 +225,19 @@ func writeServerParam(t *testing.T, srv *fakedevice.Server, deviceID, password s
 	defer cancel()
 	return c.WriteParamsUnsafe(ctx, []breezy.ParamWrite{{ID: id, Value: val}})
 }
+
+func TestUnitTypeName(t *testing.T) {
+	cases := map[uint16]string{
+		17: "Breezy 160",
+		20: "Breezy Eco 160",
+		22: "Breezy 200",
+		24: "Breezy Eco 200",
+		0:  "unknown(0)",
+		99: "unknown(99)",
+	}
+	for code, want := range cases {
+		if got := breezy.UnitTypeName(code); got != want {
+			t.Errorf("UnitTypeName(%d) = %q, want %q", code, got, want)
+		}
+	}
+}
