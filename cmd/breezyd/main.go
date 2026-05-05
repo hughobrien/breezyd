@@ -129,7 +129,14 @@ func run(parent context.Context) error {
 	rootCtx, rootCancel := context.WithCancel(parent)
 	defer rootCancel()
 
-	pollers, pollersWg := startPollers(rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval, state, metrics)
+	handler := &Handler{
+		State:         state,
+		Devices:       devices,
+		ClientFactory: makeClientFactory(devices),
+	}
+
+	pollers, pollersWg := startPollers(rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval, state, metrics, handler.SyncHomekit)
+	handler.Pollers = pollers
 
 	// Periodic discovery: parse "periodic:<duration>" and tick a goroutine
 	// that refreshes IPs when devices move on the network. on-start is
@@ -139,12 +146,11 @@ func run(parent context.Context) error {
 		go runPeriodicDiscovery(rootCtx, devices, d)
 	}
 
-	handler := &Handler{
-		State:         state,
-		Devices:       devices,
-		Pollers:       pollers,
-		ClientFactory: makeClientFactory(devices),
+	homekitStop, err := handler.StartHomekit(rootCtx, cfg.Homekit, devices.Snapshot())
+	if err != nil {
+		return fmt.Errorf("homekit: %w", err)
 	}
+	defer homekitStop() //nolint:errcheck
 
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", handler)
@@ -241,6 +247,10 @@ func buildDeviceMap(cfg *config.Config) map[string]DeviceConfig {
 // Devices without an IP are logged and skipped — they'll come online
 // when (and if) periodic discovery finds them.
 //
+// onPoll, when non-nil, is set on each Poller and called after every
+// successful tick. Pass h.SyncHomekit to push fresh snapshots into the
+// HomeKit bridge after every poll.
+//
 // We pass `parent` rather than spawning fresh goroutines per device
 // from main() so a top-level cancel propagates to every poller.
 func startPollers(
@@ -249,6 +259,7 @@ func startPollers(
 	interval time.Duration,
 	state *State,
 	metrics *Metrics,
+	onPoll func(name string, snap Snapshot),
 ) (map[string]*Poller, *sync.WaitGroup) {
 	pollers := map[string]*Poller{}
 	wg := &sync.WaitGroup{}
@@ -274,6 +285,7 @@ func startPollers(
 				metrics.RecordPollError(n, devID, kind)
 				slog.Debug("poll error", "device", n, "kind", kind)
 			},
+			OnPoll: onPoll,
 		}
 		pollers[devName] = p
 

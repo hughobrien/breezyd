@@ -501,6 +501,45 @@ func (e *fakeNetErr) Error() string   { return "fake net error" }
 func (e *fakeNetErr) Timeout() bool   { return e.timeout }
 func (e *fakeNetErr) Temporary() bool { return false }
 
+func TestPoller_OnPollFiresOnSuccess(t *testing.T) {
+	srv := newFakeServer(t)
+	state := NewState()
+
+	var mu sync.Mutex
+	var calls int
+
+	p := &Poller{
+		Name:     "onpoll",
+		IP:       srv.Addr(),
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 50 * time.Millisecond,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001},
+		OnPoll: func(name string, snap Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		p.Run(ctx)
+		close(done)
+	}()
+	<-done
+
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got < 2 {
+		t.Errorf("OnPoll called %d times, want >= 2", got)
+	}
+}
+
 func TestPoller_ReadError_RecordedInSnapshot(t *testing.T) {
 	state := NewState()
 	wantErr := errors.New("read failed")
