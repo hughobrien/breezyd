@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-04
+
 ### Added
 
 - HomeKit bridge: `breezyd` exposes each configured Breezy as a HomeKit accessory (AirPurifier + Supply/Extract Switches + humidity, eCO2, VOC, four temperature sensors). Opt-in via `[homekit].enabled` in `~/.config/breezy/config.toml`. PIN auto-generated and printed every start; reset by deleting the state directory. NixOS module gains `services.breezyd.homekit.{enable, port, bridgeName, stateDir}`. (#1)
@@ -122,7 +124,8 @@ Initial public release.
 - Daemon refuses to start unless the config file is mode `0600`, since device
   passwords are stored in cleartext.
 
-[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/hughobrien/breezyd/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.3.0
 [1.2.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.2.0
 [1.1.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.1.0
 [1.0.0]: https://github.com/hughobrien/breezyd/releases/tag/v1.0.0
