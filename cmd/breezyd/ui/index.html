@@ -72,6 +72,11 @@
   /* #276 (vs the lighter #4a7) clears WCAG AA contrast against white. */
   .seg button[aria-pressed="true"],
   .toggle[aria-pressed="true"] { background: #276; color: #fff; border-color: #154; }
+  /* The Heater toggle reads as "active heat" — use red instead of the
+     default green so it's visually distinct from the Power toggle. */
+  .toggle[data-action="heater"][aria-pressed="true"] {
+    background: #b22; border-color: #800;
+  }
   .seg button:disabled,
   .toggle:disabled             { opacity: 0.5; cursor: not-allowed; }
   .slider-row { display: flex; gap: 0.5rem; align-items: center; }
@@ -406,14 +411,14 @@ function renderControls(name, snap, stale) {
         <div class="toggle-cell">
           <button class="toggle" data-action="power" data-name="${esc(name)}" ${dis}
             aria-pressed="${power ? "true" : "false"}">
-            Power ${power ? "● on" : "○ off"}
+            Power
           </button>
           ${t.power ? `<div class="toast" role="alert">${esc(t.power)}</div>` : ""}
         </div>
         <div class="toggle-cell">
           <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
             aria-pressed="${heater ? "true" : "false"}">
-            Heater ${heater ? "● on" : "○ off"}
+            Heater
           </button>
           ${t.heater ? `<div class="toast" role="alert">${esc(t.heater)}</div>` : ""}
         </div>

@@ -20,7 +20,7 @@ function snapshot(name: string) {
       speed_mode: name === "playroom" ? "manual" : name === "bedroom" ? "preset2" : "manual",
       manual_pct: name === "playroom" ? 30 : 50,
       airflow_mode: name === "playroom" ? "regeneration" : "ventilation",
-      heater_enabled: false,
+      heater_enabled: name === "bedroom",
       humidity_threshold_pct: 60,
       co2_threshold_ppm: 1500,
       voc_threshold_index: 250,
