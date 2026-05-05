@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.5.0] - 2026-05-04
 
+### Fixed
+
+- **`breezy discover` actually works against real hardware now.** Diagnosed via tcpdump on UDP/4000 against three production Breezy 160 units: real firmware replies to a wildcard discovery request with the device's OWN 16-byte ID in the frame header and `SIZE_PWD=0` — *not* echoing the wildcard ID + password the client sent. The strict `DecodeResponse` rejected every reply with `ErrIDMismatch` / `ErrPwdMismatch`, so `breezy discover` returned "no devices" against any real LAN even when units were reachable. The bug had been silent since v1.0; the test suite (against `pkg/breezy/fakedevice`) passed because `fakedevice` made the same wrong assumption. New `pkg/breezy.DecodeDiscoveryResponse` does relaxed framing-only validation; `fakedevice` now mirrors real-wire behaviour (its own ID + empty password); regression test `TestDecodeDiscoveryResponse_RealWireFormat` pins the wire format observed on hardware.
+
 ### Added
 
 - `breezy discover` accepts `-p PASSWORD` (or `--password=PASSWORD`) to override the factory-default discovery password (`"1111"`). The vendor manual says wildcard discovery is unauthenticated but some firmware silently drops requests when the password doesn't match; passing the real password works around it. Works in both broadcast and unicast modes:
