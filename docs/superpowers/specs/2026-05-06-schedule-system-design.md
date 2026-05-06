@@ -19,6 +19,7 @@ The schedule does not depend on the device's cloud service; all timing and write
 - No "baseline" or "default" mode the schedule reverts to between entries. The unit holds whatever state the most recent entry (or user/sensor action) left it in.
 - No per-entry sensor-override interaction. Sensor-driven boost (humidity / CO2 / VOC) and the night/turbo timer keep working exactly as today; the schedule just sets the underlying baseline at transition times.
 - No metrics for schedule activity in `/metrics` (out of scope for v1; the `/v1/devices/{name}` JSON exposes everything the UI needs).
+- No DST adjustment. Times are wall-clock local: a spring-forward skip means an entry whose At-time lies in the missing hour does not fire that day; a fall-back means an entry in the repeated hour fires twice. Acceptable for residential ERV control given the surrounding ±1-minute tick precision; revisit if scheduling grows day-of-week support.
 
 ## Requirements (from issue + brainstorming)
 

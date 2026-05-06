@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -556,5 +557,148 @@ func TestScheduler_Run_ExitsOnContextCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit on context cancel")
+	}
+}
+
+// TestRetry_RetriesCounterIncrements asserts that lastApply.Retries advances
+// with each successive retry attempt: 0 after first failure, 1 after first
+// retry, 2 after second retry, etc. The deadline-abandon test exercises the
+// path but doesn't directly assert the counter.
+func TestRetry_RetriesCounterIncrements(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("transient")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0)) // attempt 1: first failure
+	if r := s.Snapshot().LastApply.Retries; r != 0 {
+		t.Errorf("after first failure: Retries=%d, want 0", r)
+	}
+	s.tick(context.Background(), atHM(8, 1)) // attempt 2 (now ≥ nextAttempt=8:00:30)
+	if r := s.Snapshot().LastApply.Retries; r != 1 {
+		t.Errorf("after first retry: Retries=%d, want 1", r)
+	}
+	s.tick(context.Background(), atHM(8, 2)) // attempt 3
+	if r := s.Snapshot().LastApply.Retries; r != 2 {
+		t.Errorf("after second retry: Retries=%d, want 2", r)
+	}
+}
+
+// TestScheduler_ReplaceClearsInflightRetry asserts the spec contract that
+// editing the schedule mid-retry drops the in-flight retry (and resets
+// lastApply, since a fresh schedule starts fresh — no stale alert banner).
+func TestScheduler_ReplaceClearsInflightRetry(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("transient")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0)) // installs retry
+	s.mu.Lock()
+	hadRetry := s.retry != nil
+	s.mu.Unlock()
+	if !hadRetry {
+		t.Fatal("setup: retry should be installed before Replace")
+	}
+
+	if err := s.Replace(true, []ScheduleEntry{{At: 600, Action: "ventilation", Pct: 70}}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	snap := s.Snapshot()
+	s.mu.Lock()
+	r := s.retry
+	s.mu.Unlock()
+	if r != nil {
+		t.Errorf("Replace should clear in-flight retry: %+v", r)
+	}
+	if snap.LastApply != nil {
+		t.Errorf("Replace should clear lastApply (start fresh): %+v", snap.LastApply)
+	}
+}
+
+// TestScheduler_IntegrationFiresWritesToFakedevice exercises the full
+// Scheduler → recordingClient → ops → breezy.Client → fakedevice path.
+// Unit tests cover the state machine with a fake DeviceClient; this test
+// catches wiring regressions in dialRecording / LockUDP composition / the
+// recordingClient callback that mocked tests can't see.
+//
+// Reads back the params after firing to confirm the device received the
+// expected writes (Power, SetMode, SpeedManual flips speed_mode to 0xFF).
+func TestScheduler_IntegrationFiresWritesToFakedevice(t *testing.T) {
+	addr := newServerFakeDevice(t)
+
+	var recorded [][]breezy.ParamWrite
+	var recordedMu sync.Mutex
+
+	s := &Scheduler{
+		Device:   "playroom",
+		StateDir: t.TempDir(),
+		LockUDP:  func() func() { return func() {} },
+		Dial: func(_ context.Context) (breezy.DeviceClient, HandlerClient, error) {
+			raw, err := breezy.NewClient(addr, srvDeviceID, srvPassword)
+			if err != nil {
+				return nil, nil, err
+			}
+			rc := newRecordingClient(raw, func(ws []breezy.ParamWrite) {
+				recordedMu.Lock()
+				defer recordedMu.Unlock()
+				recorded = append(recorded, append([]breezy.ParamWrite(nil), ws...))
+			})
+			return rc, raw, nil
+		},
+	}
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+
+	s.tick(context.Background(), atHM(7, 59)) // prime
+	s.tick(context.Background(), atHM(8, 0))  // fire
+
+	// Read back the device state through the same library path.
+	client, err := breezy.NewClient(addr, srvDeviceID, srvPassword)
+	if err != nil {
+		t.Fatalf("readback dial: %v", err)
+	}
+	defer client.Close() //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	vals, err := client.ReadParams(ctx, []breezy.ParamID{0x0001, 0x00B7, 0x0044, 0x0002})
+	if err != nil {
+		t.Fatalf("readback ReadParams: %v", err)
+	}
+	if v := vals[0x0001]; len(v) != 1 || v[0] != 1 {
+		t.Errorf("Power(true) didn't land: 0x0001 = %v", v)
+	}
+	if v := vals[0x00B7]; len(v) != 1 || v[0] != 1 { // 1 = regeneration
+		t.Errorf("SetMode(regeneration) didn't land: 0x00B7 = %v", v)
+	}
+	if v := vals[0x0044]; len(v) != 1 || v[0] != 60 {
+		t.Errorf("SetSpeedManual(60) didn't land: 0x0044 = %v", v)
+	}
+	if v := vals[0x0002]; len(v) != 1 || v[0] != 0xFF {
+		t.Errorf("speed_mode didn't flip to 0xFF (manual): 0x0002 = %v", v)
+	}
+
+	// Confirm the recordingClient's record callback fired for every write —
+	// the production path uses this to drive cache writethrough + NoticeWrite.
+	recordedMu.Lock()
+	total := 0
+	for _, batch := range recorded {
+		total += len(batch)
+	}
+	recordedMu.Unlock()
+	if total < 3 {
+		t.Errorf("recordingClient callback fired %d times; want ≥3 (Power, SetMode, SpeedManual)", total)
+	}
+
+	// And the success-path lastApply.
+	if la := s.Snapshot().LastApply; la == nil || !la.OK || la.At != 480 {
+		t.Errorf("lastApply not recorded as OK at 08:00: %+v", la)
 	}
 }

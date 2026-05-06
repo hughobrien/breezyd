@@ -86,6 +86,8 @@ Failed fires retry every 30 s for up to 10 min, abandoning early when the next e
 
 Editing happens exclusively from the web UI via `GET`/`PUT /v1/devices/{name}/schedule`. There are no CLI verbs and no HomeKit exposure for the schedule itself.
 
+**DST behaviour (known v1 limitation):** times are local wall-clock, so spring-forward skips an entry that lands in the missing hour and fall-back fires an entry in the repeated hour twice. Acceptable for residential ERV control; revisit if scheduling grows day-of-week support.
+
 ### Cache vs. passthrough
 
 - `GET /v1/devices`, `GET /v1/devices/{name}`, `/metrics` → in-memory cache populated by the poller. Reads are cheap and never block on UDP.
