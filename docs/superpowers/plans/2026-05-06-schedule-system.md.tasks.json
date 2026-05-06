@@ -1,0 +1,75 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-06-schedule-system.md",
+  "tasks": [
+    {
+      "id": 7,
+      "subject": "Task 1: Scheduler types, parsing, validation",
+      "status": "completed",
+      "description": "**Goal:** Lay down the data types (`Scheduler`, `ScheduleEntry`, `ScheduleTime`, `LastApply`, `retryState`), the HH:MM↔minute-of-day parser, and the `validate()` function.\n\n**Files:**\n- Create: `cmd/breezyd/scheduler.go`\n- Create: `cmd/breezyd/scheduler_test.go`\n\n**Verify:** `go test ./cmd/breezyd/ -run 'TestSchedule' -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/scheduler.go\", \"cmd/breezyd/scheduler_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run 'TestSchedule' -v\", \"acceptanceCriteria\": [\"ScheduleTime parse/format roundtrip\", \"ScheduleEntry JSON roundtrip uses HH:MM\", \"validate rejects bad action/pct/duplicate-at/>24-entries with ErrInvalidArg\"]}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 2: Scheduler persistence (Load/save)",
+      "status": "completed",
+      "blockedBy": [7],
+      "description": "**Goal:** Disk persistence for the schedule. Atomic temp+rename, malformed-file recovery, location at `<state_dir>/schedule_<device>.json`.\n\n**Files:**\n- Modify: `cmd/breezyd/scheduler.go`\n- Modify: `cmd/breezyd/scheduler_test.go`\n\n**Verify:** `go test ./cmd/breezyd/ -run 'TestScheduler_(Persist|Load|Save)' -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/scheduler.go\", \"cmd/breezyd/scheduler_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run 'TestScheduler_(Persist|Load|Save)' -v\", \"acceptanceCriteria\": [\"Load missing file returns empty state\", \"Load malformed file returns empty + slog warn\", \"save+Load roundtrip preserves state\", \"save is atomic (no leftover .tmp)\"]}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 3: Scheduler tick + fire (no retry)",
+      "status": "completed",
+      "blockedBy": [8],
+      "description": "**Goal:** `tick(ctx, now)` and `fire(ctx, entry)` covering happy path + structural edges. No retry yet (Task 4).\n\n**Files:**\n- Modify: `cmd/breezyd/scheduler.go`\n- Modify: `cmd/breezyd/scheduler_test.go`\n\n**Verify:** `go test ./cmd/breezyd/ -run 'TestScheduler_(Tick|Fire)' -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/scheduler.go\", \"cmd/breezyd/scheduler_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run 'TestScheduler_(Tick|Fire)' -v\", \"acceptanceCriteria\": [\"No catchup on first tick\", \"Midnight wraparound fires once\", \"Multi-match window fires latest only\", \"off action only writes Power(false)\", \"regen/etc writes Power+Mode+SpeedManual in order\", \"lastApply records OK and failure cases\"]}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 4: Retry state machine",
+      "status": "completed",
+      "blockedBy": [9],
+      "description": "**Goal:** Bounded retry: 30s cadence, 10m deadline, supersede on next entry, no retry for ErrAuth.\n\n**Files:**\n- Modify: `cmd/breezyd/scheduler.go`\n- Modify: `cmd/breezyd/scheduler_test.go`\n\n**Verify:** `go test ./cmd/breezyd/ -run TestRetry -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/scheduler.go\", \"cmd/breezyd/scheduler_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run TestRetry -v\", \"acceptanceCriteria\": [\"Timeout installs retry\", \"Auth failure installs no retry\", \"Success clears retry\", \"Deadline abandons retry (lastApply.ok stays false)\", \"Newer entry supersedes retry\", \"Disable clears retry\"]}\n```"
+    },
+    {
+      "id": 11,
+      "subject": "Task 5: Run loop + wire into startPollers",
+      "status": "completed",
+      "blockedBy": [10],
+      "description": "**Goal:** `Run(ctx)` with minute-aligned ticker; `startPollers` builds Scheduler per device; `Handler.Schedulers` populated.\n\n**Files:**\n- Modify: `cmd/breezyd/scheduler.go`\n- Modify: `cmd/breezyd/scheduler_test.go`\n- Modify: `cmd/breezyd/main.go`\n- Modify: `cmd/breezyd/server.go`\n\n**Verify:** `go build ./... && just check`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/scheduler.go\", \"cmd/breezyd/scheduler_test.go\", \"cmd/breezyd/main.go\", \"cmd/breezyd/server.go\"], \"verifyCommand\": \"go build ./... && just check\", \"acceptanceCriteria\": [\"Run exits on ctx cancel\", \"startPollers wires Scheduler per device\", \"Handler.Schedulers populated\", \"scheduleDial returns recordingClient without locking UDP twice\"]}\n```"
+    },
+    {
+      "id": 12,
+      "subject": "Task 6: HTTP GET/PUT /v1/devices/{name}/schedule",
+      "status": "completed",
+      "blockedBy": [11],
+      "description": "**Goal:** Two routes for schedule read and wholesale replace. Validation echoes `Scheduler.validate`; PUT clears `lastApply` + retry and persists atomically.\n\n**Files:**\n- Create: `cmd/breezyd/handlers_schedule.go`\n- Modify: `cmd/breezyd/server.go`\n- Modify: `cmd/breezyd/server_test.go`\n- Modify: `cmd/breezyd/scheduler.go` (add `Replace`)\n\n**Verify:** `go test ./cmd/breezyd/ -run 'TestHandler_(Get|Put)Schedule' -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_schedule.go\", \"cmd/breezyd/server.go\", \"cmd/breezyd/server_test.go\", \"cmd/breezyd/scheduler.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run 'TestHandler_(Get|Put)Schedule' -v\", \"acceptanceCriteria\": [\"GET empty schedule returns enabled=false, entries=[]\", \"PUT roundtrip echoes saved state\", \"Validation: bad action, low/high pct, bad At, duplicate At all return 400\", \"PUT persists to disk\"]}\n```"
+    },
+    {
+      "id": 13,
+      "subject": "Task 7: Status JSON service.schedule glue",
+      "status": "completed",
+      "blockedBy": [12],
+      "description": "**Goal:** `getDevice` includes `service.schedule = {enabled, entries, alert, last_apply?}` so the dashboard can read schedule state from the same poll-cached endpoint.\n\n**Files:**\n- Modify: `cmd/breezyd/handlers_device.go`\n- Modify: `cmd/breezyd/server_test.go`\n\n**Verify:** `go test ./cmd/breezyd/ -run TestHandler_GetDevice_IncludesSchedule -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_device.go\", \"cmd/breezyd/server_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run TestHandler_GetDevice_IncludesSchedule -v\", \"acceptanceCriteria\": [\"service.schedule present when Scheduler wired\", \"alert bool reflects last_apply OK/fail\", \"service.schedule absent when no Scheduler\"]}\n```"
+    },
+    {
+      "id": 14,
+      "subject": "Task 8: SCHEDULE UI block",
+      "status": "completed",
+      "blockedBy": [13],
+      "description": "**Goal:** Collapsible SCHEDULE block above Controls with table editor, validation, save handler, alert force-expand.\n\n**Files:**\n- Modify: `cmd/breezyd/ui/index.html`\n\n**Verify:** Manual smoke in browser; Playwright (Task 9) locks behaviour.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/index.html\"], \"verifyCommand\": \"just build\", \"acceptanceCriteria\": [\"Collapsed by default, force-expand on alert\", \"Off greys pct\", \"+ add and × delete work\", \"Save button disabled on validation errors\", \"Save PUTs schedule to backend\", \"Alert warn line shows At+err+retries\"]}\n```"
+    },
+    {
+      "id": 15,
+      "subject": "Task 9: Playwright tests for SCHEDULE block",
+      "status": "completed",
+      "blockedBy": [14],
+      "description": "**Goal:** Lock the UI contract with six Playwright scenarios: empty, populated, off-greys-pct, duplicate-at-disables-save, alert force-expand, save round-trip.\n\n**Files:**\n- Modify: `tests/ui/dashboard.spec.ts`\n\n**Verify:** `just test-ui`\n\n```json:metadata\n{\"files\": [\"tests/ui/dashboard.spec.ts\"], \"verifyCommand\": \"just test-ui\", \"acceptanceCriteria\": [\"Empty schedule renders collapsed\", \"Populated schedule renders all rows\", \"off action greys pct (readonly + class)\", \"Duplicate At disables save button\", \"Alert forces open + shows warn line\", \"Save click PUTs the edited table\"]}\n```"
+    },
+    {
+      "id": 16,
+      "subject": "Task 10: Docs + screenshots regeneration",
+      "status": "completed",
+      "blockedBy": [15],
+      "description": "**Goal:** README, CHANGELOG, CLAUDE.md updates plus regenerated dashboard screenshots showing the SCHEDULE block populated and expanded.\n\n**Files:**\n- Modify: `tests/ui/screenshot.ts`\n- Regenerate: `tests/ui/screenshots/dashboard-{3col,1col}.png`\n- Modify: `README.md`, `CHANGELOG.md`, `CLAUDE.md`\n\n**Verify:** `just check-all`\n\n```json:metadata\n{\"files\": [\"tests/ui/screenshot.ts\", \"tests/ui/screenshots/dashboard-3col.png\", \"tests/ui/screenshots/dashboard-1col.png\", \"README.md\", \"CHANGELOG.md\", \"CLAUDE.md\"], \"verifyCommand\": \"just check-all\", \"acceptanceCriteria\": [\"screenshots regenerated\", \"README mentions SCHEDULE\", \"CHANGELOG has new entry\", \"CLAUDE.md has Schedule system subsection\", \"check-all green\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-06T00:30:00Z"
+}

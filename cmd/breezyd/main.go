@@ -139,8 +139,13 @@ func run(parent context.Context) error {
 	if err != nil {
 		slog.Warn("energy: could not create state dir; energy tracking will not persist", "err", err)
 	}
-	pollers, pollersWg := startPollers(rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval, stateDir, state, metrics, handler.SyncHomekit)
+	pollers, schedulers, pollersWg := startPollers(
+		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
+		stateDir, state, metrics, handler.SyncHomekit,
+		handler.scheduleDial,
+	)
 	handler.Pollers = pollers
+	handler.Schedulers = schedulers
 
 	// Periodic discovery: parse "periodic:<duration>" and tick a goroutine
 	// that refreshes IPs when devices move on the network. on-start is
@@ -285,17 +290,21 @@ func buildDeviceMap(cfg *config.Config) map[string]DeviceConfig {
 }
 
 // startPollers launches one goroutine per configured device with an
-// IP, returning a name->Poller map for the HTTP handler's NoticeWrite
-// plumbing and a *sync.WaitGroup the caller blocks on at shutdown.
-// Devices without an IP are logged and skipped — they'll come online
-// when (and if) periodic discovery finds them.
+// IP, returning a name->Poller map and a name->Scheduler map for the
+// HTTP handler's plumbing, plus a *sync.WaitGroup the caller blocks
+// on at shutdown. Devices without an IP are logged and skipped —
+// they'll come online when (and if) periodic discovery finds them.
 //
 // onPoll, when non-nil, is set on each Poller and called after every
 // successful tick. Pass h.SyncHomekit to push fresh snapshots into the
 // HomeKit bridge after every poll.
 //
+// scheduleDialFor is called once per device to produce the Dial
+// closure wired into each Scheduler. Pass handler.scheduleDial.
+//
 // We pass `parent` rather than spawning fresh goroutines per device
-// from main() so a top-level cancel propagates to every poller.
+// from main() so a top-level cancel propagates to every poller and
+// scheduler.
 func startPollers(
 	parent context.Context,
 	devices map[string]DeviceConfig,
@@ -304,8 +313,10 @@ func startPollers(
 	state *State,
 	metrics *Metrics,
 	onPoll func(name string, snap Snapshot),
-) (map[string]*Poller, *sync.WaitGroup) {
+	scheduleDialFor func(name string) func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error),
+) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup) {
 	pollers := map[string]*Poller{}
+	schedulers := map[string]*Scheduler{}
 	wg := &sync.WaitGroup{}
 
 	for name, d := range devices {
@@ -313,7 +324,6 @@ func startPollers(
 			slog.Warn("no IP for device; skipping until discovery succeeds", "name", name)
 			continue
 		}
-		// Capture loop vars for the closure.
 		devName := name
 		devID := d.ID
 
@@ -340,14 +350,21 @@ func startPollers(
 		}
 		pollers[devName] = p
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			p.Run(parent)
-		}()
+		sch := &Scheduler{
+			Device:   devName,
+			StateDir: stateDir,
+			LockUDP:  p.LockUDP,
+			Dial:     scheduleDialFor(devName),
+		}
+		sch.Load() // always returns nil; missing/malformed handled internally with slog.Warn
+		schedulers[devName] = sch
+
+		wg.Add(2)
+		go func() { defer wg.Done(); p.Run(parent) }()
+		go func() { defer wg.Done(); sch.Run(parent) }()
 	}
 
-	return pollers, wg
+	return pollers, schedulers, wg
 }
 
 // makeClientFactory returns the ClientFactory the HTTP handler hands
