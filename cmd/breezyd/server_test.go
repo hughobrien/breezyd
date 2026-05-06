@@ -382,12 +382,15 @@ func TestHandler_GetDevice_IncludesEnergy(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	dir := t.TempDir()
 	today := time.Now().Local().Format("2006-01-02")
+	thisMonth := time.Now().Local().Format("2006-01")
 	tr := &EnergyTracker{
 		Device:             "playroom",
 		StateDir:           dir,
 		HeatingTodayKWh:    1.234,
+		HeatingMonthKWh:    30.0,
 		HeatingLifetimeKWh: 234.5,
 		Today:              today,
+		MonthStart:         thisMonth,
 	}
 	if h.Pollers == nil {
 		h.Pollers = map[string]*Poller{}
@@ -413,6 +416,9 @@ func TestHandler_GetDevice_IncludesEnergy(t *testing.T) {
 	}
 	if energy["heating_today_kwh"] != 1.234 {
 		t.Errorf("heating_today_kwh = %v, want 1.234", energy["heating_today_kwh"])
+	}
+	if energy["heating_month_kwh"] != 30.0 {
+		t.Errorf("heating_month_kwh = %v, want 30.0", energy["heating_month_kwh"])
 	}
 	if energy["heating_lifetime_kwh"] != 234.5 {
 		t.Errorf("heating_lifetime_kwh = %v, want 234.5", energy["heating_lifetime_kwh"])

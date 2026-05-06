@@ -954,7 +954,10 @@ test("ENERGY block: open state survives the 5 s grid re-render", async ({ page }
       service: {
         energy: { supported: true, instant_w: 100, consumed_w: 10,
                   heating_today_kwh: 0.5, cooling_today_kwh: 0,
-                  consumed_today_kwh: 0.05, heating_lifetime_kwh: 50,
+                  consumed_today_kwh: 0.05,
+                  heating_month_kwh: 5, cooling_month_kwh: 0,
+                  consumed_month_kwh: 0.5,
+                  heating_lifetime_kwh: 50,
                   cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 5 },
       },
     }),
@@ -969,7 +972,7 @@ test("ENERGY block: open state survives the 5 s grid re-render", async ({ page }
   await expect(page.locator(".card details.energy")).toHaveAttribute("open", "");
 });
 
-test("ENERGY block: collapsed by default, expanding shows now-line + 3-col grid", async ({ page }) => {
+test("ENERGY block: 5×3 grid renders all 15 cells with new labels", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -981,6 +984,9 @@ test("ENERGY block: collapsed by default, expanding shows now-line + 3-col grid"
           heating_today_kwh: 1.234,
           cooling_today_kwh: 0.456,
           consumed_today_kwh: 0.123,
+          heating_month_kwh: 30.0,
+          cooling_month_kwh: 5.5,
+          consumed_month_kwh: 3.7,
           heating_lifetime_kwh: 234.5,
           cooling_lifetime_kwh: 123.4,
           consumed_lifetime_kwh: 12.3,
@@ -989,45 +995,114 @@ test("ENERGY block: collapsed by default, expanding shows now-line + 3-col grid"
     }),
   });
   const energy = page.locator(".card details.energy");
-  await expect(energy).toBeVisible();
-  await expect(energy).not.toHaveAttribute("open", "");
   await energy.locator("summary").click();
-  await expect(energy).toContainText("245 W heating");
-  await expect(energy).toContainText("18 W consumed");
-  const cells = energy.locator(".sensor-cell");
-  await expect(cells).toHaveCount(6);
-  await expect(energy).toContainText("1.23"); // heating today
-  await expect(energy).toContainText("0.12"); // consumed today
-  await expect(energy).toContainText("12.30"); // consumed lifetime
+  const cells = energy.locator(".sensor-grid .sensor-cell");
+  await expect(cells).toHaveCount(15);
+  // Row 1 — instantaneous
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("regen power"))')).toContainText("245 W heating");
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("regen cost"))')).toContainText("18 W");
+  // Row 3 / 5 — windowed kWh
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("heating today"))')).toContainText("1.23");
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("heating month"))')).toContainText("30.00");
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("consumed lifetime"))')).toContainText("12.30");
 });
 
-test("ENERGY block: cooling sign + sums in now-line", async ({ page }) => {
+test("ENERGY block: regen-power cooling sign", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       service: {
-        energy: { supported: true, instant_w: -180, consumed_w: 18, heating_today_kwh: 0, cooling_today_kwh: 0.5, consumed_today_kwh: 0.05, heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0 },
+        energy: {
+          supported: true, instant_w: -180, consumed_w: 18,
+          heating_today_kwh: 0, cooling_today_kwh: 0.5, consumed_today_kwh: 0.05,
+          heating_month_kwh: 0, cooling_month_kwh: 1, consumed_month_kwh: 0.2,
+          heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0,
+        },
       },
     }),
   });
   const energy = page.locator(".card details.energy");
   await energy.locator("summary").click();
-  await expect(energy).toContainText("180 W cooling");
-  await expect(energy).toContainText("18 W consumed");
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("regen power"))')).toContainText("180 W cooling");
 });
 
-test("ENERGY block: not regen → '0 W (not regen)'", async ({ page }) => {
+test("ENERGY block: instantaneous COP from instant_w / consumed_w", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       service: {
-        energy: { supported: true, instant_w: 0, consumed_w: 0, heating_today_kwh: 0, cooling_today_kwh: 0, consumed_today_kwh: 0, heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0 },
+        energy: {
+          supported: true, instant_w: 100, consumed_w: 25,
+          heating_today_kwh: 0, cooling_today_kwh: 0, consumed_today_kwh: 0,
+          heating_month_kwh: 0, cooling_month_kwh: 0, consumed_month_kwh: 0,
+          heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0,
+        },
       },
     }),
   });
   const energy = page.locator(".card details.energy");
   await energy.locator("summary").click();
-  await expect(energy).toContainText("(not regen)");
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("COP"))').first()).toContainText("4.0");
+});
+
+test("ENERGY block: time-windowed COP from (heating + cooling) / consumed", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: {
+          supported: true, instant_w: 0, consumed_w: 0,
+          heating_today_kwh: 1.0, cooling_today_kwh: 0.5, consumed_today_kwh: 0.5,
+          heating_month_kwh: 0, cooling_month_kwh: 0, consumed_month_kwh: 0,
+          heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0,
+        },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("COP today"))')).toContainText("3.0");
+});
+
+test("ENERGY block: COP renders '—' when consumed is zero", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: {
+          supported: true, instant_w: 0, consumed_w: 0,
+          heating_today_kwh: 0, cooling_today_kwh: 0, consumed_today_kwh: 0,
+          heating_month_kwh: 0, cooling_month_kwh: 0, consumed_month_kwh: 0,
+          heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0,
+        },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("COP"))').first()).toContainText("—");
+  await expect(energy.locator('.sensor-cell:has(.sensor-label:text-is("COP today"))')).toContainText("—");
+});
+
+test("ENERGY block: rendered above the Sensors block in DOM order", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: {
+          supported: true, instant_w: 100, consumed_w: 20,
+          heating_today_kwh: 1, cooling_today_kwh: 0, consumed_today_kwh: 0.5,
+          heating_month_kwh: 5, cooling_month_kwh: 0, consumed_month_kwh: 1,
+          heating_lifetime_kwh: 50, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 10,
+        },
+      },
+    }),
+  });
+  const card = page.locator(".card").first();
+  const energyBox = await card.locator("details.energy").boundingBox();
+  const sensorsBox = await card.locator("details.block.sensors").boundingBox();
+  if (!energyBox || !sensorsBox) throw new Error("missing bounding box");
+  expect(energyBox.y).toBeLessThan(sensorsBox.y);
 });
 
 test("ENERGY block: error replaces grid", async ({ page }) => {
