@@ -5,6 +5,7 @@ package breezy
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -216,5 +217,98 @@ func TestComputeInUserControl(t *testing.T) {
 	}
 	if ComputeInUserControl(map[ParamID][]byte{0x030B: {1}}) {
 		t.Error("expected false when 0x030B=1 (frost protection)")
+	}
+}
+
+func TestBuildStatusWithEnergy_NilEnergy(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x0001: {1},
+		0x0002: {0xFF},
+	}
+	base := BuildStatus(values, "attic", "ID001", "10.0.0.1", nil)
+	withNil := BuildStatusWithEnergy(values, "attic", "ID001", "10.0.0.1", nil, nil)
+	if !reflect.DeepEqual(base, withNil) {
+		t.Errorf("BuildStatusWithEnergy(nil) should equal BuildStatus: base=%+v withNil=%+v", base, withNil)
+	}
+}
+
+func TestBuildStatusWithEnergy_PopulatedEnergy(t *testing.T) {
+	energy := &EnergyValues{
+		Supported:           true,
+		InstantW:            245,
+		ConsumedW:           18,
+		HeatingTodayKWh:     1.234,
+		CoolingTodayKWh:     0,
+		ConsumedTodayKWh:    0.045,
+		HeatingLifetimeKWh:  234.5,
+		CoolingLifetimeKWh:  0,
+		ConsumedLifetimeKWh: 12.3,
+	}
+	s := BuildStatusWithEnergy(map[ParamID][]byte{}, "hall", "ID002", "10.0.0.2", nil, energy)
+	raw, ok := s.Service["energy"]
+	if !ok {
+		t.Fatal("s.Service[\"energy\"] missing")
+	}
+	got, ok := raw.(EnergyValues)
+	if !ok {
+		t.Fatalf("s.Service[\"energy\"] is %T, want EnergyValues", raw)
+	}
+	if got.Supported != true {
+		t.Errorf("Supported: want true, got %v", got.Supported)
+	}
+	if got.InstantW != 245 {
+		t.Errorf("InstantW: want 245, got %v", got.InstantW)
+	}
+	if got.HeatingTodayKWh != 1.234 {
+		t.Errorf("HeatingTodayKWh: want 1.234, got %v", got.HeatingTodayKWh)
+	}
+}
+
+func TestBuildStatusWithEnergy_ErrorOnUnsupportedModel(t *testing.T) {
+	energy := &EnergyValues{
+		Supported: false,
+		Error:     "unsupported model: Breezy 200 (type=22) — no airflow calibration",
+	}
+	s := BuildStatusWithEnergy(map[ParamID][]byte{}, "lounge", "ID003", "10.0.0.3", nil, energy)
+	raw, ok := s.Service["energy"]
+	if !ok {
+		t.Fatal("s.Service[\"energy\"] missing")
+	}
+	got, ok := raw.(EnergyValues)
+	if !ok {
+		t.Fatalf("s.Service[\"energy\"] is %T, want EnergyValues", raw)
+	}
+	if got.Supported != false {
+		t.Errorf("Supported: want false, got %v", got.Supported)
+	}
+	if got.Error == "" {
+		t.Errorf("Error should be non-empty")
+	}
+}
+
+func TestBuildStatusWithEnergy_JSONShape(t *testing.T) {
+	energy := &EnergyValues{
+		Supported:          true,
+		InstantW:           245,
+		ConsumedW:          18,
+		HeatingTodayKWh:    1.234,
+		HeatingLifetimeKWh: 234.5,
+	}
+	s := BuildStatusWithEnergy(map[ParamID][]byte{}, "study", "ID004", "10.0.0.4", nil, energy)
+	out, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	js := string(out)
+	for _, needle := range []string{
+		`"energy"`,
+		`"instant_w":245`,
+		`"heating_today_kwh":1.234`,
+		`"heating_lifetime_kwh":234.5`,
+		`"supported":true`,
+	} {
+		if !strings.Contains(js, needle) {
+			t.Errorf("JSON output missing %q: %s", needle, js)
+		}
 	}
 }

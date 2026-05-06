@@ -88,6 +88,10 @@ type Poller struct {
 	// (e.g. the HomeKit bridge) without polling the State cache. Optional;
 	// a nil OnPoll is a no-op.
 	OnPoll func(name string, snap Snapshot)
+	// Energy tracks accumulated heat-recovery and fan-power energy for this
+	// device. When non-nil, Tick is called after each successful pollOnce.
+	// Nil for tests and standalone mode that don't need energy tracking.
+	Energy *EnergyTracker
 
 	// NewClient builds the breezy client used for the next tick. Tests
 	// inject a stub; production code leaves it nil and the poller dials
@@ -198,8 +202,13 @@ func (p *Poller) tick(ctx context.Context) {
 		LastErr:  lastErr,
 	}
 	p.State.RecordPoll(p.Name, snap)
-	if lastErr == nil && p.OnPoll != nil {
-		p.OnPoll(p.Name, snap)
+	if lastErr == nil {
+		if p.Energy != nil {
+			p.Energy.Tick(values, time.Now())
+		}
+		if p.OnPoll != nil {
+			p.OnPoll(p.Name, snap)
+		}
 	}
 }
 

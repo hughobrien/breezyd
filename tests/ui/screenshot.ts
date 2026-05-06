@@ -55,6 +55,31 @@ function snapshot(name: string) {
       rtc_battery_volts: 3.34,
       fault_level: "none",
       frost_protection_active: false,
+      energy: name === "office"
+        ? { supported: false, error: "device powered off — no airflow" }
+        : name === "playroom"
+        ? {
+            supported: true,
+            instant_w: 245,
+            consumed_w: 18,
+            heating_today_kwh: 1.23,
+            cooling_today_kwh: 0.46,
+            consumed_today_kwh: 0.12,
+            heating_lifetime_kwh: 234.5,
+            cooling_lifetime_kwh: 123.4,
+            consumed_lifetime_kwh: 12.3,
+          }
+        : {
+            supported: true,
+            instant_w: 95,
+            consumed_w: 12,
+            heating_today_kwh: 0.62,
+            cooling_today_kwh: 0.21,
+            consumed_today_kwh: 0.08,
+            heating_lifetime_kwh: 142.8,
+            cooling_lifetime_kwh: 71.2,
+            consumed_lifetime_kwh: 8.1,
+          },
     },
     firmware: { version: "0.11", build_date: "2025-03-21" },
   };
