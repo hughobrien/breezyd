@@ -737,7 +737,9 @@ test("timer turbo: button pressed and countdown line rendered", async ({ page })
   await expect(card).toContainText("1h 30m remaining");
 });
 
-test("timer override: warn line attributes the override to the timer, not sensors", async ({ page }) => {
+test("timer active: no NOTICE block (only sensor-override surfaces there)", async ({ page }) => {
+  // Active turbo / night doesn't render a NOTICE warn — Timer state is
+  // already legible from the Timer segmented control + countdown.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -749,9 +751,7 @@ test("timer override: warn line attributes the override to the timer, not sensor
       },
     }),
   });
-  const warn = page.locator(".card .warn");
-  await expect(warn).toContainText("timer active (turbo)");
-  await expect(warn).not.toContainText("sensor override");
+  await expect(page.locator(".card .block", { hasText: "NOTICE" })).toHaveCount(0);
 });
 
 test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {

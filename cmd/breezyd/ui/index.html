@@ -615,19 +615,16 @@ function filterStatus(svc) {
 }
 
 function overrideLine(live) {
+  // Only sensor-override (humidity / co2 / voc threshold-driven boost)
+  // surfaces in NOTICE. Timer-active state is already legible from the
+  // Timer segmented control + countdown, and frost-protection / unknown
+  // overrides aren't actionable from this UI.
   if (!live || live.in_user_control !== false) return "";
   const alerts = live.sensor_alerts || {};
   const reasons = ["humidity", "co2", "voc"].filter(k => alerts[k]);
   if (reasons.length > 0) {
     return `<div class="warn">⚠ sensor override (${reasons.join(", ")}) — fan above setting</div>`;
   }
-  if (live.special_mode === "turbo") {
-    return `<div class="warn">⚠ timer active (turbo) — fan above setting</div>`;
-  }
-  if (live.special_mode === "night") {
-    return `<div class="warn">⚠ timer active (night) — fan slowed</div>`;
-  }
-  // Frost protection or unknown override; stay silent (out of scope).
   return "";
 }
 
