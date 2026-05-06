@@ -44,7 +44,7 @@ test-staticcheck:
 # Slower than check-all (~3 min sequential locally; CI runs the same set in
 # parallel jobs). Use this when you want to reproduce a CI failure locally
 # without waiting for the next push.
-ci: lint generate test test-race test-staticcheck test-asan test-msan test-ui test-templ-drift
+ci: lint test test-race test-staticcheck test-asan test-msan test-ui test-templ-drift
 
 # heavy gate: ci + race-flake. Slow (~5 min); run before tagging a release
 # or after risky concurrency / cgo / unsafe code.
@@ -80,10 +80,10 @@ fmt:
 	gofmt -w .
 
 # quick pre-commit gate: vet + fast tests
-check: lint generate test
+check: lint test test-templ-drift
 
 # full pre-push gate: vet + gofmt + tests + race + Playwright (needs test-ui-install)
-check-all: lint generate test test-race test-ui
+check-all: lint test test-race test-ui test-templ-drift
 
 # parse-check nix/module.nix (fast; `nix build` is the heavy variant)
 nix-check:

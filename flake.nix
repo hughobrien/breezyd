@@ -33,10 +33,6 @@
           src = ./.;
           vendorHash = "sha256-TQW/KUuf9pI7UmkkvkzZcPWwEJDMraHbR582Q4725Vo=";
           subPackages = [ "cmd/breezyd" "cmd/breezy" ];
-          nativeBuildInputs = [ pkgs.templ ];
-          preBuild = ''
-            ${pkgs.templ}/bin/templ generate
-          '';
           # Reproducible: omit `-X main.date=…` so two builds of the same
           # commit produce identical binaries.
           ldflags = [
