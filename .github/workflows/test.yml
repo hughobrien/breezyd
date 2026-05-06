@@ -10,8 +10,10 @@ permissions:
   contents: read
 
 jobs:
+  # Fast lane: vet + gofmt + race tests + build smoke. Mirrors `just check`
+  # plus `just test-race` plus a build-and---version sanity check.
   test:
-    name: vet + test + build
+    name: vet + race + build
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -41,8 +43,8 @@ jobs:
             exit 1
           fi
 
-      - name: Test (race)
-        run: go test -race ./...
+      - name: Race tests
+        run: CGO_ENABLED=1 CC=clang go test -race ./...
 
       - name: Build
         run: |
@@ -50,3 +52,91 @@ jobs:
           go build -o /tmp/breezy ./cmd/breezy
           /tmp/breezyd --version
           /tmp/breezy --version
+
+  # golangci-lint = `just test-staticcheck`. errcheck is the strict bit —
+  # catches unchecked error returns that `go vet` alone misses.
+  staticcheck:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          # Need a release built with at least go1.26: earlier v2 releases
+          # (e.g. v2.1.6) are built with go1.24 and refuse to load configs
+          # targeting a newer Go (matches the project's go.mod). v2.11.4
+          # is the version verified to work locally and against this code.
+          version: v2.11.4
+          args: --timeout=5m
+
+  # Address sanitizer = `just test-asan`. Catches OOB / use-after-free,
+  # primarily relevant for cgo. Skips pkg/homekit because Go 1.26 + ASan
+  # signal-handling segfaults the homekit test binary on cleanup on the
+  # GHA runner environment despite passing locally on Debian (Go 1.26
+  # ASan support is known-imperfect for some runtime cleanup paths). The
+  # codebase has zero `import "C"`, so the value here is mostly catching
+  # runtime-layer regressions in the protocol/daemon/config code.
+  asan:
+    name: asan tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: ASan tests
+        run: CGO_ENABLED=1 CC=clang go test -asan ./cmd/... ./pkg/breezy/... ./internal/...
+
+  # Memory sanitizer = `just test-msan`. Same homekit-skip rationale as
+  # the asan job above.
+  msan:
+    name: msan tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: MSan tests
+        run: CGO_ENABLED=1 CC=clang go test -msan ./cmd/... ./pkg/breezy/... ./internal/...
+
+  # Playwright dashboard tests = `just test-ui`. Validates the embedded
+  # UI's HTTP-call contract via page.route() mocking; no real daemon needed.
+  ui:
+    name: Playwright
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: tests/ui/pnpm-lock.yaml
+      - name: Install deps
+        working-directory: tests/ui
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium + system deps
+        working-directory: tests/ui
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run Playwright
+        working-directory: tests/ui
+        run: pnpm exec playwright test
