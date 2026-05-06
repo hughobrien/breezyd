@@ -627,11 +627,17 @@ function fanSliderRow(name, side, rpm, livePct, interactive) {
     : (rpm === 0 ? "off" : `${esc(String(rpm))} rpm`);
   const pctLabel = (livePct === null || livePct === undefined) ? "—" : `${esc(String(livePct))}%`;
   const thumbVal = (typeof livePct === "number") ? livePct : 0;
+  // Interactive sliders use min=10 so the protocol's writable range
+  // matches the visual track — at 10% the thumb sits at the far left
+  // and the user can see they can't drag further. Disabled (off-fan)
+  // rows use min=0 so a fan reading 0% renders honestly at zero
+  // instead of clamping to the 10% position.
+  const sliderMin = interactive ? 10 : 0;
   const disAttr = interactive ? "" : "disabled";
   return `<div class="slider-row fan-slider-row">
     <span class="fan-side">${esc(side)}</span>
     <span class="val-label">${rpmLabel}</span>
-    <input type="range" min="0" max="100" step="5" value="${thumbVal}"
+    <input type="range" min="${sliderMin}" max="100" step="5" value="${thumbVal}"
       data-action="manual-slider" data-name="${esc(name)}" data-side="${esc(side)}" ${disAttr}>
     <span class="val">${pctLabel}</span>
   </div>`;
