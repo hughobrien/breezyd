@@ -196,8 +196,8 @@ test("fans: pct and rpm both rendered on each fan row", async ({ page }) => {
     }),
   });
   const fans = page.locator(".card .block", { hasText: "Fans" });
-  await expect(fans).toContainText("30% / 5340rpm");
-  await expect(fans).toContainText("30% / 5400rpm");
+  await expect(fans).toContainText("30% 5340rpm");
+  await expect(fans).toContainText("30% 5400rpm");
 });
 
 test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
@@ -214,7 +214,7 @@ test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
     }),
   });
   const fans = page.locator(".card .block", { hasText: "Fans" });
-  await expect(fans).toContainText("0% / 0rpm");
+  await expect(fans).toContainText("0% 0rpm");
 });
 
 test("stale indicator: old last_poll desaturates the card", async ({ page }) => {
