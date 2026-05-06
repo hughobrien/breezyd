@@ -122,9 +122,11 @@
   .slider-row .val { min-width: 3rem; }
   .slider-row .val { text-align: right; font-variant-numeric: tabular-nums; }
   /* Left-side label used by the preset editor's two sliders so users can
-     tell supply from extract at a glance. */
+     tell supply from extract at a glance, and by the fan-slider-row for
+     the live rpm readout. 4.5rem fits "5340rpm" without clipping. */
   .slider-row .val-label {
-    min-width: 3rem; color: #666; font-size: 0.75rem;
+    min-width: 4.5rem; color: #666; font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
   }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
   /* Preset editor: a tight inline panel under the preset buttons. */
@@ -534,27 +536,31 @@ function renderControls(name, snap, stale) {
   const editorOpen = typeof editing === "number" && speedMode === "preset" + editing;
   const matchOn = matchSpeeds[name] !== false; // default true
 
+  // Slider thumb sits at manual_pct in manual mode, otherwise at 10 — the
+  // re-entry signal from task #24. The right-side readout shows the LIVE
+  // fan pct (not the slider's value), per the v1.8.0 layout: rpm-left,
+  // slider, pct-right replaces the old separate Fans block.
+  const sliderThumbVal = speedMode === "manual" ? manualPct : 10;
+  // Supply's slider is the interactive manual control when no editor is
+  // open. Otherwise it mirrors but is disabled so the user reaches for
+  // the preset editor below. Extract is always disabled — manual mode has
+  // a single % shared by both fans (no per-fan manual control on the
+  // device), so an interactive extract slider would mislead.
+  const supplyInteractive = !editorOpen && !disabled;
+
   return `<div class="controls">
     <h3>Controls</h3>
 
     <div class="ctrl">
       <span class="ctrl-label">Speed</span>
-      ${kv("supply",  fanLine(snap.live?.fan_supply_pct, snap.live?.fan_supply_rpm))}
-      ${kv("extract", fanLine(snap.live?.fan_extract_pct, snap.live?.fan_extract_rpm))}
       <div class="seg">
         ${presetBtn(1)}
         ${presetBtn(2)}
         ${presetBtn(3)}
       </div>
-      ${editorOpen
-        ? presetEditor(name, editing, cfg, matchOn, dis)
-        : `<div class="slider-row">
-             <span class="val-spacer"></span>
-             <input type="range" min="10" max="100" step="5"
-               value="${speedMode === "manual" ? manualPct : 10}"
-               data-action="manual-slider" data-name="${esc(name)}" ${dis}>
-             <span class="val">${speedMode === "manual" ? `${manualPct}%` : ""}</span>
-           </div>`}
+      ${fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  sliderThumbVal, supplyInteractive)}
+      ${fanSliderRow(name, "extract", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, sliderThumbVal, false)}
+      ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
       ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
@@ -592,6 +598,26 @@ function renderControls(name, snap, stale) {
       </div>
     </div>
 
+  </div>`;
+}
+
+// Renders one fan's slider row in the Speed control. Layout is
+// rpm-left / slider / pct-right; the slider thumb tracks the manual
+// control state, and the right-side pct is the LIVE fan pct (not the
+// slider's). Only supply's row is ever interactive (manual mode has a
+// single % covering both fans on this device); extract is rendered
+// identically but disabled so users see live extract data without
+// thinking they can drag it independently.
+function fanSliderRow(name, side, rpm, livePct, thumbVal, interactive) {
+  const rpmLabel = (rpm === null || rpm === undefined) ? "—rpm" : `${esc(String(rpm))}rpm`;
+  const pctLabel = (livePct === null || livePct === undefined) ? "—" : `${esc(String(livePct))}%`;
+  const dataAction = side === "supply" ? "manual-slider" : "extract-slider-display";
+  const disAttr = interactive ? "" : "disabled";
+  return `<div class="slider-row fan-slider-row">
+    <span class="val-label">${rpmLabel}</span>
+    <input type="range" min="10" max="100" step="5" value="${thumbVal}"
+      data-action="${dataAction}" data-name="${esc(name)}" ${disAttr}>
+    <span class="val">${pctLabel}</span>
   </div>`;
 }
 
