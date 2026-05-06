@@ -737,9 +737,7 @@ test("timer turbo: button pressed and countdown line rendered", async ({ page })
   await expect(card).toContainText("1h 30m remaining");
 });
 
-test("timer active: no NOTICE block (only sensor-override surfaces there)", async ({ page }) => {
-  // Active turbo / night doesn't render a NOTICE warn — Timer state is
-  // already legible from the Timer segmented control + countdown.
+test("timer active: no warn line (Timer countdown is enough; sensor-override is the only warn case)", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -751,7 +749,7 @@ test("timer active: no NOTICE block (only sensor-override surfaces there)", asyn
       },
     }),
   });
-  await expect(page.locator(".card .block", { hasText: "NOTICE" })).toHaveCount(0);
+  await expect(page.locator(".card .warn")).toHaveCount(0);
 });
 
 test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {
@@ -1043,26 +1041,25 @@ test("ENERGY block: hidden when service.energy missing", async ({ page }) => {
   await expect(page.locator(".card details.energy")).toHaveCount(0);
 });
 
-test("NOTICE block: hidden when no warnings", async ({ page }) => {
+test("sensor override warn: no warn anywhere when no override is active", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       live: { in_user_control: true, sensor_alerts: { humidity: false, co2: false, voc: false }, special_mode: "off" },
     }),
   });
-  await expect(page.locator(".card .block", { hasText: "NOTICE" })).toHaveCount(0);
+  await expect(page.locator(".card .warn")).toHaveCount(0);
 });
 
-test("NOTICE block: shows sensor-override warning; .ctrl no longer carries .warn", async ({ page }) => {
+test("sensor override warn: renders inside the SENSORS block, not under Speed", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       live: { in_user_control: false, sensor_alerts: { humidity: false, co2: true, voc: true } },
     }),
   });
-  const notice = page.locator(".card .block", { hasText: "NOTICE" });
-  await expect(notice).toBeVisible();
-  await expect(notice).toContainText("sensor override");
-  // The override warning must no longer live inside Speed.
+  const sensors = page.locator(".card .block", { hasText: "SENSORS" });
+  await expect(sensors.locator(".warn")).toContainText("sensor override");
+  // Override warning must not appear inside the Speed control.
   await expect(page.locator(".card .ctrl .warn")).toHaveCount(0);
 });

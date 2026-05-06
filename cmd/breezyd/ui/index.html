@@ -439,12 +439,12 @@ function renderCard(name, snap) {
 
     <div class="block">
       <h3>Sensors</h3>
+      ${overrideLine(snap.live)}
       ${sensorsGrid(name, snap)}
     </div>
 
     ${renderControls(name, snap, stale)}
     ${renderEnergy(name, snap)}
-    ${renderNotice(name, snap)}
   </div>`;
 }
 
@@ -483,15 +483,6 @@ function energyBody(ev) {
       <div class="sensor-cell"><div class="sensor-label">cooling lifetime</div><div>${fmtKwh(ev.cooling_lifetime_kwh)}</div></div>
       <div class="sensor-cell"><div class="sensor-label">consumed lifetime</div><div>${fmtKwh(ev.consumed_lifetime_kwh)}</div></div>
     </div>`;
-}
-
-function renderNotice(name, snap) {
-  const warning = overrideLine(snap.live); // existing function; returns "" when no warning applies
-  if (!warning) return "";
-  return `<div class="block">
-    <h3>NOTICE</h3>
-    ${warning}
-  </div>`;
 }
 
 function kv(k, v) {
