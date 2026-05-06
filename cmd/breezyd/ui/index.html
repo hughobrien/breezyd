@@ -162,12 +162,13 @@ const deviceInfoOpen = {}; // name -> bool
 // Per-kind config for the editable sensor rows. Mirrors the daemon's
 // SetThreshold validation: humidity 40-80, co2 400-2000 step 10, voc 50-250.
 const THRESHOLD_KINDS = {
-  humidity: { label: "RH",   suffix: "%",     min: 40,  max: 80,   step: 1,
+  humidity: { label: "RH",   suffix: "%",   min: 40,  max: 80,   step: 1,
               valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity" },
-  co2:      { label: "eCO₂", suffix: "ppm",  min: 400, max: 2000, step: 10,
+  co2:      { label: "eCO₂", suffix: "ppm", min: 400, max: 2000, step: 10,
               valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2" },
-  voc:      { label: "VOC",  suffix: "",      min: 50,  max: 250,  step: 1,
-              valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc" },
+  voc:      { label: "VOC",  suffix: "idx", min: 50,  max: 250,  step: 1,
+              valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc",
+              tooltip: "VOC Index — Sensirion 0-500 scale, ~100 = baseline indoor air" },
 };
 
 async function bootstrap() {
@@ -261,13 +262,13 @@ function renderCard(name, snap) {
     </div>
     <details class="device-info"${infoOpen ? " open" : ""}>
       <summary>Device</summary>
-      ${kv("serial",           esc(snap.id || "?"))}
       ${kv("ip",               esc(snap.ip || "?"))}
+      ${kv("serial",           esc(snap.id || "?"))}
       ${kv("firmware version", fwVersion)}
       ${kv("firmware date",    fwDate)}
       ${kv("filter",           filterStatus(snap.service))}
       ${kv("motor",            humanSeconds(snap.service?.motor_lifetime_seconds))}
-      ${kv("RTC",              fmt(snap.service?.rtc_battery_volts, "—", " V"))}
+      ${kv("RTC",              fmt(snap.service?.rtc_battery_volts, "—", "V"))}
       ${kv("faults",           fmt(snap.service?.fault_level, "—"))}
     </details>
 
@@ -313,10 +314,11 @@ function thresholdRow(name, kind, snap) {
   const liveStr = (live === null || live === undefined) ? "—" : `${live}${cfg.suffix}`;
   const liveCls = alerting ? "alert-fire" : "";
   const toastEl = t[toastKey] ? `<div class="toast" role="alert">${esc(t[toastKey])}</div>` : "";
+  const titleAttr = cfg.tooltip ? ` title="${esc(cfg.tooltip)}"` : "";
 
   if (editing) {
     const inputVal = (thresh === null || thresh === undefined) ? cfg.min : thresh;
-    return `<div class="row">
+    return `<div class="row"${titleAttr}>
       <span class="k">${esc(cfg.label)}</span>
       <span class="thresh-edit">
         <span class="${liveCls}">${esc(liveStr)}</span>
@@ -334,7 +336,7 @@ function thresholdRow(name, kind, snap) {
   // Display state: show only the live value. The threshold lives in the
   // editor that opens on click — keeping the row uncluttered while making
   // the editor itself self-explanatory ("set alert ≥ N").
-  return `<div class="row">
+  return `<div class="row"${titleAttr}>
     <span class="k">${esc(cfg.label)}</span>
     <span>
       <span class="value-clickable ${liveCls}"
@@ -356,7 +358,7 @@ function fmt(v, fallback, suffix) {
 function fanLine(pct, rpm) {
   if (rpm === null || rpm === undefined) return "—";
   if (pct === null || pct === undefined) return `${esc(String(rpm))}rpm`;
-  return `${esc(String(pct))}% / ${esc(String(rpm))}rpm`;
+  return `${esc(String(pct))}% ${esc(String(rpm))}rpm`;
 }
 
 function filterStatus(svc) {
