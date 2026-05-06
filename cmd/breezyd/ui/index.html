@@ -178,6 +178,9 @@
   /* Breathing room above the manual slider so it doesn't crowd the
      Mode segmented control directly above it. */
   .fan-slider-row { margin-top: 0.5rem; }
+  /* Same idea for the timer countdown line — it sits directly under the
+     night/turbo seg, and without a gap the two visually fuse. */
+  .timer-remaining { margin-top: 0.4rem; }
   /* Preset editor: a tight inline panel under the preset buttons. */
   .preset-editor {
     margin-top: 0.4rem; padding: 0.4rem 0.5rem;
@@ -732,7 +735,7 @@ function renderControls(name, snap, stale) {
           ${timerBtn("turbo", "turbo")}
         </div>
         ${specialMode !== "off" && typeof remainingSecs === "number"
-          ? `<div class="ctrl-label">${esc(humanSeconds(remainingSecs))} remaining</div>`
+          ? `<div class="ctrl-label timer-remaining">${esc(humanSeconds(remainingSecs))} remaining</div>`
           : ""}
         ${t.timer ? `<div class="toast" role="alert">${esc(t.timer)}</div>` : ""}
       </div>
