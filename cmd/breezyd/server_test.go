@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1213,5 +1214,108 @@ func TestErrEnvelope_Shape(t *testing.T) {
 	b, _ := json.Marshal(want)
 	if !bytes.Contains(b, []byte(`"error":`)) || !bytes.Contains(b, []byte(`"code":`)) {
 		t.Errorf("envelope JSON missing fields: %s", b)
+	}
+}
+
+// ------------------------------------------------------------------------
+// Schedule handler helpers and tests
+// ------------------------------------------------------------------------
+
+// newServerHandlerWithSchedule extends newServerHandler with a per-device
+// Scheduler wired into Handler.Schedulers, plus the stateDir that backs
+// it. Used by schedule HTTP handler tests so they can verify persistence
+// by reading the file directly.
+func newServerHandlerWithSchedule(t *testing.T) (h *Handler, rp *recordingPoller, addr, stateDir string) {
+	t.Helper()
+	h, rp, addr = newServerHandler(t)
+	stateDir = t.TempDir()
+	sch := &Scheduler{Device: "playroom", StateDir: stateDir}
+	sch.Load() // empty initial state
+	h.Schedulers = map[string]*Scheduler{"playroom": sch}
+	return h, rp, addr, stateDir
+}
+
+func TestHandler_GetSchedule_Empty(t *testing.T) {
+	h, _, _, _ := newServerHandlerWithSchedule(t)
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/schedule", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["enabled"] != false {
+		t.Errorf("enabled=%v, want false", body["enabled"])
+	}
+	if entries, _ := body["entries"].([]any); len(entries) != 0 {
+		t.Errorf("entries=%v, want empty", entries)
+	}
+}
+
+func TestHandler_PutSchedule_Roundtrip(t *testing.T) {
+	h, _, _, _ := newServerHandlerWithSchedule(t)
+	put := map[string]any{
+		"enabled": true,
+		"entries": []map[string]any{
+			{"at": "08:00", "action": "regeneration", "pct": 60},
+			{"at": "22:00", "action": "off", "pct": 60},
+		},
+	}
+	rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", put)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/schedule", nil)
+	var got map[string]any
+	_ = json.Unmarshal(rec2.Body.Bytes(), &got)
+	if got["enabled"] != true {
+		t.Errorf("enabled=%v, want true", got["enabled"])
+	}
+	entries, _ := got["entries"].([]any)
+	if len(entries) != 2 {
+		t.Fatalf("entries=%v, want 2", entries)
+	}
+}
+
+func TestHandler_PutSchedule_Validation(t *testing.T) {
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"bad action", map[string]any{"enabled": true, "entries": []map[string]any{{"at": "08:00", "action": "boost", "pct": 60}}}},
+		{"low pct", map[string]any{"enabled": true, "entries": []map[string]any{{"at": "08:00", "action": "regeneration", "pct": 5}}}},
+		{"high pct", map[string]any{"enabled": true, "entries": []map[string]any{{"at": "08:00", "action": "regeneration", "pct": 101}}}},
+		{"bad at", map[string]any{"enabled": true, "entries": []map[string]any{{"at": "08:60", "action": "regeneration", "pct": 60}}}},
+		{"duplicate at", map[string]any{"enabled": true, "entries": []map[string]any{
+			{"at": "10:00", "action": "regeneration", "pct": 60},
+			{"at": "10:00", "action": "off", "pct": 60},
+		}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h, _, _, _ := newServerHandlerWithSchedule(t)
+			rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", c.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandler_PutSchedule_Persists(t *testing.T) {
+	h, _, _, stateDir := newServerHandlerWithSchedule(t)
+	put := map[string]any{
+		"enabled": true,
+		"entries": []map[string]any{{"at": "08:00", "action": "regeneration", "pct": 60}},
+	}
+	rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", put)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	data, err := os.ReadFile(filepath.Join(stateDir, "schedule_playroom.json"))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if !strings.Contains(string(data), `"action":"regeneration"`) {
+		t.Errorf("file missing entry: %s", data)
 	}
 }

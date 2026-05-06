@@ -218,6 +218,9 @@ func (h *Handler) routes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/devices/{name}/rtc", h.postRTC)
 	mux.HandleFunc("POST /v1/devices/{name}/params/{id}", h.postParam)
 
+	mux.HandleFunc("GET /v1/devices/{name}/schedule", h.getSchedule)
+	mux.HandleFunc("PUT /v1/devices/{name}/schedule", h.putSchedule)
+
 	return mux
 }
 

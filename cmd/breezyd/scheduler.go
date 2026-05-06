@@ -256,6 +256,28 @@ func (s *Scheduler) save() error {
 	return nil
 }
 
+// Replace swaps the schedule wholesale. Validates, sorts entries, clears
+// retry and lastApply (a fresh schedule starts fresh — no stale alert
+// banner), and persists. Returns errors wrapping ErrInvalidArg on bad
+// input.
+func (s *Scheduler) Replace(enabled bool, entries []ScheduleEntry) error {
+	if err := s.validate(entries); err != nil {
+		return err
+	}
+	cp := append([]ScheduleEntry(nil), entries...)
+	sortEntries(cp)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.enabled = enabled
+	s.entries = cp
+	s.lastApply = nil
+	s.retry = nil
+	if err := s.save(); err != nil {
+		return fmt.Errorf("schedule: persist: %w", err)
+	}
+	return nil
+}
+
 // sortEntries sorts in-place by At ascending. Used after Load and Replace
 // to keep the in-memory and on-disk state canonically ordered.
 func sortEntries(entries []ScheduleEntry) {
