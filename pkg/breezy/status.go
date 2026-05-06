@@ -113,13 +113,13 @@ func BuildStatus(values map[ParamID][]byte, name, id, ip string, lastPoll *time.
 	// gate on the live RPM so a stopped fan reads 0% (power off, supply-
 	// only / extract-only modes), even when the firmware still has a
 	// non-zero commanded value stored.
-	if supplyPct, ok := commandedFanPct(values, true); ok {
+	if supplyPct, ok := CommandedFanPct(values, true); ok {
 		if supplyRPMOK && supplyRPM == 0 {
 			supplyPct = 0
 		}
 		resp.Live["fan_supply_pct"] = supplyPct
 	}
-	if extractPct, ok := commandedFanPct(values, false); ok {
+	if extractPct, ok := CommandedFanPct(values, false); ok {
 		if extractRPMOK && extractRPM == 0 {
 			extractPct = 0
 		}
@@ -289,12 +289,12 @@ func AirflowModeName(b uint8) string {
 	return fmt.Sprintf("unknown(%d)", b)
 }
 
-// commandedFanPct returns the percentage the firmware is commanding for one
-// fan, derived from speed_mode (0x02) and the active source param: 0x44 in
-// manual mode, 0x3A/3C/3E for supply at preset 1/2/3, 0x3B/3D/3F for extract.
-// Returns (0, false) when speed_mode or the source param is missing or
-// outside the recognised set.
-func commandedFanPct(values map[ParamID][]byte, supply bool) (int, bool) {
+// CommandedFanPct returns the percent setting commanded for one of the
+// two fans, picked by isSupply. Resolves the speed_mode register
+// (0x02) and reads the right per-mode source: 0x44 (manual_pct) in
+// manual mode; 0x3A/3B/3C/3D/3E/3F across presets 1/2/3. Used by
+// BuildStatus's live block and by cmd/breezyd's EnergyTracker.
+func CommandedFanPct(values map[ParamID][]byte, isSupply bool) (int, bool) {
 	mode, ok := Uint8At(values, 0x0002)
 	if !ok {
 		return 0, false
@@ -305,17 +305,17 @@ func commandedFanPct(values map[ParamID][]byte, supply bool) (int, bool) {
 		src = 0x0044
 	case 1:
 		src = 0x003A
-		if !supply {
+		if !isSupply {
 			src = 0x003B
 		}
 	case 2:
 		src = 0x003C
-		if !supply {
+		if !isSupply {
 			src = 0x003D
 		}
 	case 3:
 		src = 0x003E
-		if !supply {
+		if !isSupply {
 			src = 0x003F
 		}
 	default:
