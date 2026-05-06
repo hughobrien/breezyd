@@ -669,16 +669,17 @@ func TestHandler_PostMode_MissingField(t *testing.T) {
 
 func TestHandler_PostPreset(t *testing.T) {
 	for _, c := range []struct {
-		preset                int
-		supply, extract       int
-		supplyParam, extParam string
-		supplyHex, extHex     string
+		preset                    int
+		supply, extract           int
+		supplyParam, extParam     string
+		supplyHex, extHex         string
+		supplyParamID, extParamID breezy.ParamID
 	}{
-		{1, 30, 35, "0x003A", "0x003B", "1e", "23"},
-		{2, 55, 60, "0x003C", "0x003D", "37", "3c"},
-		{3, 100, 100, "0x003E", "0x003F", "64", "64"},
+		{1, 30, 35, "0x003A", "0x003B", "1e", "23", 0x003A, 0x003B},
+		{2, 55, 60, "0x003C", "0x003D", "37", "3c", 0x003C, 0x003D},
+		{3, 100, 100, "0x003E", "0x003F", "64", "64", 0x003E, 0x003F},
 	} {
-		h, _, _ := newServerHandler(t)
+		h, rp, _ := newServerHandler(t)
 		rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/preset", map[string]any{
 			"preset": c.preset, "supply": c.supply, "extract": c.extract,
 		})
@@ -696,6 +697,16 @@ func TestHandler_PostPreset(t *testing.T) {
 		_ = json.Unmarshal(recE.Body.Bytes(), &re)
 		if re["hex"] != c.extHex {
 			t.Errorf("preset=%d extract hex = %v, want %s", c.preset, re["hex"], c.extHex)
+		}
+		// Both preset writes must trip the fan-settle window — editing the
+		// active preset ramps the running fan, so 0x3A/3B/3C/3D/3E/3F must
+		// be in fanWriteIDs (poller.go) and notified to the poller.
+		notices := rp.all()
+		if !hasNotice(notices, "playroom", c.supplyParamID) {
+			t.Errorf("preset=%d: NoticeWrite(%#04x) not called; got=%+v", c.preset, c.supplyParamID, notices)
+		}
+		if !hasNotice(notices, "playroom", c.extParamID) {
+			t.Errorf("preset=%d: NoticeWrite(%#04x) not called; got=%+v", c.preset, c.extParamID, notices)
 		}
 	}
 }

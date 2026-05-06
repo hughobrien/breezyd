@@ -772,17 +772,30 @@ document.addEventListener("change", async (ev) => {
     const newPct = parseInt(el.value, 10);
     const isSupply = el.dataset.action === "preset-supply-slider";
     const matchOn = matchSpeeds[name] !== false;
+    // For the un-touched side, prefer the on-screen sibling slider value so
+    // a stale or missing cached preset can't silently re-twin the speeds
+    // when match-off is set. The DOM value is what the user actually sees.
+    const siblingAction = isSupply ? "preset-extract-slider" : "preset-supply-slider";
+    const sibling = document.querySelector(
+      `input[type="range"][data-action="${siblingAction}"][data-name="${name}"][data-preset="${preset}"]`);
+    const siblingPct = sibling ? parseInt(sibling.value, 10) : NaN;
+    const fallbackOther = !isNaN(siblingPct)
+      ? siblingPct
+      : (isSupply ? (typeof cur.extract === "number" ? cur.extract : newPct)
+                  : (typeof cur.supply === "number" ? cur.supply : newPct));
     let supply, extract;
     if (matchOn) {
       supply = newPct;
       extract = newPct;
     } else if (isSupply) {
       supply = newPct;
-      extract = (typeof cur.extract === "number") ? cur.extract : newPct;
+      extract = fallbackOther;
     } else {
-      supply = (typeof cur.supply === "number") ? cur.supply : newPct;
+      supply = fallbackOther;
       extract = newPct;
     }
+    // Toast key reuses "speed" because the editor lives inside the Speed
+    // control — any error surfaces in that block's toast slot.
     await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/preset",
                     { preset, supply, extract });
     return;

@@ -46,9 +46,9 @@ func SetSpeedPreset(ctx context.Context, c DeviceClient, preset int) error {
 // stored percentages (preset 1: 0x3A/0x3B, preset 2: 0x3C/0x3D, preset
 // 3: 0x3E/0x3F). Both percentages are uint8, range 10..100.
 //
-// This op only writes the stored configuration. To actually run on the
-// edited preset, also call SetSpeedPreset (writes 0x02). Editing the
-// currently-active preset takes effect immediately on the running fan.
+// Editing the currently-active preset takes effect immediately on the
+// running fan; editing an inactive preset only updates its stored
+// configuration and takes effect when that preset is selected.
 func SetPresetSpeed(ctx context.Context, c DeviceClient, preset, supply, extract int) error {
 	if preset < 1 || preset > 3 {
 		return fmt.Errorf("%w: preset must be 1-3, got %d", ErrInvalidArg, preset)

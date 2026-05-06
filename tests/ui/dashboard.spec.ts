@@ -320,6 +320,10 @@ test("speed preset editor: match-speeds default true → moving supply POSTs bot
     }),
   });
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  // Default state contract: the checkbox is :checked on first open.
+  await expect(
+    page.locator('input[data-action="match-speeds-toggle"][data-name="playroom"]')
+  ).toBeChecked();
   const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
   await supply.evaluate((el: HTMLInputElement) => {
     el.value = "70";
@@ -329,6 +333,30 @@ test("speed preset editor: match-speeds default true → moving supply POSTs bot
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
   expect(post).toBeTruthy();
   expect(post!.body).toEqual({ preset: 2, supply: 70, extract: 70 });
+});
+
+test("speed preset editor: manual slider hidden while editor is open", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset2",
+        preset2: { supply: 55, extract: 60 },
+      },
+    }),
+  });
+  // Open the editor; the manual slider is replaced by the preset sliders.
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await expect(page.locator(".preset-editor")).toBeVisible();
+  await expect(
+    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
+  ).toHaveCount(0);
+  // Click again → editor closes, manual slider returns.
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await expect(page.locator(".preset-editor")).toHaveCount(0);
+  await expect(
+    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
+  ).toBeVisible();
 });
 
 test("speed preset editor: match-speeds off → moving extract preserves cached supply", async ({ page }) => {

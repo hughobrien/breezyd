@@ -244,7 +244,7 @@ func (h *Handler) postPreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Preset == nil || body.Supply == nil || body.Extract == nil {
-		writeErr(w, "bad_request", "missing one of 'preset' (1-3), 'supply' (10-100), 'extract' (10-100)")
+		writeErr(w, "bad_request", "missing required field(s); send 'preset' (1-3), 'supply' (10-100), 'extract' (10-100)")
 		return
 	}
 	rc, raw, unlock, err := h.dialRecording(name)
