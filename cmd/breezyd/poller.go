@@ -36,6 +36,11 @@ var fanWriteIDs = map[breezy.ParamID]bool{
 	0x0007: true, // timer (entering/leaving night|turbo ramps fans)
 	0x0044: true, // speed_manual_pct
 	0x00B7: true, // fan_rotation_direction
+	// Editing the currently-active preset ramps the running fan immediately,
+	// so its supply/extract pcts get the same settle treatment as 0x44.
+	0x003A: true, 0x003B: true, // preset1 supply/extract
+	0x003C: true, 0x003D: true, // preset2 supply/extract
+	0x003E: true, 0x003F: true, // preset3 supply/extract
 }
 
 // fanSensitiveReads is the set of params we skip during the settle window

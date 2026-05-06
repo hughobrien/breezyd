@@ -205,6 +205,7 @@ func (h *Handler) routes() *http.ServeMux {
 
 	mux.HandleFunc("POST /v1/devices/{name}/power", h.postPower)
 	mux.HandleFunc("POST /v1/devices/{name}/speed", h.postSpeed)
+	mux.HandleFunc("POST /v1/devices/{name}/preset", h.postPreset)
 	mux.HandleFunc("POST /v1/devices/{name}/mode", h.postMode)
 	mux.HandleFunc("POST /v1/devices/{name}/heater", h.postHeater)
 	mux.HandleFunc("POST /v1/devices/{name}/timer", h.postTimer)
