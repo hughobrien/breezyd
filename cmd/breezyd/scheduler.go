@@ -11,7 +11,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -153,4 +158,106 @@ func (s *Scheduler) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+// ScheduleSnapshot is the public, value-copy view of the schedule used by
+// HTTP handlers and the status JSON glue.
+type ScheduleSnapshot struct {
+	Enabled   bool
+	Entries   []ScheduleEntry
+	LastApply *LastApply
+}
+
+// persistedSchedule is the on-disk JSON shape.
+type persistedSchedule struct {
+	Version   int             `json:"version"`
+	Enabled   bool            `json:"enabled"`
+	Entries   []ScheduleEntry `json:"entries"`
+	LastApply *LastApply      `json:"last_apply,omitempty"`
+}
+
+const scheduleFileVersion = 1
+
+// statePath is the JSON file path used for persistence.
+func (s *Scheduler) statePath() string {
+	return filepath.Join(s.StateDir, fmt.Sprintf("schedule_%s.json", s.Device))
+}
+
+// Snapshot returns a value copy of the scheduler's public state.
+func (s *Scheduler) Snapshot() ScheduleSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := ScheduleSnapshot{
+		Enabled: s.enabled,
+		Entries: append([]ScheduleEntry(nil), s.entries...),
+	}
+	if s.lastApply != nil {
+		la := *s.lastApply
+		out.LastApply = &la
+	}
+	return out
+}
+
+// Load reads the persisted state file. Always returns nil: missing file
+// → empty state; malformed or invalid file → empty state + slog.Warn.
+// Mirrors EnergyTracker.Load semantics. Caller must guarantee no
+// concurrent access — Load is called before the scheduler's Run goroutine
+// starts, so no mutex is needed (and acquiring it here would imply a
+// false guarantee about safety against concurrent Loads).
+func (s *Scheduler) Load() error {
+	data, err := os.ReadFile(s.statePath())
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("schedule: failed to read state file; starting empty",
+				"device", s.Device, "err", err)
+		}
+		return nil
+	}
+	// version is read but not yet checked; extend here if the schema changes.
+	var p persistedSchedule
+	if err := json.Unmarshal(data, &p); err != nil {
+		slog.Warn("schedule: failed to unmarshal state file; starting empty",
+			"device", s.Device, "err", err)
+		return nil
+	}
+	if err := s.validate(p.Entries); err != nil {
+		slog.Warn("schedule: persisted file failed validation; starting empty",
+			"device", s.Device, "err", err)
+		return nil
+	}
+	sortEntries(p.Entries)
+	s.enabled = p.Enabled
+	s.entries = p.Entries
+	s.lastApply = p.LastApply
+	return nil
+}
+
+// save writes the current state atomically via temp+rename. Caller MUST
+// hold s.mu.
+func (s *Scheduler) save() error {
+	p := persistedSchedule{
+		Version:   scheduleFileVersion,
+		Enabled:   s.enabled,
+		Entries:   s.entries,
+		LastApply: s.lastApply,
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("schedule: marshal: %w", err)
+	}
+	tmp := s.statePath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("schedule: write temp: %w", err)
+	}
+	if err := os.Rename(tmp, s.statePath()); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("schedule: rename temp: %w", err)
+	}
+	return nil
+}
+
+// sortEntries sorts in-place by At ascending. Used after Load and Replace
+// to keep the in-memory and on-disk state canonically ordered.
+func sortEntries(entries []ScheduleEntry) {
+	sort.Slice(entries, func(i, j int) bool { return entries[i].At < entries[j].At })
 }

@@ -4,7 +4,10 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
@@ -106,5 +109,87 @@ func TestScheduleEntry_JSON(t *testing.T) {
 	}
 	if out != in {
 		t.Errorf("roundtrip: %+v != %+v", out, in)
+	}
+}
+
+func TestScheduler_PersistRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	s := &Scheduler{Device: "playroom", StateDir: dir}
+
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{
+		{At: 480, Action: "regeneration", Pct: 60},
+		{At: 1320, Action: "off", Pct: 60},
+	}
+	s.lastApply = &LastApply{
+		At:      1320,
+		Fired:   time.Date(2026, 5, 6, 22, 0, 14, 0, time.UTC),
+		OK:      false,
+		Err:     "device_unreachable: i/o timeout",
+		Retries: 5,
+	}
+	if err := s.save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	s.mu.Unlock()
+
+	s2 := &Scheduler{Device: "playroom", StateDir: dir}
+	if err := s2.Load(); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	snap := s2.Snapshot()
+	if !snap.Enabled || len(snap.Entries) != 2 || snap.Entries[0].At != 480 || snap.Entries[1].Action != "off" {
+		t.Errorf("entries did not survive roundtrip: %+v", snap)
+	}
+	if snap.LastApply == nil || snap.LastApply.Retries != 5 || snap.LastApply.OK {
+		t.Errorf("lastApply did not survive roundtrip: %+v", snap.LastApply)
+	}
+}
+
+func TestScheduler_LoadMissingFileStartsEmpty(t *testing.T) {
+	s := &Scheduler{Device: "x", StateDir: t.TempDir()}
+	if err := s.Load(); err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	snap := s.Snapshot()
+	if snap.Enabled || len(snap.Entries) != 0 || snap.LastApply != nil {
+		t.Errorf("expected empty state, got %+v", snap)
+	}
+}
+
+func TestScheduler_LoadMalformedFileStartsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	s := &Scheduler{Device: "x", StateDir: dir}
+	if err := os.WriteFile(s.statePath(), []byte("{not json"), 0o600); err != nil {
+		t.Fatalf("seed bad file: %v", err)
+	}
+	if err := s.Load(); err != nil {
+		t.Fatalf("load malformed: %v", err)
+	}
+	snap := s.Snapshot()
+	if snap.Enabled || len(snap.Entries) != 0 {
+		t.Errorf("malformed file should start empty, got %+v", snap)
+	}
+}
+
+func TestScheduler_SaveAtomic(t *testing.T) {
+	dir := t.TempDir()
+	s := &Scheduler{Device: "x", StateDir: dir}
+	s.mu.Lock()
+	s.enabled = false
+	if err := s.save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	s.mu.Unlock()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" {
+			t.Errorf("temp file leaked: %s", e.Name())
+		}
 	}
 }
