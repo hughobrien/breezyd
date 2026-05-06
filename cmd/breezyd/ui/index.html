@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>breezy</title>
+<title>breezyd</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -206,7 +206,7 @@
 </head>
 <body>
   <header>
-    <h1>breezy</h1>
+    <h1>breezyd</h1>
   </header>
   <div id="banner"></div>
   <div class="grid" id="grid"></div>
@@ -692,10 +692,29 @@ document.addEventListener("click", async (ev) => {
       await postWrite(name, "power", "/v1/devices/" + encodeURIComponent(name) + "/power",
                       { on: !snap.configured?.power });
       break;
-    case "mode":
+    case "mode": {
+      // Carry the speed-of-record across the mode switch so the newly-
+      // active fan(s) ramp to the same %, instead of the off-fan
+      // starting from 0. Take the higher of supply/extract live pcts:
+      // in single-direction modes the inactive fan reads 0, so max() is
+      // the previously-active fan's speed; in dual-direction modes both
+      // are equal so max() is a no-op. Only applies in manual speed_mode
+      // — preset modes have their own per-preset stored speeds and a
+      // manual write would kick the user out of them.
+      const prevSpeedMode = snap.configured?.speed_mode;
+      const supplyPct = snap.live?.fan_supply_pct;
+      const extractPct = snap.live?.fan_extract_pct;
+      const a = typeof supplyPct === "number" ? supplyPct : -1;
+      const b = typeof extractPct === "number" ? extractPct : -1;
+      const preservePct = Math.max(a, b);
       await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
                       { mode: value });
+      if (prevSpeedMode === "manual" && preservePct >= 10) {
+        await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                        { manual: preservePct });
+      }
       break;
+    }
     case "preset": {
       const n = parseInt(value, 10);
       const speedMode = snap.configured?.speed_mode || "";

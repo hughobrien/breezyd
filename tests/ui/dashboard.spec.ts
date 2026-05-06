@@ -271,6 +271,39 @@ test("power click: POSTs the inverse of the current state", async ({ page }) => 
   expect(post!.body).toEqual({ on: false });
 });
 
+test("mode click in manual: carries the higher fan pct as new manual_pct", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "manual", manual_pct: 50, airflow_mode: "extract" },
+      // Extract mode: extract fan running at 50%, supply forced off (0).
+      live: { fan_supply_rpm: 0, fan_extract_rpm: 3120, fan_supply_pct: 0, fan_extract_pct: 50 },
+    }),
+  });
+  await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
+  await page.waitForTimeout(200);
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  const speedPost = requests.find(r => r.method === "POST" && r.url.endsWith("/speed"));
+  expect(modePost?.body).toEqual({ mode: "supply" });
+  expect(speedPost?.body).toEqual({ manual: 50 });
+});
+
+test("mode click in preset: no manual_pct write (would kick out of preset)", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "extract", preset2: { supply: 55, extract: 60 } },
+      live: { fan_supply_rpm: 0, fan_extract_rpm: 3500, fan_supply_pct: 0, fan_extract_pct: 60 },
+    }),
+  });
+  await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
+  await page.waitForTimeout(200);
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  const speedPosts = requests.filter(r => r.method === "POST" && r.url.endsWith("/speed"));
+  expect(modePost?.body).toEqual({ mode: "supply" });
+  expect(speedPosts).toEqual([]);
+});
+
 test("mode click: each button POSTs its mode string", async ({ page }) => {
   const { requests } = await loadDashboard(page, { devices: [{ name: "playroom" }] });
   for (const mode of ["ventilation", "regeneration", "supply", "extract"]) {
