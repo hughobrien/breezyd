@@ -141,6 +141,9 @@
     min-width: 7ch; color: #666; font-size: 0.75rem;
   }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* Breathing room above the manual slider so it doesn't crowd the
+     Mode segmented control directly above it. */
+  .fan-slider-row { margin-top: 0.5rem; }
   /* Preset editor: a tight inline panel under the preset buttons. */
   .preset-editor {
     margin-top: 0.4rem; padding: 0.4rem 0.5rem;
@@ -592,26 +595,12 @@ function renderControls(name, snap, stale) {
   const editorOpen = typeof editing === "number" && speedMode === "preset" + editing;
   const matchOn = matchSpeeds[name] !== false; // default true
 
-  // Per-fan editability is driven by the device's airflow_mode (read from
-  // the snapshot, never local UI state). In supply-only mode the extract
-  // fan is firmware-forced to 0; in extract-only mode the supply fan is
-  // 0; in ventilation/regeneration both run. Whichever fan is running and
-  // is named-after-the-mode owns the interactive slider — its drag POSTs
-  // manual_pct (0x44) which the firmware applies to the active fan(s).
-  const supplyRuns = mode === "ventilation" || mode === "regeneration" || mode === "supply";
-  const extractRuns = mode === "ventilation" || mode === "regeneration" || mode === "extract";
-  const editable = !editorOpen && !disabled;
-  // In dual-fan modes, supply hosts the control (canonical). In extract-
-  // only mode, extract does. Falls back to supply if airflow_mode is
-  // missing so we never end up with no interactive slider at all.
-  const supplyInteractive = editable && supplyRuns;
-  const extractInteractive = editable && !supplyRuns && extractRuns;
 
   return `<div class="controls">
     <h3>Controls</h3>
 
     <div class="ctrl">
-      <span class="ctrl-label">Speed</span>
+      <span class="ctrl-label">SPEED</span>
       <div class="seg">
         ${presetBtn(1)}
         ${presetBtn(2)}
@@ -619,7 +608,7 @@ function renderControls(name, snap, stale) {
         ${manualBtn()}
       </div>
       ${speedMode === "manual" ? `
-        <span class="ctrl-label">Mode</span>
+        <span class="ctrl-label">MODE</span>
         <div class="seg">
           ${modeBtn("auto",    "ventilation")}
           ${modeBtn("regen",   "regeneration")}
@@ -630,8 +619,7 @@ function renderControls(name, snap, stale) {
       ` : ""}
       ${speedMode === "manual"
         ? manualSliderRow(name, snap.live, manualPct, !disabled && !editorOpen)
-        : `${supplyInteractive ? fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  true) : ""}
-           ${extractInteractive ? fanSliderRow(name, "exhaust", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, true) : ""}`}
+        : ""}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
       ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
@@ -639,7 +627,7 @@ function renderControls(name, snap, stale) {
 
     <div class="ctrl ctrl-pair">
       <div class="ctrl-group ctrl-group-timer">
-        <span class="ctrl-label">Timer</span>
+        <span class="ctrl-label">TIMER</span>
         <div class="seg">
           ${timerBtn("night", "night")}
           ${timerBtn("turbo", "turbo")}
@@ -650,7 +638,7 @@ function renderControls(name, snap, stale) {
         ${t.timer ? `<div class="toast" role="alert">${esc(t.timer)}</div>` : ""}
       </div>
       <div class="ctrl-group ctrl-group-heater">
-        <span class="ctrl-label">Heater</span>
+        <span class="ctrl-label">HEATER</span>
         <div class="seg">
           <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
             aria-pressed="${heater ? "true" : "false"}">heater</button>
@@ -841,9 +829,12 @@ document.addEventListener("click", async (ev) => {
       const n = parseInt(value, 10);
       const speedMode = snap.configured?.speed_mode || "";
       const alreadyOnPreset = speedMode === "preset" + n;
-      // Same preset already active and editor open → close editor (no write).
-      // Same preset active but editor closed → just open the editor.
-      // Different preset (or manual) → switch to it AND open its editor.
+      // First click activates the preset (no editor); the editor opens
+      // only on a subsequent click of the already-active preset, and a
+      // third click closes it again. Click flow:
+      //   Inactive preset → activate (no editor).
+      //   Active preset, editor closed → open editor.
+      //   Active preset, editor open → close editor.
       if (alreadyOnPreset && editingPreset[name] === n) {
         delete editingPreset[name];
         render();
@@ -851,7 +842,8 @@ document.addEventListener("click", async (ev) => {
         editingPreset[name] = n;
         render();
       } else {
-        editingPreset[name] = n;
+        // Don't pre-open the editor on activation — leaves the user with
+        // just the active-fan slider, which is the simpler default.
         await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                         { preset: n });
       }

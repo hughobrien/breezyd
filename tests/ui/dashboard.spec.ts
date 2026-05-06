@@ -189,11 +189,10 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await expect(card).toContainText("85%");
 });
 
-test("preset mode: only the active fan's slider row renders; rpms in Sensors", async ({ page }) => {
-  // Non-editable mirror rows were dropped: in regen/ventilation the
-  // supply slider is the canonical interactive control (extract row
-  // hidden); in extract-only the exhaust slider takes over (supply
-  // hidden). Live rpms live in the Sensors block, not the slider row.
+test("preset mode: no fan slider rows render (preset row is the only control)", async ({ page }) => {
+  // In preset mode the user reaches the editor by clicking the active
+  // preset; there's no inline slider. Live rpms still surface in the
+  // Sensors block.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -206,28 +205,10 @@ test("preset mode: only the active fan's slider row renders; rpms in Sensors", a
       },
     }),
   });
-  const rows = page.locator(".card .ctrl .fan-slider-row");
-  await expect(rows).toHaveCount(1);
-  await expect(rows.nth(0).locator(".fan-side")).toHaveText("supply");
-  await expect(rows.nth(0).locator(".val")).toHaveText("30%");
-  await expect(rows.nth(0).locator('input[type="range"]')).not.toBeDisabled();
-  // rpms appear as Sensors cells regardless of speed_mode.
+  await expect(page.locator(".card .ctrl .fan-slider-row")).toHaveCount(0);
   const card = page.locator(".card").first();
   await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("5340 rpm");
   await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("exhaust rpm"))')).toContainText("5400 rpm");
-});
-
-test("preset mode + extract airflow: only the exhaust row renders", async ({ page }) => {
-  await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      configured: { speed_mode: "preset2", airflow_mode: "extract", preset2: { supply: 50, extract: 50 } },
-      live: { fan_supply_rpm: 0, fan_extract_rpm: 3120, fan_supply_pct: 0, fan_extract_pct: 50 },
-    }),
-  });
-  const rows = page.locator(".card .ctrl .fan-slider-row");
-  await expect(rows).toHaveCount(1);
-  await expect(rows.nth(0).locator(".fan-side")).toHaveText("exhaust");
 });
 
 test("preset editor open: no fan slider rows (editor is the control surface)", async ({ page }) => {
@@ -353,6 +334,26 @@ test("Mode block: visible only in manual speed_mode", async ({ page }) => {
   await expect(manualCard.locator(".ctrl", { hasText: "Mode" })).toBeVisible();
 });
 
+test("preset buttons: labels are 'supply/extract' pcts from cached preset config", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset2",
+        airflow_mode: "regeneration",
+        preset1: { supply: 30, extract: 35 },
+        preset2: { supply: 55, extract: 60 },
+        preset3: { supply: 100, extract: 100 },
+      },
+    }),
+  });
+  const presetBtn = (n: number) =>
+    page.locator(`button[data-action="preset"][data-name="playroom"][data-value="${n}"]`);
+  await expect(presetBtn(1)).toHaveText("30/35");
+  await expect(presetBtn(2)).toHaveText("55/60");
+  await expect(presetBtn(3)).toHaveText("100/100");
+});
+
 test("preset editor: dragging supply to 0 implies extract mode", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
@@ -374,6 +375,29 @@ test("preset editor: dragging supply to 0 implies extract mode", async ({ page }
   const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
   expect(presetPost).toBeFalsy();
   expect(modePost?.body).toEqual({ mode: "extract" });
+});
+
+test("preset editor: dragging extract to 0 implies supply mode", async ({ page }) => {
+  // Symmetric counterpart to the supply→0 test: confirms the implied-
+  // mode logic isn't accidentally biased toward the supply side.
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await page.locator('input[data-action="match-speeds-toggle"][data-name="playroom"]').uncheck();
+  const extract = page.locator('input[data-action="preset-extract-slider"][data-name="playroom"]');
+  await extract.evaluate((el: HTMLInputElement) => {
+    el.value = "0";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  const presetPost = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  expect(presetPost).toBeFalsy();
+  expect(modePost?.body).toEqual({ mode: "supply" });
 });
 
 test("preset editor: both > 0 in match-on mode implies regeneration", async ({ page }) => {
@@ -415,6 +439,22 @@ test("speed preset: clicking preset 2 POSTs {preset:2}", async ({ page }) => {
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/speed"));
   expect(post).toBeTruthy();
   expect(post!.body).toEqual({ preset: 2 });
+});
+
+test("speed preset: activating an inactive preset opens neither editor nor slider", async ({ page }) => {
+  // First click on an inactive preset just activates it. No editor and
+  // no fan slider — preset modes show only the preset row + Timer/
+  // Heater. The user reaches the editor by clicking the preset again.
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset1", airflow_mode: "regeneration", preset1: { supply: 30, extract: 35 }, preset3: { supply: 100, extract: 100 } },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="3"]');
+  await page.waitForTimeout(200);
+  await expect(page.locator(".preset-editor")).toHaveCount(0);
+  await expect(page.locator(".card .ctrl .fan-slider-row")).toHaveCount(0);
 });
 
 test("speed preset: editor opens after activating, sliders use cached preset values", async ({ page }) => {
@@ -503,24 +543,6 @@ test("speed preset editor: match-speeds off → moving extract preserves cached 
   expect(post!.body).toEqual({ preset: 2, supply: 55, extract: 80 });
 });
 
-test("speed preset editor: manual slider interactive when editor closed", async ({ page }) => {
-  await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      configured: {
-        speed_mode: "preset1",
-        preset1: { supply: 30, extract: 35 },
-        preset2: { supply: 55, extract: 60 },
-      },
-    }),
-  });
-  // Initial render: preset1 active, editor closed → manual slider enabled.
-  await expect(
-    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]')
-  ).not.toBeDisabled();
-  await expect(page.locator(".preset-editor")).toHaveCount(0);
-});
-
 test("manual button: switches to manual speed_mode at the cached manual_pct", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
@@ -532,6 +554,26 @@ test("manual button: switches to manual speed_mode at the cached manual_pct", as
   await page.waitForTimeout(150);
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/speed"));
   expect(post?.body).toEqual({ manual: 70 });
+});
+
+test("manual button: defaults to 50 when manual_pct is absent from the snapshot", async ({ page }) => {
+  // Belt-and-braces fallback in the click handler — guards against a
+  // device or daemon that skips emitting manual_pct (older firmware,
+  // partial reads), so the manual button still produces a writable value.
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => {
+      const s = baseSnapshot(n, {
+        configured: { speed_mode: "preset2", airflow_mode: "regeneration" },
+      });
+      delete (s.configured as any).manual_pct;
+      return s;
+    },
+  });
+  await page.click('button[data-action="manual-speed"][data-name="playroom"]');
+  await page.waitForTimeout(150);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/speed"));
+  expect(post?.body).toEqual({ manual: 50 });
 });
 
 test("manual mode: single combined slider row replaces the two fan rows", async ({ page }) => {
