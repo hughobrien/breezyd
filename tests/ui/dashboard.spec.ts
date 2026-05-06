@@ -384,6 +384,37 @@ test("preset editor: automode default ON; dragging in editor POSTs ventilation",
   expect(modePost?.body).toEqual({ mode: "ventilation" });
 });
 
+test("preset editor: dragging a slider into 1-9 snaps to 0 (no register write, mode change)", async ({ page }) => {
+  // The protocol register can't store 1..9, and the red-tinted 0-10%
+  // band signals "drag here to turn this fan off". A drag landing in
+  // that band MUST snap to 0 so the airflow_mode encoding kicks in
+  // instead of producing a (silently dropped) preset write.
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
+    }),
+  });
+  await openEditorAutomodeOff(page);
+  await page.locator('input[data-action="match-speeds-toggle"][data-name="playroom"]').uncheck();
+  const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
+  // Drop the slider to 5 — middle of the snap-to-off band.
+  await supply.evaluate((el: HTMLInputElement) => {
+    el.value = "5";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  // Slider visually snapped to 0.
+  await expect(supply).toHaveValue("0");
+  // No /preset write (snapped value 0 is below the protocol min); the
+  // airflow_mode write puts the device into extract-only as if the
+  // user had landed exactly on 0.
+  const presetPost = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  expect(presetPost).toBeFalsy();
+  expect(modePost?.body).toEqual({ mode: "extract" });
+});
+
 test("preset editor: automode off + supply→0 implies extract mode", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
@@ -673,7 +704,10 @@ test("error toast: 4xx on POST shows the daemon's error text", async ({ page }) 
     postResponse: () => ({ status: 400, body: { error: "preset must be 1, 2, or 3", code: "bad_request" } }),
   });
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
-  await expect(page.locator(".toast")).toContainText("preset must be 1, 2, or 3");
+  // Preset activation now POSTs both /speed and /mode; either failed
+  // POST surfaces a toast, so we just check the page contains the
+  // daemon's error text.
+  await expect(page.locator(".toast").first()).toContainText("preset must be 1, 2, or 3");
 });
 
 test("daemon-unreachable: bootstrap failure shows the top error banner", async ({ page }) => {

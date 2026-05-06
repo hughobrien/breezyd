@@ -141,6 +141,18 @@
     min-width: 7ch; color: #666; font-size: 0.75rem;
   }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* Editor sliders: tint the 0-10% portion of the track red as a visual
+     cue that this range snaps to 0 (off). The native track gets a
+     translucent red overlay; sliders elsewhere keep their default look. */
+  .slider-row input[type=range][data-action="preset-supply-slider"],
+  .slider-row input[type=range][data-action="preset-extract-slider"] {
+    background: linear-gradient(to right,
+      rgba(220, 60, 60, 0.35) 0%,
+      rgba(220, 60, 60, 0.35) 10%,
+      transparent 10%,
+      transparent 100%);
+    border-radius: 3px;
+  }
   /* Breathing room above the manual slider so it doesn't crowd the
      Mode segmented control directly above it. */
   .fan-slider-row { margin-top: 0.5rem; }
@@ -688,7 +700,7 @@ function fanSliderRow(name, side, _rpm, livePct, interactive) {
   const disAttr = interactive ? "" : "disabled";
   return `<div class="slider-row fan-slider-row">
     <span class="fan-side">${esc(side)}</span>
-    <input type="range" min="${sliderMin}" max="100" step="5" value="${thumbVal}"
+    <input type="range" min="${sliderMin}" max="100" step="1" value="${thumbVal}"
       data-action="manual-slider" data-name="${esc(name)}" data-side="${esc(side)}" ${disAttr}>
     <span class="val">${pctLabel}</span>
   </div>`;
@@ -708,7 +720,7 @@ function manualSliderRow(name, _live, manualPct, interactive) {
   const disAttr = interactive ? "" : "disabled";
   return `<div class="slider-row fan-slider-row">
     <span class="fan-side"></span>
-    <input type="range" min="${sliderMin}" max="100" step="5" value="${manualPct}"
+    <input type="range" min="${sliderMin}" max="100" step="1" value="${manualPct}"
       data-action="manual-slider" data-name="${esc(name)}" data-side="manual" ${disAttr}>
     <span class="val">${esc(String(manualPct))}%</span>
   </div>`;
@@ -743,14 +755,14 @@ function presetEditor(name, preset, cfg, matchOn, dis) {
     </label>
     <div class="slider-row">
       <span class="val-label">supply</span>
-      <input type="range" min="0" max="100" step="5" value="${supplyVal}"
+      <input type="range" min="0" max="100" step="1" value="${supplyVal}"
         data-action="preset-supply-slider" data-name="${esc(name)}"
         data-preset="${preset}" ${dis}>
       <span class="val">${supplyVal}%</span>
     </div>
     <div class="slider-row">
       <span class="val-label">exhaust</span>
-      <input type="range" min="0" max="100" step="5" value="${extractVal}"
+      <input type="range" min="0" max="100" step="1" value="${extractVal}"
         data-action="preset-extract-slider" data-name="${esc(name)}"
         data-preset="${preset}" ${dis}>
       <span class="val">${extractVal}%</span>
@@ -990,7 +1002,13 @@ document.addEventListener("change", async (ev) => {
     const preset = parseInt(el.dataset.preset, 10);
     const cfg = lastSnapshots[name]?.configured || {};
     const cur = cfg["preset" + preset] || {};
-    const newPct = parseInt(el.value, 10);
+    // Sub-10% snaps to 0 (off): the protocol register can't store 1..9
+    // anyway, and the visual red zone on that part of the track signals
+    // "drag here to turn this fan off in the preset". Push the snapped
+    // value back into the slider so the thumb visually sits at 0.
+    const rawValue = parseInt(el.value, 10);
+    const newPct = (rawValue > 0 && rawValue < 10) ? 0 : rawValue;
+    if (newPct !== rawValue) el.value = String(newPct);
     const isSupply = el.dataset.action === "preset-supply-slider";
     const matchOn = matchSpeeds[name] !== false;
     // For the un-touched side, prefer the on-screen sibling slider value so
