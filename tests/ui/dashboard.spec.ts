@@ -1341,3 +1341,47 @@ test("override: no text warn rendered (red sensor cells signal the override)", a
   });
   await expect(page.locator(".card .warn")).toHaveCount(0);
 });
+
+// ── Dark-mode stopgap tests ──────────────────────────────────────────────────
+// These use the existing page.route() mock pattern. PR 3 will replace them
+// with real-daemon tests once the fakedevice admin surface exists.
+
+test("dark mode: prefers-color-scheme: dark renders dark palette", async ({ browser }) => {
+  const context = await browser.newContext({ colorScheme: "dark" });
+  const page = await context.newPage();
+  await loadDashboard(page, { devices: [{ name: "playroom" }] });
+  const bg = await page.evaluate(() =>
+    getComputedStyle(document.body).backgroundColor
+  );
+  // Dark --bg is #0d0d10 → rgb(13, 13, 16).
+  expect(bg).toBe("rgb(13, 13, 16)");
+  await context.close();
+});
+
+test("dark mode: data-theme='dark' forces dark regardless of system", async ({ browser }) => {
+  const context = await browser.newContext({ colorScheme: "light" });
+  const page = await context.newPage();
+  await loadDashboard(page, { devices: [{ name: "playroom" }] });
+  // Set data-theme after page load — CSS recalculates synchronously when JS runs.
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+  const bg = await page.evaluate(() =>
+    getComputedStyle(document.body).backgroundColor
+  );
+  // Dark --bg is #0d0d10 → rgb(13, 13, 16), even though system is light.
+  expect(bg).toBe("rgb(13, 13, 16)");
+  await context.close();
+});
+
+test("dark mode: data-theme='light' overrides system dark preference", async ({ browser }) => {
+  const context = await browser.newContext({ colorScheme: "dark" });
+  const page = await context.newPage();
+  await loadDashboard(page, { devices: [{ name: "playroom" }] });
+  // Set data-theme="light" after page load; :root:not([data-theme="light"]) stops matching.
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
+  const bg = await page.evaluate(() =>
+    getComputedStyle(document.body).backgroundColor
+  );
+  // Light --bg is #f6f6f6 → rgb(246, 246, 246).
+  expect(bg).toBe("rgb(246, 246, 246)");
+  await context.close();
+});
