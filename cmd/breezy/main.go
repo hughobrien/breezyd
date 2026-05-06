@@ -166,6 +166,10 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 		return cmdGet(b, name, vargs, stdout, stderr)
 	case "set":
 		return cmdSet(b, name, vargs, stdout, stderr)
+	case "threshold":
+		return cmdThreshold(b, name, vargs, stdout, stderr)
+	case "auto-fan":
+		return cmdAutoFan(b, name, vargs, stdout, stderr)
 	}
 
 	_, _ = fmt.Fprintf(stderr, "unknown verb: %s\n", verb)
@@ -193,6 +197,8 @@ Per-device verbs:
   efficiency            recovery efficiency %
   rtc                   show device clock
   rtc set <RFC3339>     set device clock
+  threshold KIND VAL    set sensor threshold (KIND=humidity|co2|voc)
+  auto-fan KIND on|off  toggle sensor's "trigger fan boost" flag
   get <param>           raw read (hex 0x25, "25", or registry name e.g. humidity)
   set <param> <hex>     raw write
 

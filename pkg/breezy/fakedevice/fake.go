@@ -122,6 +122,21 @@ func (s *Server) Addr() string {
 	return s.conn.LocalAddr().String()
 }
 
+// Value returns the current bytes for the given parameter ID as a
+// lowercase hex string, plus an "ok" flag. Tests use this to assert what
+// the unit under test wrote — after the CLI/daemon issues a write, the
+// fake captures the new value in its in-memory map and Value reads it
+// back. The bytes are little-endian, matching the wire encoding.
+func (s *Server) Value(id breezy.ParamID) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.values[id]
+	if !ok {
+		return "", false
+	}
+	return hex.EncodeToString(v), true
+}
+
 // Close shuts down the listener. Multiple Close calls are safe.
 func (s *Server) Close() error {
 	s.mu.Lock()
