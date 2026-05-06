@@ -508,9 +508,9 @@ function renderControls(name, snap, stale) {
       <div class="slider-row">
         <span class="val-spacer"></span>
         <input type="range" min="10" max="100" step="5"
-          value="${manualPct}"
+          value="${speedMode === "manual" ? manualPct : 10}"
           data-action="manual-slider" data-name="${esc(name)}" ${dis}>
-        <span class="val">${manualPct}%</span>
+        <span class="val">${speedMode === "manual" ? `${manualPct}%` : ""}</span>
       </div>
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
