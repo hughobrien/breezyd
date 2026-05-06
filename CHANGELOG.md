@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-05
+
+### Added
+
+- Per-preset speed editing across the stack:
+  - `pkg/breezy.SetPresetSpeed(ctx, c, preset, supply, extract)` writes `0x003A/0x003B`, `0x003C/0x003D`, `0x003E/0x003F` (preset 1/2/3 supply/extract) with 10-100% bounds.
+  - `POST /v1/devices/{name}/preset` daemon endpoint with body `{"preset":1-3,"supply":10-100,"extract":10-100}`.
+  - `BuildStatus` exposes `configured.preset{1,2,3}` so consumers can read the stored percentages without an extra round trip.
+  - Web dashboard: clicking a preset button opens an inline editor for that preset (a "match speeds" checkbox plus split supply/extract sliders). Clicking the same preset again closes it; clicking a different preset switches to it and opens its editor. "Match speeds" defaults on so a single drag moves both sliders.
+  - The six preset-speed param IDs are now in the poller's `fanWriteIDs` so editing the active preset triggers the existing 12 s settle window that hides `0x4A/0x4B/0x84` (fan RPMs and air-quality status) during the ramp.
+
+### Changed
+
+- Dashboard Sensors block uses a shared 3-column grid: top row is RH | eCO₂ | VOC (clicking a value still opens the threshold editor below the grid); below are two 3-cell rows for the four temperature sensors plus a Δ cell per row. Supply path's Δ is positive (heat gained crossing the recovery exchanger); exhaust path's Δ is negative (heat lost). Recovery efficiency stays as a single row below the grids. JSON status field names unchanged — labels and layout only.
+- Speed control absorbs the standalone "Fans" block and is promoted to the top of the Controls block (above Mode, Timer, Heater). Live supply/extract pct+rpm now sit at the top of Speed, immediately above the preset row and slider, so the configured-vs-live comparison is one glance.
+- Power button moved to the right of the device-name row (~12ch wide) instead of stretching full-width below it. Heater button joins the Timer segmented control on a single row.
+- Card header simplified: the global "refreshed Ns ago" indicator is removed; per-card timestamps render only when a card is stale (>90 s without a poll). The device-name `<h2>` is now the disclosure trigger for Device Info — clicking it expands/collapses the same `<details>` panel that previously had a dedicated summary.
+- Hover styling: active (`aria-pressed="true"`) buttons keep their accent colour on hover instead of greying out, with a subtle drop shadow as the hover affordance.
+- Selecting a preset resets the manual slider to 10% and hides its `%` readout (the slider has nothing meaningful to show in preset mode; it acts purely as a re-entry path back to manual).
+- Micro-cleanups: fan-line slash dropped (`30% 5340rpm` instead of `30% / 5340rpm`); voltage and VOC index unit suffixes drop their preceding space; ip and serial rows swapped; VOC tooltip clarifies "index" units.
+
+### Fixed
+
+- Preset edits to the currently-active preset no longer cause cache flicker. The poller's settle window now suppresses RPM/air-quality reads during the ~12 s ramp following a write to any of `0x003A`–`0x003F`, matching the existing behaviour for `0x0044` (manual percent).
+
 ## [1.7.2] - 2026-05-05
 
 ### Changed
