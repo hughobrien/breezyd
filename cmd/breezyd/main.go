@@ -159,7 +159,7 @@ func run(parent context.Context) error {
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", handler)
 	mux.Handle("/v1/", handler)
-	mux.Handle("/metrics", metricsHandler(reg, metrics, state, devices))
+	mux.Handle("/metrics", metricsHandler(reg, metrics, state, devices, pollers))
 	mux.Handle("/", handler)
 
 	srv := &http.Server{
@@ -371,11 +371,12 @@ func makeClientFactory(devices *DeviceRegistry) func(name string) (HandlerClient
 // refresh: every cached snapshot is poured into the Metrics
 // collectors before serving, so /metrics never returns yesterday's
 // numbers without at least an updated breezy_last_poll_timestamp.
+// Energy gauges are also refreshed by walking the poller map.
 //
 // This is deliberately cheap: Update() is a few map lookups and gauge
 // sets per device, dwarfed by the protobuf encode promhttp does
 // afterward.
-func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices *DeviceRegistry) http.Handler {
+func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices *DeviceRegistry, pollers map[string]*Poller) http.Handler {
 	inner := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, name := range state.Devices() {
@@ -390,6 +391,11 @@ func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices 
 				continue
 			}
 			m.Update(name, d.ID, snap)
+		}
+		for name, p := range pollers {
+			if p != nil && p.Energy != nil {
+				m.SetEnergy(name, p.Energy.Snapshot())
+			}
 		}
 		inner.ServeHTTP(w, r)
 	})

@@ -73,6 +73,16 @@ type Metrics struct {
 	pollErrorsTotal   *prometheus.CounterVec // labels: device,id,kind
 	up                *prometheus.GaugeVec
 	info              *prometheus.GaugeVec // labels: device,id,firmware,build_date
+
+	// Energy accounting (opt-in; only emitted for supported models).
+	EnergyRecoveredWatts      *prometheus.GaugeVec
+	EnergyConsumedWatts       *prometheus.GaugeVec
+	EnergyHeatingTodayKWh     *prometheus.GaugeVec
+	EnergyCoolingTodayKWh     *prometheus.GaugeVec
+	EnergyConsumedTodayKWh    *prometheus.GaugeVec
+	EnergyHeatingLifetimeKWh  *prometheus.GaugeVec
+	EnergyCoolingLifetimeKWh  *prometheus.GaugeVec
+	EnergyConsumedLifetimeKWh *prometheus.GaugeVec
 }
 
 // labels common to every per-device metric.
@@ -221,6 +231,47 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		}, []string{"device", "id", "firmware", "build_date"}),
 	}
 
+	// Energy gauges: single "device" label (no id — energy is a daemon-side
+	// construct, not a per-firmware-version series).
+	energyGauge := func(name, help string) *prometheus.GaugeVec {
+		return prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{Name: name, Help: help},
+			[]string{"device"},
+		)
+	}
+	m.EnergyRecoveredWatts = energyGauge(
+		"breezyd_energy_recovered_watts",
+		"Instantaneous heat-transfer power across the HRV exchanger. Positive = heating recovered (winter), negative = cooling recovered (summer).",
+	)
+	m.EnergyConsumedWatts = energyGauge(
+		"breezyd_energy_consumed_watts",
+		"Instantaneous electric draw of both fans combined (magnitude).",
+	)
+	m.EnergyHeatingTodayKWh = energyGauge(
+		"breezyd_energy_heating_today_kwh",
+		"Heating energy recovered today (resets at local midnight).",
+	)
+	m.EnergyCoolingTodayKWh = energyGauge(
+		"breezyd_energy_cooling_today_kwh",
+		"Cooling energy recovered today (resets at local midnight).",
+	)
+	m.EnergyConsumedTodayKWh = energyGauge(
+		"breezyd_energy_consumed_today_kwh",
+		"Electric energy consumed by the fans today (resets at local midnight).",
+	)
+	m.EnergyHeatingLifetimeKWh = energyGauge(
+		"breezyd_energy_heating_lifetime_kwh",
+		"Heating energy recovered cumulative (persists across daemon restart).",
+	)
+	m.EnergyCoolingLifetimeKWh = energyGauge(
+		"breezyd_energy_cooling_lifetime_kwh",
+		"Cooling energy recovered cumulative (persists across daemon restart).",
+	)
+	m.EnergyConsumedLifetimeKWh = energyGauge(
+		"breezyd_energy_consumed_lifetime_kwh",
+		"Electric energy consumed by the fans cumulative (persists across daemon restart).",
+	)
+
 	if reg != nil {
 		collectors := []prometheus.Collector{
 			m.power, m.airflowMode, m.speedMode, m.speedManualPct,
@@ -234,6 +285,9 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			m.filterStatus, m.filterRemainingSeconds, m.motorLifetimeSeconds,
 			m.rtcBatteryVolts, m.faultLevel,
 			m.lastPollTimestamp, m.pollErrorsTotal, m.up, m.info,
+			m.EnergyRecoveredWatts, m.EnergyConsumedWatts,
+			m.EnergyHeatingTodayKWh, m.EnergyCoolingTodayKWh, m.EnergyConsumedTodayKWh,
+			m.EnergyHeatingLifetimeKWh, m.EnergyCoolingLifetimeKWh, m.EnergyConsumedLifetimeKWh,
 		}
 		for _, c := range collectors {
 			reg.MustRegister(c)
@@ -389,6 +443,32 @@ func (m *Metrics) Update(name, id string, snap Snapshot) {
 			"device": name, "id": id, "firmware": fw, "build_date": bd,
 		}).Set(1)
 	}
+}
+
+// SetEnergy updates all eight energy gauges for a device. When the
+// tracker reports an unsupported model (Error != ""), previously-
+// emitted samples for this device are dropped via DeleteLabelValues so
+// /metrics doesn't expose phantom zeros for un-calibrated units.
+func (m *Metrics) SetEnergy(device string, ev breezy.EnergyValues) {
+	all := []*prometheus.GaugeVec{
+		m.EnergyRecoveredWatts, m.EnergyConsumedWatts,
+		m.EnergyHeatingTodayKWh, m.EnergyCoolingTodayKWh, m.EnergyConsumedTodayKWh,
+		m.EnergyHeatingLifetimeKWh, m.EnergyCoolingLifetimeKWh, m.EnergyConsumedLifetimeKWh,
+	}
+	if ev.Error != "" {
+		for _, g := range all {
+			g.DeleteLabelValues(device)
+		}
+		return
+	}
+	m.EnergyRecoveredWatts.WithLabelValues(device).Set(ev.InstantW)
+	m.EnergyConsumedWatts.WithLabelValues(device).Set(ev.ConsumedW)
+	m.EnergyHeatingTodayKWh.WithLabelValues(device).Set(ev.HeatingTodayKWh)
+	m.EnergyCoolingTodayKWh.WithLabelValues(device).Set(ev.CoolingTodayKWh)
+	m.EnergyConsumedTodayKWh.WithLabelValues(device).Set(ev.ConsumedTodayKWh)
+	m.EnergyHeatingLifetimeKWh.WithLabelValues(device).Set(ev.HeatingLifetimeKWh)
+	m.EnergyCoolingLifetimeKWh.WithLabelValues(device).Set(ev.CoolingLifetimeKWh)
+	m.EnergyConsumedLifetimeKWh.WithLabelValues(device).Set(ev.ConsumedLifetimeKWh)
 }
 
 // RecordPollError increments breezy_poll_errors_total. Wire from the
