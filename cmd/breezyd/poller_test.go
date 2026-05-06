@@ -656,9 +656,7 @@ func TestPoller_EnergyTickCalled(t *testing.T) {
 	// for "Tick was actually called after a successful poll").
 	dir := t.TempDir()
 	tr := &EnergyTracker{Device: "p", StateDir: dir}
-	if err := tr.Load(); err != nil {
-		t.Fatal(err)
-	}
+	tr.Load()
 
 	state := NewState()
 	fc := &fakeClient{

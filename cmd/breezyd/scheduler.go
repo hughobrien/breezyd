@@ -201,38 +201,39 @@ func (s *Scheduler) Snapshot() ScheduleSnapshot {
 	return out
 }
 
-// Load reads the persisted state file. Always returns nil: missing file
-// → empty state; malformed or invalid file → empty state + slog.Warn.
+// Load reads the persisted state file. Missing file → empty state;
+// malformed or invalid file → empty state + slog.Warn (so a hand-edited
+// file can never corrupt the running daemon). All errors are handled
+// internally; the caller has nothing to check, hence no return value.
 // Mirrors EnergyTracker.Load semantics. Caller must guarantee no
 // concurrent access — Load is called before the scheduler's Run goroutine
 // starts, so no mutex is needed (and acquiring it here would imply a
 // false guarantee about safety against concurrent Loads).
-func (s *Scheduler) Load() error {
+func (s *Scheduler) Load() {
 	data, err := os.ReadFile(s.statePath())
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			slog.Warn("schedule: failed to read state file; starting empty",
 				"device", s.Device, "err", err)
 		}
-		return nil
+		return
 	}
 	// version is read but not yet checked; extend here if the schema changes.
 	var p persistedSchedule
 	if err := json.Unmarshal(data, &p); err != nil {
 		slog.Warn("schedule: failed to unmarshal state file; starting empty",
 			"device", s.Device, "err", err)
-		return nil
+		return
 	}
 	if err := s.validate(p.Entries); err != nil {
 		slog.Warn("schedule: persisted file failed validation; starting empty",
 			"device", s.Device, "err", err)
-		return nil
+		return
 	}
 	sortEntries(p.Entries)
 	s.enabled = p.Enabled
 	s.entries = p.Entries
 	s.lastApply = p.LastApply
-	return nil
 }
 
 // save writes the current state atomically via temp+rename. Caller MUST

@@ -16,7 +16,8 @@ just test-ui         # Playwright e2e (needs test-ui-install once)
 just lint            # go vet + gofmt-drift check
 just check           # lint + fast tests           (pre-commit gate)
 just check-all       # lint + test + test-race + test-ui (pre-push gate)
-just check-deep      # race-flake + msan + asan + staticcheck (~3 min; pre-tag)
+just ci              # everything CI runs on every PR: check-all + staticcheck + asan + msan
+just check-deep      # ci + race-flake             (~5 min; pre-tag gate)
 just tidy            # go mod tidy
 just clean           # remove binaries, test cache, Playwright artifacts
 just fmt             # gofmt -w .
@@ -25,7 +26,9 @@ just nix-check       # parse-check nix/module.nix
 
 `just test-race` (and `-msan` / `-asan` / `test-race-flake`) bake in `CGO_ENABLED=1 CC=clang` because the default `gcc` on this host lacks the TSan / MSan / ASan runtimes.
 
-When in doubt about which gate to run: `check` is the fast pre-commit; `check-all` is the comprehensive pre-push (adds race + Playwright); `check-deep` is the slow paranoid sweep before tagging a release or after risky concurrency / cgo / unsafe edits. When editing `nix/module.nix`, `nix-check` is the fast syntax probe — `nix build` is the heavy alternative.
+When in doubt about which gate to run: `check` is the fast pre-commit; `check-all` is the comprehensive pre-push (adds race + Playwright); `ci` reproduces what GitHub Actions runs on every PR (adds golangci-lint, asan, msan); `check-deep` is the slow paranoid sweep before tagging a release or after risky concurrency / cgo / unsafe edits. When editing `nix/module.nix`, `nix-check` is the fast syntax probe — `nix build` is the heavy alternative.
+
+GitHub Actions runs the `ci` set as parallel jobs on every PR: `vet + race + build`, `golangci-lint`, `asan tests`, `msan tests`, and `Playwright`. The workflow definition is `.github/workflows/test.yml`.
 
 **Project rule:** when running a check / lint / test combo more than once, add it as a recipe to `justfile` rather than re-typing — improve the file *as you go*.
 

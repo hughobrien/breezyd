@@ -17,9 +17,7 @@ func TestEnergyTracker_Load_MissingFile(t *testing.T) {
 		StateDir: t.TempDir(),
 	}
 
-	if err := tr.Load(); err != nil {
-		t.Fatalf("Load on missing file: got error %v, want nil", err)
-	}
+	tr.Load()
 
 	snap := tr.Snapshot()
 	if snap.HeatingTodayKWh != 0 || snap.CoolingTodayKWh != 0 || snap.ConsumedTodayKWh != 0 {
@@ -49,9 +47,7 @@ func TestEnergyTracker_Load_MalformedFile(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if err := tr.Load(); err != nil {
-		t.Fatalf("Load on malformed file: got error %v, want nil", err)
-	}
+	tr.Load()
 
 	snap := tr.Snapshot()
 	if snap.HeatingTodayKWh != 0 || snap.CoolingTodayKWh != 0 || snap.ConsumedTodayKWh != 0 {
@@ -73,9 +69,7 @@ func TestEnergyTracker_Load_EmptyFile(t *testing.T) {
 	if err := os.WriteFile(tr.statePath(), nil, 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if err := tr.Load(); err != nil {
-		t.Fatalf("Load on empty file should succeed (start fresh), got %v", err)
-	}
+	tr.Load()
 	if tr.HeatingLifetimeKWh != 0 {
 		t.Errorf("expected fresh state on empty file, got HeatingLifetimeKWh=%v", tr.HeatingLifetimeKWh)
 	}
@@ -108,9 +102,7 @@ func TestEnergyTracker_RoundTrip(t *testing.T) {
 		Device:   "living-room",
 		StateDir: dir,
 	}
-	if err := tr2.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	tr2.Load()
 
 	if tr2.HeatingTodayKWh != tr.HeatingTodayKWh {
 		t.Errorf("HeatingTodayKWh: got %v, want %v", tr2.HeatingTodayKWh, tr.HeatingTodayKWh)
@@ -401,9 +393,7 @@ func TestEnergyTracker_Tick_RolloverPersists(t *testing.T) {
 
 	// Reload from disk: today_date must be the new date; today counters zero.
 	tr2 := &EnergyTracker{Device: "rollover-persist", StateDir: dir}
-	if err := tr2.Load(); err != nil {
-		t.Fatalf("Load after rollover: %v", err)
-	}
+	tr2.Load()
 	if tr2.Today != "2026-05-06" {
 		t.Errorf("persisted Today = %q, want 2026-05-06", tr2.Today)
 	}
@@ -458,9 +448,7 @@ func TestEnergyTracker_Tick_MonthRolloverPersists(t *testing.T) {
 	tr.Tick(notRegen, t1)
 
 	tr2 := &EnergyTracker{Device: "month-rollover-persist", StateDir: dir}
-	if err := tr2.Load(); err != nil {
-		t.Fatalf("Load after rollover: %v", err)
-	}
+	tr2.Load()
 	if tr2.MonthStart != "2026-05" {
 		t.Errorf("persisted MonthStart = %q, want 2026-05", tr2.MonthStart)
 	}
@@ -506,9 +494,7 @@ func TestEnergyTracker_Tick_PersistsAfterEachTick(t *testing.T) {
 
 	// Reload from disk.
 	tr2 := &EnergyTracker{Device: "persist-test", StateDir: dir}
-	if err := tr2.Load(); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	tr2.Load()
 	snap2 := tr2.Snapshot()
 	if snap2.HeatingLifetimeKWh == 0 {
 		t.Errorf("HeatingLifetimeKWh not persisted: got 0 after reload")

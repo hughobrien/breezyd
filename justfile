@@ -31,9 +31,15 @@ test-asan:
 test-staticcheck:
 	golangci-lint run --timeout=5m ./...
 
-# heavy gate: race-flake + msan + asan + golangci-lint. Slow (~3 min); run
-# before tagging a release or after risky concurrency / cgo / unsafe code.
-check-deep: test-race-flake test-msan test-asan test-staticcheck
+# match what CI runs on every PR: vet + race + lint + asan + msan + UI.
+# Slower than check-all (~3 min sequential locally; CI runs the same set in
+# parallel jobs). Use this when you want to reproduce a CI failure locally
+# without waiting for the next push.
+ci: lint test test-race test-staticcheck test-asan test-msan test-ui
+
+# heavy gate: ci + race-flake. Slow (~5 min); run before tagging a release
+# or after risky concurrency / cgo / unsafe code.
+check-deep: ci test-race-flake
 
 # live integration tests; WRITES to device (each test t.Cleanup-restores)
 test-integration ip id password:
