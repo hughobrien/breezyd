@@ -220,7 +220,7 @@ func writeServerParam(t *testing.T, srv *fakedevice.Server, deviceID, password s
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	return c.WriteParamsUnsafe(ctx, []breezy.ParamWrite{{ID: id, Value: val}})

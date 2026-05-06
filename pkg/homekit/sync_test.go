@@ -100,7 +100,7 @@ func TestSync_IdleWhenPoweredNoFan(t *testing.T) {
 func TestSync_PowerFieldAbsentLeavesStateUntouched(t *testing.T) {
 	a := newTestAccessory()
 	// Pre-set the characteristic so we can observe it being preserved.
-	a.AirPurifier.CurrentAirPurifierState.SetValue(2) // Purifying
+	_ = a.AirPurifier.CurrentAirPurifierState.SetValue(2) // Purifying
 	s := breezy.Status{
 		Configured: map[string]any{}, // no "power" key
 		Live: map[string]any{

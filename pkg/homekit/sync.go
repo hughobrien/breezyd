@@ -137,7 +137,7 @@ func syncBattery(a *Accessory, s breezy.Status) {
 		pct = 100
 	}
 	a.Battery.BatteryLevel.SetValue(pct) //nolint:errcheck
-	a.Battery.ChargingState.SetValue(2)  //nolint:errcheck (2 = not chargeable)
+	a.Battery.ChargingState.SetValue(2)  //nolint:errcheck // 2 = not chargeable
 	low := 0
 	if volts <= 2.7 {
 		low = 1

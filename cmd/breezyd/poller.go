@@ -170,7 +170,7 @@ func (p *Poller) tick(ctx context.Context) {
 		})
 		return
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	values := make(map[breezy.ParamID][]byte, len(ids))
 	var lastErr error

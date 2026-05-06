@@ -147,7 +147,7 @@ func TestMainSmoke(t *testing.T) {
 		if err != nil {
 			t.Fatalf("POST: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != 200 {
 			b, _ := io.ReadAll(resp.Body)
 			t.Errorf("POST status = %d, body = %s", resp.StatusCode, b)
@@ -187,7 +187,7 @@ func mustGet(t *testing.T, url string) string {
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body %s: %v", url, err)

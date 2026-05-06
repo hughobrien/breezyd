@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>breezy</title>
+<title>breezyd</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -13,7 +13,11 @@
   }
   header { margin-bottom: 1rem; }
   h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  /* Cards capped at 360px (~20% narrower than the previous full-fr layout)
+     so wide viewports leave generous breathing space rather than stretching
+     each card to filling-the-screen width. minmax(0, …) lets columns shrink
+     gracefully on intermediate widths before the 900px single-column flip. */
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 360px)); gap: 1rem; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   .card {
     background: #fff; border: 1px solid #ccc; border-radius: 6px;
@@ -36,8 +40,10 @@
   .ts.red { color: #c00; }
   .power-on { color: #383; }
   .power-off { color: #c00; }
-  .row { display: flex; justify-content: space-between; padding: 0.1rem 0; }
-  .k { color: #666; }
+  .row { display: flex; justify-content: space-between; padding: 0.1rem 0; align-items: baseline; }
+  /* .k matches the Sensors block's small grey labels so the expanded
+     Device Info reads as one consistent body. */
+  .k { color: #666; font-size: 0.7rem; }
   .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
   .block h3,
   .block summary {
@@ -122,13 +128,34 @@
   .slider-row .val { min-width: 3rem; }
   .slider-row .val { text-align: right; font-variant-numeric: tabular-nums; }
   /* Left-side label used by the preset editor's two sliders so users can
-     tell supply from extract at a glance, and by the fan-slider-row for
+     tell supply from exhaust at a glance, and by the fan-slider-row for
      the live rpm readout. 4.5rem fits "5340rpm" without clipping. */
   .slider-row .val-label {
     min-width: 4.5rem; color: #666; font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
   }
+  /* Fan-side identifier ("supply" / "exhaust") at the very left of the
+     fan-slider-row. 7ch fits the longer word ("exhaust") so the rpm
+     column lines up across both rows. */
+  .slider-row .fan-side {
+    min-width: 7ch; color: #666; font-size: 0.75rem;
+  }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* Editor sliders: tint the 0-10% portion of the track red as a visual
+     cue that this range snaps to 0 (off). The native track gets a
+     translucent red overlay; sliders elsewhere keep their default look. */
+  .slider-row input[type=range][data-action="preset-supply-slider"],
+  .slider-row input[type=range][data-action="preset-extract-slider"] {
+    background: linear-gradient(to right,
+      rgba(220, 60, 60, 0.35) 0%,
+      rgba(220, 60, 60, 0.35) 10%,
+      transparent 10%,
+      transparent 100%);
+    border-radius: 3px;
+  }
+  /* Breathing room above the manual slider so it doesn't crowd the
+     Mode segmented control directly above it. */
+  .fan-slider-row { margin-top: 0.5rem; }
   /* Preset editor: a tight inline panel under the preset buttons. */
   .preset-editor {
     margin-top: 0.4rem; padding: 0.4rem 0.5rem;
@@ -162,12 +189,12 @@
     text-decoration-style: dotted;
     text-underline-offset: 2px;
   }
-  /* 3-column grid for sensor cells (used for both the threshold-bearing
-     trio and the temperature 3x2 layout). Each cell is a small label
-     above its value. */
+  /* 2-column grid for the unified Sensors block (eCO₂/VOC, RH/recovery,
+     supply/exhaust temps, post-HRV temps, deltas, fan rpms). Each cell
+     is a small label above its value. */
   .sensor-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 0.4rem 0.5rem;
     margin-top: 0.4rem;
   }
@@ -196,7 +223,7 @@
 </head>
 <body>
   <header>
-    <h1>breezy</h1>
+    <h1>breezyd</h1>
   </header>
   <div id="banner"></div>
   <div class="grid" id="grid"></div>
@@ -220,6 +247,26 @@ const editingThreshold = {}; // name -> kind
 // when a different card is interacted with elsewhere (we leave it across
 // re-renders so live polling doesn't slam the editor closed mid-drag).
 const editingPreset = {};   // name -> 1 | 2 | 3
+// Per-device automode flag. When set, activating a preset writes
+// airflow_mode=ventilation (auto) regardless of the preset's editor
+// state. When unset, activation derives airflow_mode from the per-
+// preset editor state below (regen if both fans on; supply/extract if
+// one was dragged to 0). Defaults to true (undefined → on) — most users
+// just want "auto" until they explicitly opt out.
+const automode = {};        // name -> bool
+// Per-preset editor state. Tracks the user's last-known supply/extract
+// pair for each preset, including the 0 case which the protocol
+// register can't store (preset registers are 10-100; 0 is encoded via
+// airflow_mode). Initialised lazily from the cached preset values when
+// the editor opens; updated on slider drag. Persisted across editor
+// open/close so a 0 dragged earlier still informs a later activation.
+const presetVals = {};      // name -> { 1: {supply,extract}, 2: ..., 3: ... }
+// Per-device optimistic live overlay. After a write that we KNOW affects
+// fan pcts (mode switch, manual slider drag), we preemptively patch the
+// snapshot's live.fan_*_{pct,rpm} so the UI doesn't sit at 0 during the
+// poller's 12 s fan-settle window. Each entry: { expiresAt, fields }.
+// 15 s TTL covers the settle plus a margin.
+const optimisticLive = {}; // name -> { expiresAt, fan_supply_pct, fan_extract_pct, fan_supply_rpm, fan_extract_rpm }
 // Per-card match-speeds toggle for the preset editor. Defaults to true
 // (single-slider feel). False lets users set asymmetric supply/extract.
 const matchSpeeds = {};     // name -> bool
@@ -236,9 +283,9 @@ const deviceInfoOpen = {}; // name -> bool
 const THRESHOLD_KINDS = {
   humidity: { label: "RH",   suffix: "%",   min: 40,  max: 80,   step: 1,
               valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity" },
-  co2:      { label: "eCO₂", suffix: "ppm", min: 400, max: 2000, step: 10,
+  co2:      { label: "eCO₂", suffix: " ppm", min: 400, max: 2000, step: 10,
               valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2" },
-  voc:      { label: "VOC",  suffix: "idx", min: 50,  max: 250,  step: 1,
+  voc:      { label: "VOC",  suffix: " idx", min: 50,  max: 250,  step: 1,
               valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc",
               tooltip: "VOC Index — Sensirion 0-500 scale, ~100 = baseline indoor air" },
 };
@@ -277,12 +324,35 @@ async function refreshAll() {
   );
   for (const res of results) {
     if (res.status === "fulfilled") {
-      lastSnapshots[res.value.name] = { ...res.value.snap, _fetchedAt: Date.now() };
+      lastSnapshots[res.value.name] = applyOptimisticLive(res.value.name, { ...res.value.snap, _fetchedAt: Date.now() });
       // Clear all toasts for this device on a successful refresh.
       delete toasts[res.value.name];
     }
   }
   render();
+}
+
+// Set optimistic live values for a device. Used when we just wrote
+// something that the daemon's cache won't reflect for ~12 s (settle
+// window). The supplied fields are merged into snap.live until expiry.
+function setOptimisticLive(name, fields, ttlMs = 15000) {
+  optimisticLive[name] = { expiresAt: Date.now() + ttlMs, ...fields };
+}
+
+// Merge any active optimistic live overlay onto a snapshot. Expired
+// entries are deleted lazily here.
+function applyOptimisticLive(name, snap) {
+  const o = optimisticLive[name];
+  if (!o) return snap;
+  if (Date.now() > o.expiresAt) {
+    delete optimisticLive[name];
+    return snap;
+  }
+  const overlay = {};
+  for (const k of Object.keys(o)) {
+    if (k !== "expiresAt") overlay[k] = o[k];
+  }
+  return { ...snap, live: { ...(snap.live ?? {}), ...overlay } };
 }
 
 function render() {
@@ -340,9 +410,7 @@ function renderCard(name, snap) {
 
     <div class="block">
       <h3>Sensors</h3>
-      ${thresholdGrid(name, snap)}
-      ${tempGrid(snap)}
-      ${kv("recovery", fmt(snap.sensors?.recovery_efficiency_pct, "—", "%"))}
+      ${sensorsGrid(name, snap)}
     </div>
 
     ${renderControls(name, snap, stale)}
@@ -353,16 +421,41 @@ function kv(k, v) {
   return `<div class="row"><span class="k">${esc(k)}</span><span>${v}</span></div>`;
 }
 
-// 3x1 grid of the threshold-bearing sensors (RH, eCO₂, VOC). Each cell
-// shows a small label above the live value; clicking the value opens
-// the editor (rendered separately by thresholdEditor below the grid so
-// the grid layout stays stable while editing).
-function thresholdGrid(name, snap) {
+// Unified 2-column Sensors grid. Six rows pair semantically:
+//   eCO₂ / VOC, RH / recovery, supply / exhaust temps, post-HRV temps
+//   (supply_regen / exhaust_regen), supply Δ / exhaust Δ, supply rpm /
+//   exhaust rpm. The threshold-bearing cells (RH, eCO₂, VOC) stay
+//   clickable to open the inline threshold editor.
+function sensorsGrid(name, snap) {
+  const s = snap.sensors || {};
+  const live = snap.live || {};
+  // Δ = post-HRV − pre-HRV. Supply path gains heat (+), exhaust loses (−).
+  const supplyDelta = tempDelta(s.temp_supply_c, s.temp_outdoor_c);
+  const exhaustDelta = tempDelta(s.temp_exhaust_outlet_c, s.temp_exhaust_inlet_c);
   return `<div class="sensor-grid">
-    ${thresholdCell(name, "humidity", snap)}
     ${thresholdCell(name, "co2", snap)}
     ${thresholdCell(name, "voc", snap)}
+    ${thresholdCell(name, "humidity", snap)}
+    ${plainCell("recovery", fmt(s.recovery_efficiency_pct, "—", "%"))}
+    ${plainCell("supply",        tempC(s.temp_outdoor_c))}
+    ${plainCell("exhaust",       tempC(s.temp_exhaust_inlet_c))}
+    ${plainCell("supply_regen",  tempC(s.temp_supply_c))}
+    ${plainCell("exhaust_regen", tempC(s.temp_exhaust_outlet_c))}
+    ${plainCell("Δ", supplyDelta)}
+    ${plainCell("Δ", exhaustDelta)}
+    ${plainCell("supply rpm",  rpmText(live.fan_supply_rpm))}
+    ${plainCell("exhaust rpm", rpmText(live.fan_extract_rpm))}
   </div>${thresholdEditor(name, snap)}`;
+}
+
+function plainCell(label, value) {
+  return `<div class="sensor-cell"><div class="sensor-label">${esc(label)}</div><div>${value}</div></div>`;
+}
+
+function rpmText(v) {
+  if (v === null || v === undefined) return "—";
+  if (v === 0) return "off";
+  return `${esc(String(v))} rpm`;
 }
 
 function thresholdCell(name, kind, snap) {
@@ -423,22 +516,6 @@ function tempC(v) {
 // "_regen" suffix on a label means "after the heat-recovery exchanger";
 // the bare label is the pre-HRV side. Δ shows how much heat the air
 // gained (supply path) or lost (exhaust path) crossing the exchanger.
-function tempGrid(snap) {
-  const s = snap.sensors || {};
-  // Δ = post-HRV − pre-HRV. Supply path gains heat (+), exhaust loses (−).
-  const cells = [
-    ["exhaust",       s.temp_exhaust_inlet_c],
-    ["exhaust_regen", s.temp_exhaust_outlet_c],
-    ["Δ", tempDelta(s.temp_exhaust_outlet_c, s.temp_exhaust_inlet_c)],
-    ["supply",        s.temp_outdoor_c],
-    ["supply_regen",  s.temp_supply_c],
-    ["Δ", tempDelta(s.temp_supply_c, s.temp_outdoor_c)],
-  ];
-  return `<div class="sensor-grid">${cells.map(([label, value]) =>
-    `<div class="sensor-cell"><div class="sensor-label">${esc(label)}</div><div>${typeof value === "string" ? value : tempC(value)}</div></div>`
-  ).join("")}</div>`;
-}
-
 function tempDelta(a, b) {
   if (a === null || a === undefined || b === null || b === undefined) return "—";
   const d = a - b;
@@ -449,12 +526,6 @@ function tempDelta(a, b) {
 function fmt(v, fallback, suffix) {
   if (v === null || v === undefined) return fallback;
   return `${esc(String(v))}${suffix || ""}`;
-}
-
-function fanLine(pct, rpm) {
-  if (rpm === null || rpm === undefined) return "—";
-  if (pct === null || pct === undefined) return `${esc(String(rpm))}rpm`;
-  return `${esc(String(pct))}% ${esc(String(rpm))}rpm`;
 }
 
 function filterStatus(svc) {
@@ -527,58 +598,62 @@ function renderControls(name, snap, stale) {
     `<button data-action="mode" data-name="${esc(name)}" data-value="${esc(value)}" ${dis}
         aria-pressed="${mode === value ? "true" : "false"}">${esc(label)}</button>`;
 
+  // Preset button labels show the configured supply/extract pcts so the
+  // user can pick a preset by its actual speed values (the previous
+  // low/med/high was an arbitrary mapping that didn't reflect the
+  // device's stored numbers). "—" if the cache hasn't loaded the
+  // configured.presetN entry yet.
+  const presetLabel = (n) => {
+    const p = cfg["preset" + n];
+    const s = typeof p?.supply === "number" ? p.supply : "—";
+    const e = typeof p?.extract === "number" ? p.extract : "—";
+    return `${s}/${e}`;
+  };
   const presetBtn = (n) =>
     `<button data-action="preset" data-name="${esc(name)}" data-value="${n}" ${dis}
-        aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${n}</button>`;
+        aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${presetLabel(n)}</button>`;
+  const manualBtn = () =>
+    `<button data-action="manual-speed" data-name="${esc(name)}" ${dis}
+        aria-pressed="${speedMode === "manual" ? "true" : "false"}">manual</button>`;
 
   const editing = editingPreset[name];
   // editor is only meaningful for an active preset — manual mode never has one.
   const editorOpen = typeof editing === "number" && speedMode === "preset" + editing;
   const matchOn = matchSpeeds[name] !== false; // default true
 
-  // Slider thumb sits at manual_pct in manual mode, otherwise at 10 — the
-  // re-entry signal from task #24. The right-side readout shows the LIVE
-  // fan pct (not the slider's value), per the v1.8.0 layout: rpm-left,
-  // slider, pct-right replaces the old separate Fans block.
-  const sliderThumbVal = speedMode === "manual" ? manualPct : 10;
-  // Supply's slider is the interactive manual control when no editor is
-  // open. Otherwise it mirrors but is disabled so the user reaches for
-  // the preset editor below. Extract is always disabled — manual mode has
-  // a single % shared by both fans (no per-fan manual control on the
-  // device), so an interactive extract slider would mislead.
-  const supplyInteractive = !editorOpen && !disabled;
 
   return `<div class="controls">
     <h3>Controls</h3>
 
     <div class="ctrl">
-      <span class="ctrl-label">Speed</span>
+      <span class="ctrl-label">SPEED</span>
       <div class="seg">
         ${presetBtn(1)}
         ${presetBtn(2)}
         ${presetBtn(3)}
+        ${manualBtn()}
       </div>
-      ${fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  sliderThumbVal, supplyInteractive)}
-      ${fanSliderRow(name, "extract", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, sliderThumbVal, false)}
+      ${speedMode === "manual" && specialMode === "off" ? `
+        <span class="ctrl-label">MODE</span>
+        <div class="seg">
+          ${modeBtn("auto",    "ventilation")}
+          ${modeBtn("regen",   "regeneration")}
+          ${modeBtn("supply",  "supply")}
+          ${modeBtn("exhaust", "extract")}
+        </div>
+        ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
+      ` : ""}
+      ${speedMode === "manual" && specialMode === "off"
+        ? manualSliderRow(name, snap.live, manualPct, !disabled && !editorOpen)
+        : ""}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
       ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
 
-    <div class="ctrl">
-      <span class="ctrl-label">Mode</span>
-      <div class="seg">
-        ${modeBtn("auto",    "ventilation")}
-        ${modeBtn("regen",   "regeneration")}
-        ${modeBtn("supply",  "supply")}
-        ${modeBtn("extract", "extract")}
-      </div>
-      ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
-    </div>
-
     <div class="ctrl ctrl-pair">
       <div class="ctrl-group ctrl-group-timer">
-        <span class="ctrl-label">Timer</span>
+        <span class="ctrl-label">TIMER</span>
         <div class="seg">
           ${timerBtn("night", "night")}
           ${timerBtn("turbo", "turbo")}
@@ -589,7 +664,7 @@ function renderControls(name, snap, stale) {
         ${t.timer ? `<div class="toast" role="alert">${esc(t.timer)}</div>` : ""}
       </div>
       <div class="ctrl-group ctrl-group-heater">
-        <span class="ctrl-label">Heater</span>
+        <span class="ctrl-label">HEATER</span>
         <div class="seg">
           <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
             aria-pressed="${heater ? "true" : "false"}">heater</button>
@@ -602,22 +677,52 @@ function renderControls(name, snap, stale) {
 }
 
 // Renders one fan's slider row in the Speed control. Layout is
-// rpm-left / slider / pct-right; the slider thumb tracks the manual
-// control state, and the right-side pct is the LIVE fan pct (not the
-// slider's). Only supply's row is ever interactive (manual mode has a
-// single % covering both fans on this device); extract is rendered
-// identically but disabled so users see live extract data without
-// thinking they can drag it independently.
-function fanSliderRow(name, side, rpm, livePct, thumbVal, interactive) {
-  const rpmLabel = (rpm === null || rpm === undefined) ? "—rpm" : `${esc(String(rpm))}rpm`;
+// side-label / rpm / slider / pct. The slider thumb tracks the LIVE fan
+// pct (not the manual control state), so a fan that's firmware-forced
+// to 0 in single-direction modes shows thumb at 0 honestly. The slider
+// is interactive only for the fan that's actually running per
+// airflow_mode (computed by the caller).
+//
+// min=0 lets the disabled 0% case render correctly; the change handler
+// clamps POST values to >=10 so the protocol's writable range is
+// respected when the user drags.
+function fanSliderRow(name, side, _rpm, livePct, interactive) {
+  // rpm moved to the Sensors block; this row now reads side-label /
+  // slider / live pct.
   const pctLabel = (livePct === null || livePct === undefined) ? "—" : `${esc(String(livePct))}%`;
-  const dataAction = side === "supply" ? "manual-slider" : "extract-slider-display";
+  const thumbVal = (typeof livePct === "number") ? livePct : 0;
+  // Interactive sliders use min=10 so the protocol's writable range
+  // matches the visual track — at 10% the thumb sits at the far left
+  // and the user can see they can't drag further. Disabled (off-fan)
+  // rows use min=0 so a fan reading 0% renders honestly at zero
+  // instead of clamping to the 10% position.
+  const sliderMin = interactive ? 10 : 0;
   const disAttr = interactive ? "" : "disabled";
   return `<div class="slider-row fan-slider-row">
-    <span class="val-label">${rpmLabel}</span>
-    <input type="range" min="10" max="100" step="5" value="${thumbVal}"
-      data-action="${dataAction}" data-name="${esc(name)}" ${disAttr}>
+    <span class="fan-side">${esc(side)}</span>
+    <input type="range" min="${sliderMin}" max="100" step="1" value="${thumbVal}"
+      data-action="manual-slider" data-name="${esc(name)}" data-side="${esc(side)}" ${disAttr}>
     <span class="val">${pctLabel}</span>
+  </div>`;
+}
+
+// Renders the single combined slider used when the device is in manual
+// speed_mode. One row replaces the per-fan dual rows because manual mode
+// has a single shared %; showing two rows where one is a disabled mirror
+// is just clutter. Left rpm is the running fan's rpm (or "off" if both
+// fans are at 0); right pct is manual_pct (the setpoint, which the slider
+// thumb tracks). data-side="manual" so tests can scope to this row
+// without colliding with the per-fan rows in preset modes.
+function manualSliderRow(name, _live, manualPct, interactive) {
+  // rpm moved to the Sensors block; this row is now just the slider
+  // and the manual_pct setpoint readout.
+  const sliderMin = interactive ? 10 : 0;
+  const disAttr = interactive ? "" : "disabled";
+  return `<div class="slider-row fan-slider-row">
+    <span class="fan-side"></span>
+    <input type="range" min="${sliderMin}" max="100" step="1" value="${manualPct}"
+      data-action="manual-slider" data-name="${esc(name)}" data-side="manual" ${disAttr}>
+    <span class="val">${esc(String(manualPct))}%</span>
   </div>`;
 }
 
@@ -626,25 +731,38 @@ function fanSliderRow(name, side, rpm, livePct, thumbVal, interactive) {
 // snapshot so the sliders track what the device thinks the preset is.
 function presetEditor(name, preset, cfg, matchOn, dis) {
   const entry = cfg["preset" + preset] || {};
-  const supplyVal = typeof entry.supply === "number" ? entry.supply : 50;
-  const extractVal = typeof entry.extract === "number" ? entry.extract : 50;
-  const checkAttr = matchOn ? "checked" : "";
+  // Per-preset memory wins over cache: it preserves the user's 0-side
+  // intent across editor open/close (the cached register can't store 0).
+  const stored = (presetVals[name] || {})[preset];
+  const supplyVal = stored && typeof stored.supply === "number"
+    ? stored.supply
+    : (typeof entry.supply === "number" ? entry.supply : 50);
+  const extractVal = stored && typeof stored.extract === "number"
+    ? stored.extract
+    : (typeof entry.extract === "number" ? entry.extract : 50);
+  const matchAttr = matchOn ? "checked" : "";
+  const autoAttr = automode[name] !== false ? "checked" : ""; // default true
   return `<div class="preset-editor">
     <label class="match-speeds">
+      <input type="checkbox" data-action="automode-toggle" data-name="${esc(name)}"
+        ${autoAttr} ${dis}>
+      automode
+    </label>
+    <label class="match-speeds">
       <input type="checkbox" data-action="match-speeds-toggle" data-name="${esc(name)}"
-        ${checkAttr} ${dis}>
+        ${matchAttr} ${dis}>
       match speeds
     </label>
     <div class="slider-row">
       <span class="val-label">supply</span>
-      <input type="range" min="10" max="100" step="5" value="${supplyVal}"
+      <input type="range" min="0" max="100" step="1" value="${supplyVal}"
         data-action="preset-supply-slider" data-name="${esc(name)}"
         data-preset="${preset}" ${dis}>
       <span class="val">${supplyVal}%</span>
     </div>
     <div class="slider-row">
-      <span class="val-label">extract</span>
-      <input type="range" min="10" max="100" step="5" value="${extractVal}"
+      <span class="val-label">exhaust</span>
+      <input type="range" min="0" max="100" step="1" value="${extractVal}"
         data-action="preset-extract-slider" data-name="${esc(name)}"
         data-preset="${preset}" ${dis}>
       <span class="val">${extractVal}%</span>
@@ -676,17 +794,86 @@ document.addEventListener("click", async (ev) => {
       await postWrite(name, "power", "/v1/devices/" + encodeURIComponent(name) + "/power",
                       { on: !snap.configured?.power });
       break;
-    case "mode":
+    case "mode": {
+      // Mode change implicitly dismisses any open preset editor — the
+      // user's attention has shifted to airflow direction, not the
+      // preset's per-fan numbers.
+      delete editingPreset[name];
+      // Carry the speed-of-record across the mode switch so the newly-
+      // active fan(s) ramp to the same %, instead of the off-fan
+      // starting from 0. Take the higher of supply/extract live pcts:
+      // in single-direction modes the inactive fan reads 0, so max() is
+      // the previously-active fan's speed; in dual-direction modes both
+      // are equal so max() is a no-op. Only applies in manual speed_mode
+      // — preset modes have their own per-preset stored speeds and a
+      // manual write would kick the user out of them.
+      const prevSpeedMode = snap.configured?.speed_mode;
+      const supplyPct = snap.live?.fan_supply_pct;
+      const extractPct = snap.live?.fan_extract_pct;
+      const a = typeof supplyPct === "number" ? supplyPct : -1;
+      const b = typeof extractPct === "number" ? extractPct : -1;
+      const preservePct = Math.max(a, b);
       await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
                       { mode: value });
+      if (prevSpeedMode === "manual" && preservePct >= 10) {
+        await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                        { manual: preservePct });
+      }
+      // Optimistic UI: the daemon's cache won't reflect new fan_*_pct
+      // until the 12 s fan-settle window ends. We just wrote both 0xB7
+      // (mode) and (in manual mode) 0x44 (manual_pct), so we know what
+      // the active fan(s) will be at. Predict per-fan based on which
+      // run in the new mode, masked by speed_mode (preset still uses
+      // its stored per-fan pcts).
+      const supplyRuns = value === "ventilation" || value === "regeneration" || value === "supply";
+      const extractRuns = value === "ventilation" || value === "regeneration" || value === "extract";
+      let supplyTargetPct, extractTargetPct;
+      if (prevSpeedMode === "manual") {
+        const m = preservePct >= 10 ? preservePct : (snap.configured?.manual_pct ?? 0);
+        supplyTargetPct = m;
+        extractTargetPct = m;
+      } else if (typeof prevSpeedMode === "string" && prevSpeedMode.startsWith("preset")) {
+        const cur = snap.configured?.[prevSpeedMode] ?? {};
+        supplyTargetPct = typeof cur.supply === "number" ? cur.supply : 0;
+        extractTargetPct = typeof cur.extract === "number" ? cur.extract : 0;
+      } else {
+        supplyTargetPct = 0;
+        extractTargetPct = 0;
+      }
+      setOptimisticLive(name, {
+        fan_supply_pct: supplyRuns ? supplyTargetPct : 0,
+        fan_extract_pct: extractRuns ? extractTargetPct : 0,
+        // RPM unknown until next real poll — show "— rpm" rather than
+        // a stale or zero value while the fan ramps.
+        fan_supply_rpm: supplyRuns ? null : 0,
+        fan_extract_rpm: extractRuns ? null : 0,
+      });
+      if (lastSnapshots[name]) {
+        lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
+        render();
+      }
       break;
+    }
+    case "manual-speed": {
+      // Switch to manual speed_mode without changing the running speed:
+      // POST manual: cached manual_pct (or 50 if absent). Closes any
+      // open preset editor since manual mode has no per-preset state.
+      delete editingPreset[name];
+      const pct = typeof snap.configured?.manual_pct === "number" ? snap.configured.manual_pct : 50;
+      await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                      { manual: pct });
+      break;
+    }
     case "preset": {
       const n = parseInt(value, 10);
       const speedMode = snap.configured?.speed_mode || "";
       const alreadyOnPreset = speedMode === "preset" + n;
-      // Same preset already active and editor open → close editor (no write).
-      // Same preset active but editor closed → just open the editor.
-      // Different preset (or manual) → switch to it AND open its editor.
+      // First click activates the preset (no editor); the editor opens
+      // only on a subsequent click of the already-active preset, and a
+      // third click closes it again. Click flow:
+      //   Inactive preset → activate (no editor).
+      //   Active preset, editor closed → open editor.
+      //   Active preset, editor open → close editor.
       if (alreadyOnPreset && editingPreset[name] === n) {
         delete editingPreset[name];
         render();
@@ -694,9 +881,27 @@ document.addEventListener("click", async (ev) => {
         editingPreset[name] = n;
         render();
       } else {
-        editingPreset[name] = n;
+        // Activate the preset (no editor) and write airflow_mode per
+        // automode + the per-preset (supply, extract) memory. Falls back
+        // to the cached preset register values if the user has never
+        // edited this preset's editor (registers are 10..100 so both
+        // are nonzero → regeneration with automode off, ventilation
+        // with automode on).
         await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                         { preset: n });
+        const stored = (presetVals[name] || {})[n];
+        const cur = snap.configured?.["preset" + n] || {};
+        const supply = stored && typeof stored.supply === "number"
+          ? stored.supply
+          : (typeof cur.supply === "number" ? cur.supply : 50);
+        const extract = stored && typeof stored.extract === "number"
+          ? stored.extract
+          : (typeof cur.extract === "number" ? cur.extract : 50);
+        const desiredMode = computeAirflow(name, supply, extract);
+        const currentMode = lastSnapshots[name]?.configured?.airflow_mode;
+        if (desiredMode && desiredMode !== currentMode) {
+          await applyAirflow(name, desiredMode, supply, extract);
+        }
       }
       break;
     }
@@ -774,6 +979,18 @@ document.addEventListener("toggle", (ev) => {
   }
 }, true);
 
+// Live-drag visual feedback. `change` fires only on mouseup/blur, so
+// without `input` the right-side `.val` readout sits frozen at the old
+// value while the user drags. Update only the visible text — POSTs
+// still go through the `change` listener below.
+document.addEventListener("input", (ev) => {
+  const el = ev.target;
+  if (!el.matches('input[type="range"]')) return;
+  const row = el.closest(".slider-row");
+  const valSpan = row?.querySelector(".val");
+  if (valSpan) valSpan.textContent = `${el.value}%`;
+});
+
 // Change handler — covers the manual-slider, the two preset-editor
 // sliders, and the match-speeds checkbox. `change` fires on mouseup/blur
 // for sliders and on click for checkboxes.
@@ -783,9 +1000,11 @@ document.addEventListener("change", async (ev) => {
 
   if (el.matches('input[type="range"][data-action="manual-slider"]')) {
     // Touching the manual slider always closes any open preset editor
-    // and falls into manual mode.
+    // and falls into manual mode. Slider min=0 lets disabled rows show
+    // 0% honestly; the protocol's writable range is 10-100 so we clamp
+    // up before POSTing.
     delete editingPreset[name];
-    const pct = parseInt(el.value, 10);
+    const pct = Math.max(10, parseInt(el.value, 10));
     await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                     { manual: pct });
     return;
@@ -795,7 +1014,13 @@ document.addEventListener("change", async (ev) => {
     const preset = parseInt(el.dataset.preset, 10);
     const cfg = lastSnapshots[name]?.configured || {};
     const cur = cfg["preset" + preset] || {};
-    const newPct = parseInt(el.value, 10);
+    // Sub-10% snaps to 0 (off): the protocol register can't store 1..9
+    // anyway, and the visual red zone on that part of the track signals
+    // "drag here to turn this fan off in the preset". Push the snapped
+    // value back into the slider so the thumb visually sits at 0.
+    const rawValue = parseInt(el.value, 10);
+    const newPct = (rawValue > 0 && rawValue < 10) ? 0 : rawValue;
+    if (newPct !== rawValue) el.value = String(newPct);
     const isSupply = el.dataset.action === "preset-supply-slider";
     const matchOn = matchSpeeds[name] !== false;
     // For the un-touched side, prefer the on-screen sibling slider value so
@@ -820,10 +1045,36 @@ document.addEventListener("change", async (ev) => {
       supply = fallbackOther;
       extract = newPct;
     }
-    // Toast key reuses "speed" because the editor lives inside the Speed
-    // control — any error surfaces in that block's toast slot.
-    await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/preset",
-                    { preset, supply, extract });
+    // The protocol's preset register only accepts 10..100; a slider value
+    // of 0 means "this fan off in this configuration" and is encoded via
+    // airflow_mode (supply / extract single-direction modes) rather than
+    // a literal register write. Skip the /preset POST if either side is
+    // below 10 so the existing register keeps its last legal value.
+    const canWritePreset = supply >= 10 && extract >= 10;
+    if (canWritePreset) {
+      // Toast key reuses "speed" because the editor lives inside the Speed
+      // control — any error surfaces in that block's toast slot.
+      await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/preset",
+                      { preset, supply, extract });
+    }
+    // Remember the user's intent for this preset, including 0-side state
+    // that the protocol register can't store. Used by preset activation
+    // and by re-opening the editor.
+    presetVals[name] = presetVals[name] || {};
+    presetVals[name][preset] = { supply, extract };
+    // Choose airflow_mode for this edit. With automode on (default), the
+    // editor always commits to ventilation. With automode off, infer from
+    // the future supply/extract pair (regen / supply / extract). Only act
+    // when this preset is the active speed_mode — otherwise we'd be
+    // changing the running mode based on an inactive preset's edit.
+    const speedMode = lastSnapshots[name]?.configured?.speed_mode;
+    if (speedMode === "preset" + preset) {
+      const impliedMode = computeAirflow(name, supply, extract);
+      const currentMode = lastSnapshots[name]?.configured?.airflow_mode;
+      if (impliedMode && impliedMode !== currentMode) {
+        await applyAirflow(name, impliedMode, supply, extract);
+      }
+    }
     return;
   }
 
@@ -832,7 +1083,50 @@ document.addEventListener("change", async (ev) => {
     render();
     return;
   }
+
+  if (el.matches('input[type="checkbox"][data-action="automode-toggle"]')) {
+    // Toggle just stores the preference; airflow_mode is written when
+    // the user next clicks a preset (or completes an editor edit).
+    automode[name] = el.checked;
+    return;
+  }
 });
+
+// Pick the airflow_mode that matches a (supply, extract) pair according
+// to automode. With automode on (default), commit to ventilation. With
+// automode off, derive from the on/off state: both nonzero → regen,
+// supply 0 → extract, extract 0 → supply.
+function computeAirflow(name, supply, extract) {
+  if (automode[name] !== false) return "ventilation";
+  if (supply > 0 && extract > 0) return "regeneration";
+  if (supply === 0 && extract > 0) return "extract";
+  if (extract === 0 && supply > 0) return "supply";
+  return null; // both 0 — invalid; leave airflow alone
+}
+
+// POST /mode and patch the optimistic overlay so the active fans and
+// the highlighted Mode button reflect the new airflow before the
+// daemon's poller catches up. Shared between editor edits and preset
+// activations so the optimistic shape stays consistent.
+async function applyAirflow(name, mode, supply, extract) {
+  await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
+                  { mode });
+  if (lastSnapshots[name]?.configured) {
+    lastSnapshots[name].configured.airflow_mode = mode;
+  }
+  const supplyRuns = mode === "regeneration" || mode === "supply" || mode === "ventilation";
+  const extractRuns = mode === "regeneration" || mode === "extract" || mode === "ventilation";
+  setOptimisticLive(name, {
+    fan_supply_pct: supplyRuns ? supply : 0,
+    fan_extract_pct: extractRuns ? extract : 0,
+    fan_supply_rpm: supplyRuns ? null : 0,
+    fan_extract_rpm: extractRuns ? null : 0,
+  });
+  if (lastSnapshots[name]) {
+    lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
+  }
+  render();
+}
 
 async function postWrite(name, controlKey, url, body) {
   inFlight[name] = true;
@@ -859,7 +1153,7 @@ async function postWrite(name, controlKey, url, body) {
       try {
         const snapResp = await fetch("/v1/devices/" + encodeURIComponent(name));
         if (snapResp.ok) {
-          lastSnapshots[name] = { ...(await snapResp.json()), _fetchedAt: Date.now() };
+          lastSnapshots[name] = applyOptimisticLive(name, { ...(await snapResp.json()), _fetchedAt: Date.now() });
         }
       } catch {}
     }

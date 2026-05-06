@@ -65,7 +65,7 @@ func (h *Handler) getParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -138,7 +138,7 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := rc.WriteParams(ctx, []breezy.ParamWrite{{ID: id, Value: val}}); err != nil {
@@ -173,7 +173,7 @@ func (h *Handler) postPower(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.Power(ctx, rc, *body.On); err != nil {
@@ -210,7 +210,7 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	var opErr error
@@ -253,7 +253,7 @@ func (h *Handler) postPreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetPresetSpeed(ctx, rc, *body.Preset, *body.Supply, *body.Extract); err != nil {
@@ -280,7 +280,7 @@ func (h *Handler) postMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetMode(ctx, rc, body.Mode); err != nil {
@@ -311,7 +311,7 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetHeater(ctx, rc, *body.On); err != nil {
@@ -350,7 +350,7 @@ func (h *Handler) postThreshold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetThreshold(ctx, rc, body.Kind, *body.Value); err != nil {
@@ -384,7 +384,7 @@ func (h *Handler) postTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetTimer(ctx, rc, body.Mode); err != nil {
@@ -423,7 +423,7 @@ func (h *Handler) postRTC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetRTC(ctx, rc, t); err != nil {
