@@ -190,9 +190,12 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
 });
 
 test("fans: rpm-left / slider / pct-right per fan in the Speed control", async ({ page }) => {
+  // Dual-row layout is the preset-mode layout; manual mode uses a single
+  // combined row, exercised in its own test below.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 30, extract: 30 } },
       live: {
         fan_supply_rpm: 5340,
         fan_extract_rpm: 5400,
@@ -216,10 +219,11 @@ test("fans: rpm-left / slider / pct-right per fan in the Speed control", async (
 });
 
 test("fans: rpm=0 collapses to 'off' in the side label", async ({ page }) => {
+  // Same dual-row layout — preset speed_mode keeps the per-fan rows.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
-      configured: { power: false },
+      configured: { power: false, speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 30, extract: 30 } },
       live: {
         fan_supply_rpm: 0,
         fan_extract_rpm: 0,
@@ -289,13 +293,15 @@ test("mode click in manual: carries the higher fan pct as new manual_pct", async
 });
 
 test("mode click: optimistic live update fills the new active fan immediately", async ({ page }) => {
-  // The daemon's cache won't show the new fan pcts until the 12 s settle
-  // window passes; the dashboard should optimistically patch the live
-  // values so the user doesn't watch the slider sit at 0 for that long.
+  // Preset speed_mode keeps the dual-row layout in play so we can assert
+  // per-fan optimistic patching. The daemon's cache won't show the new
+  // fan pcts until the 12 s settle window passes; the dashboard should
+  // optimistically patch the live values so the user doesn't watch the
+  // slider sit at 0 for that long.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
-      configured: { speed_mode: "manual", manual_pct: 50, airflow_mode: "extract" },
+      configured: { speed_mode: "preset2", airflow_mode: "extract", preset2: { supply: 50, extract: 50 } },
       live: { fan_supply_rpm: 0, fan_extract_rpm: 3120, fan_supply_pct: 0, fan_extract_pct: 50 },
     }),
   });
@@ -541,12 +547,42 @@ test("speed preset editor: manual slider interactive when editor closed", async 
   await expect(page.locator(".preset-editor")).toHaveCount(0);
 });
 
+test("manual button: switches to manual speed_mode at the cached manual_pct", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", manual_pct: 70, airflow_mode: "regeneration" },
+    }),
+  });
+  await page.click('button[data-action="manual-speed"][data-name="playroom"]');
+  await page.waitForTimeout(150);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/speed"));
+  expect(post?.body).toEqual({ manual: 70 });
+});
+
+test("manual mode: single combined slider row replaces the two fan rows", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "manual", manual_pct: 50, airflow_mode: "regeneration" },
+      live: { fan_supply_rpm: 3120, fan_extract_rpm: 3180, fan_supply_pct: 50, fan_extract_pct: 50 },
+    }),
+  });
+  // Exactly one fan-slider-row in manual mode.
+  await expect(page.locator(".card .ctrl .fan-slider-row")).toHaveCount(1);
+  // It carries data-side="manual" and shows the higher rpm + manual_pct.
+  const row = page.locator(".card .ctrl .fan-slider-row");
+  await expect(row.locator(".val-label")).toHaveText("3180 rpm");
+  await expect(row.locator(".val")).toHaveText("50%");
+  await expect(row.locator('input[type="range"][data-side="manual"]')).not.toBeDisabled();
+});
+
 test("speed manual slider: POSTs once on change, not on input", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, { configured: { speed_mode: "manual", manual_pct: 30 } }),
   });
-  const slider = page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]');
+  const slider = page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="manual"]');
   await slider.evaluate((el: HTMLInputElement) => {
     el.value = "50";
     el.dispatchEvent(new Event("change", { bubbles: true }));

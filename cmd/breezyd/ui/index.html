@@ -564,6 +564,9 @@ function renderControls(name, snap, stale) {
   const presetBtn = (n) =>
     `<button data-action="preset" data-name="${esc(name)}" data-value="${n}" ${dis}
         aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${presetLabels[n]}</button>`;
+  const manualBtn = () =>
+    `<button data-action="manual-speed" data-name="${esc(name)}" ${dis}
+        aria-pressed="${speedMode === "manual" ? "true" : "false"}">manual</button>`;
 
   const editing = editingPreset[name];
   // editor is only meaningful for an active preset — manual mode never has one.
@@ -594,9 +597,12 @@ function renderControls(name, snap, stale) {
         ${presetBtn(1)}
         ${presetBtn(2)}
         ${presetBtn(3)}
+        ${manualBtn()}
       </div>
-      ${fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  supplyInteractive)}
-      ${fanSliderRow(name, "exhaust", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, extractInteractive)}
+      ${speedMode === "manual"
+        ? manualSliderRow(name, snap.live, manualPct, !disabled && !editorOpen)
+        : `${fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  supplyInteractive)}
+           ${fanSliderRow(name, "exhaust", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, extractInteractive)}`}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
       ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
@@ -669,6 +675,29 @@ function fanSliderRow(name, side, rpm, livePct, interactive) {
     <input type="range" min="${sliderMin}" max="100" step="5" value="${thumbVal}"
       data-action="manual-slider" data-name="${esc(name)}" data-side="${esc(side)}" ${disAttr}>
     <span class="val">${pctLabel}</span>
+  </div>`;
+}
+
+// Renders the single combined slider used when the device is in manual
+// speed_mode. One row replaces the per-fan dual rows because manual mode
+// has a single shared %; showing two rows where one is a disabled mirror
+// is just clutter. Left rpm is the running fan's rpm (or "off" if both
+// fans are at 0); right pct is manual_pct (the setpoint, which the slider
+// thumb tracks). data-side="manual" so tests can scope to this row
+// without colliding with the per-fan rows in preset modes.
+function manualSliderRow(name, live, manualPct, interactive) {
+  const supplyRpm = typeof live?.fan_supply_rpm === "number" ? live.fan_supply_rpm : 0;
+  const extractRpm = typeof live?.fan_extract_rpm === "number" ? live.fan_extract_rpm : 0;
+  const rpm = Math.max(supplyRpm, extractRpm);
+  const rpmLabel = rpm === 0 ? "off" : `${esc(String(rpm))} rpm`;
+  const sliderMin = interactive ? 10 : 0;
+  const disAttr = interactive ? "" : "disabled";
+  return `<div class="slider-row fan-slider-row">
+    <span class="fan-side"></span>
+    <span class="val-label">${rpmLabel}</span>
+    <input type="range" min="${sliderMin}" max="100" step="5" value="${manualPct}"
+      data-action="manual-slider" data-name="${esc(name)}" data-side="manual" ${disAttr}>
+    <span class="val">${esc(String(manualPct))}%</span>
   </div>`;
 }
 
@@ -785,6 +814,16 @@ document.addEventListener("click", async (ev) => {
         lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
         render();
       }
+      break;
+    }
+    case "manual-speed": {
+      // Switch to manual speed_mode without changing the running speed:
+      // POST manual: cached manual_pct (or 50 if absent). Closes any
+      // open preset editor since manual mode has no per-preset state.
+      delete editingPreset[name];
+      const pct = typeof snap.configured?.manual_pct === "number" ? snap.configured.manual_pct : 50;
+      await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                      { manual: pct });
       break;
     }
     case "preset": {
