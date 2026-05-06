@@ -211,6 +211,20 @@ func BuildStatus(values map[ParamID][]byte, name, id, ip string, lastPoll *time.
 	return resp
 }
 
+// BuildStatusWithEnergy is BuildStatus plus an optional energy block.
+// When energy is non-nil, the result's Service map gains an "energy"
+// key holding the EnergyValues. When nil, the result is identical to
+// BuildStatus's. Daemon callers (with a per-device EnergyTracker) call
+// this; CLI and standalone-mode callers keep using BuildStatus, which
+// is unchanged.
+func BuildStatusWithEnergy(values map[ParamID][]byte, name, id, ip string, lastPoll *time.Time, energy *EnergyValues) Status {
+	s := BuildStatus(values, name, id, ip, lastPoll)
+	if energy != nil {
+		s.Service["energy"] = *energy
+	}
+	return s
+}
+
 // Uint8At returns the single byte stored at id, or (0, false) if the
 // value is missing or wrong-sized.
 func Uint8At(values map[ParamID][]byte, id ParamID) (uint8, bool) {
