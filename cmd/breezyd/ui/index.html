@@ -439,7 +439,6 @@ function renderCard(name, snap) {
 
     <div class="block">
       <h3>Sensors</h3>
-      ${overrideLine(snap.live)}
       ${sensorsGrid(name, snap)}
     </div>
 
@@ -603,20 +602,6 @@ function filterStatus(svc) {
   if (remaining === undefined) return esc(status);
   const days = Math.floor(remaining / 86400);
   return `${esc(status)} (${days}d)`;
-}
-
-function overrideLine(live) {
-  // Only sensor-override (humidity / co2 / voc threshold-driven boost)
-  // surfaces in NOTICE. Timer-active state is already legible from the
-  // Timer segmented control + countdown, and frost-protection / unknown
-  // overrides aren't actionable from this UI.
-  if (!live || live.in_user_control !== false) return "";
-  const alerts = live.sensor_alerts || {};
-  const reasons = ["humidity", "co2", "voc"].filter(k => alerts[k]);
-  if (reasons.length > 0) {
-    return `<div class="warn">⚠ sensor override (${reasons.join(", ")}) — fan above setting</div>`;
-  }
-  return "";
 }
 
 function humanAgo(ms) {
