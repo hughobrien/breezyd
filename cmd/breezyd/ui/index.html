@@ -235,6 +235,20 @@ const editingThreshold = {}; // name -> kind
 // when a different card is interacted with elsewhere (we leave it across
 // re-renders so live polling doesn't slam the editor closed mid-drag).
 const editingPreset = {};   // name -> 1 | 2 | 3
+// Per-device automode flag. When set, activating a preset writes
+// airflow_mode=ventilation (auto) regardless of the preset's editor
+// state. When unset, activation derives airflow_mode from the per-
+// preset editor state below (regen if both fans on; supply/extract if
+// one was dragged to 0). Defaults to true (undefined → on) — most users
+// just want "auto" until they explicitly opt out.
+const automode = {};        // name -> bool
+// Per-preset editor state. Tracks the user's last-known supply/extract
+// pair for each preset, including the 0 case which the protocol
+// register can't store (preset registers are 10-100; 0 is encoded via
+// airflow_mode). Initialised lazily from the cached preset values when
+// the editor opens; updated on slider drag. Persisted across editor
+// open/close so a 0 dragged earlier still informs a later activation.
+const presetVals = {};      // name -> { 1: {supply,extract}, 2: ..., 3: ... }
 // Per-device optimistic live overlay. After a write that we KNOW affects
 // fan pcts (mode switch, manual slider drag), we preemptively patch the
 // snapshot's live.fan_*_{pct,rpm} so the UI doesn't sit at 0 during the
@@ -705,13 +719,26 @@ function manualSliderRow(name, _live, manualPct, interactive) {
 // snapshot so the sliders track what the device thinks the preset is.
 function presetEditor(name, preset, cfg, matchOn, dis) {
   const entry = cfg["preset" + preset] || {};
-  const supplyVal = typeof entry.supply === "number" ? entry.supply : 50;
-  const extractVal = typeof entry.extract === "number" ? entry.extract : 50;
-  const checkAttr = matchOn ? "checked" : "";
+  // Per-preset memory wins over cache: it preserves the user's 0-side
+  // intent across editor open/close (the cached register can't store 0).
+  const stored = (presetVals[name] || {})[preset];
+  const supplyVal = stored && typeof stored.supply === "number"
+    ? stored.supply
+    : (typeof entry.supply === "number" ? entry.supply : 50);
+  const extractVal = stored && typeof stored.extract === "number"
+    ? stored.extract
+    : (typeof entry.extract === "number" ? entry.extract : 50);
+  const matchAttr = matchOn ? "checked" : "";
+  const autoAttr = automode[name] !== false ? "checked" : ""; // default true
   return `<div class="preset-editor">
     <label class="match-speeds">
+      <input type="checkbox" data-action="automode-toggle" data-name="${esc(name)}"
+        ${autoAttr} ${dis}>
+      automode
+    </label>
+    <label class="match-speeds">
       <input type="checkbox" data-action="match-speeds-toggle" data-name="${esc(name)}"
-        ${checkAttr} ${dis}>
+        ${matchAttr} ${dis}>
       match speeds
     </label>
     <div class="slider-row">
@@ -842,10 +869,27 @@ document.addEventListener("click", async (ev) => {
         editingPreset[name] = n;
         render();
       } else {
-        // Don't pre-open the editor on activation — leaves the user with
-        // just the active-fan slider, which is the simpler default.
+        // Activate the preset (no editor) and write airflow_mode per
+        // automode + the per-preset (supply, extract) memory. Falls back
+        // to the cached preset register values if the user has never
+        // edited this preset's editor (registers are 10..100 so both
+        // are nonzero → regeneration with automode off, ventilation
+        // with automode on).
         await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                         { preset: n });
+        const stored = (presetVals[name] || {})[n];
+        const cur = snap.configured?.["preset" + n] || {};
+        const supply = stored && typeof stored.supply === "number"
+          ? stored.supply
+          : (typeof cur.supply === "number" ? cur.supply : 50);
+        const extract = stored && typeof stored.extract === "number"
+          ? stored.extract
+          : (typeof cur.extract === "number" ? cur.extract : 50);
+        const desiredMode = computeAirflow(name, supply, extract);
+        const currentMode = lastSnapshots[name]?.configured?.airflow_mode;
+        if (desiredMode && desiredMode !== currentMode) {
+          await applyAirflow(name, desiredMode, supply, extract);
+        }
       }
       break;
     }
@@ -983,37 +1027,22 @@ document.addEventListener("change", async (ev) => {
       await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/preset",
                       { preset, supply, extract });
     }
-    // Infer airflow_mode from the future supply/extract pair. Only act
-    // when this preset is the active speed_mode (otherwise we'd be
-    // changing the running mode based on a non-active preset's edit).
+    // Remember the user's intent for this preset, including 0-side state
+    // that the protocol register can't store. Used by preset activation
+    // and by re-opening the editor.
+    presetVals[name] = presetVals[name] || {};
+    presetVals[name][preset] = { supply, extract };
+    // Choose airflow_mode for this edit. With automode on (default), the
+    // editor always commits to ventilation. With automode off, infer from
+    // the future supply/extract pair (regen / supply / extract). Only act
+    // when this preset is the active speed_mode — otherwise we'd be
+    // changing the running mode based on an inactive preset's edit.
     const speedMode = lastSnapshots[name]?.configured?.speed_mode;
     if (speedMode === "preset" + preset) {
-      let impliedMode = null;
-      if (supply === 0 && extract > 0) impliedMode = "extract";
-      else if (extract === 0 && supply > 0) impliedMode = "supply";
-      else if (supply > 0 && extract > 0) impliedMode = "regeneration";
+      const impliedMode = computeAirflow(name, supply, extract);
       const currentMode = lastSnapshots[name]?.configured?.airflow_mode;
       if (impliedMode && impliedMode !== currentMode) {
-        await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
-                        { mode: impliedMode });
-        // Optimistic UI: the daemon's cache is stale through the settle
-        // window; patch the snapshot so the highlighted mode button and
-        // the live fan rows update without waiting for the next poll.
-        if (lastSnapshots[name]?.configured) {
-          lastSnapshots[name].configured.airflow_mode = impliedMode;
-        }
-        const supplyRuns = impliedMode === "regeneration" || impliedMode === "supply" || impliedMode === "ventilation";
-        const extractRuns = impliedMode === "regeneration" || impliedMode === "extract" || impliedMode === "ventilation";
-        setOptimisticLive(name, {
-          fan_supply_pct: supplyRuns ? supply : 0,
-          fan_extract_pct: extractRuns ? extract : 0,
-          fan_supply_rpm: supplyRuns ? null : 0,
-          fan_extract_rpm: extractRuns ? null : 0,
-        });
-        if (lastSnapshots[name]) {
-          lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
-        }
-        render();
+        await applyAirflow(name, impliedMode, supply, extract);
       }
     }
     return;
@@ -1024,7 +1053,50 @@ document.addEventListener("change", async (ev) => {
     render();
     return;
   }
+
+  if (el.matches('input[type="checkbox"][data-action="automode-toggle"]')) {
+    // Toggle just stores the preference; airflow_mode is written when
+    // the user next clicks a preset (or completes an editor edit).
+    automode[name] = el.checked;
+    return;
+  }
 });
+
+// Pick the airflow_mode that matches a (supply, extract) pair according
+// to automode. With automode on (default), commit to ventilation. With
+// automode off, derive from the on/off state: both nonzero → regen,
+// supply 0 → extract, extract 0 → supply.
+function computeAirflow(name, supply, extract) {
+  if (automode[name] !== false) return "ventilation";
+  if (supply > 0 && extract > 0) return "regeneration";
+  if (supply === 0 && extract > 0) return "extract";
+  if (extract === 0 && supply > 0) return "supply";
+  return null; // both 0 — invalid; leave airflow alone
+}
+
+// POST /mode and patch the optimistic overlay so the active fans and
+// the highlighted Mode button reflect the new airflow before the
+// daemon's poller catches up. Shared between editor edits and preset
+// activations so the optimistic shape stays consistent.
+async function applyAirflow(name, mode, supply, extract) {
+  await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
+                  { mode });
+  if (lastSnapshots[name]?.configured) {
+    lastSnapshots[name].configured.airflow_mode = mode;
+  }
+  const supplyRuns = mode === "regeneration" || mode === "supply" || mode === "ventilation";
+  const extractRuns = mode === "regeneration" || mode === "extract" || mode === "ventilation";
+  setOptimisticLive(name, {
+    fan_supply_pct: supplyRuns ? supply : 0,
+    fan_extract_pct: extractRuns ? extract : 0,
+    fan_supply_rpm: supplyRuns ? null : 0,
+    fan_extract_rpm: extractRuns ? null : 0,
+  });
+  if (lastSnapshots[name]) {
+    lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
+  }
+  render();
+}
 
 async function postWrite(name, controlKey, url, body) {
   inFlight[name] = true;

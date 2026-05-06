@@ -354,7 +354,16 @@ test("preset buttons: labels are 'supply/extract' pcts from cached preset config
   await expect(presetBtn(3)).toHaveText("100/100");
 });
 
-test("preset editor: dragging supply to 0 implies extract mode", async ({ page }) => {
+// Helper: open editor for preset 2 and uncheck automode so the
+// inference-from-fan-state path is exercised.
+async function openEditorAutomodeOff(page: any) {
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await page.locator('input[data-action="automode-toggle"][data-name="playroom"]').uncheck();
+}
+
+test("preset editor: automode default ON; dragging in editor POSTs ventilation", async ({ page }) => {
+  // automode is checked by default — every editor edit commits the
+  // device to ventilation regardless of the supply/extract pair.
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -362,7 +371,27 @@ test("preset editor: dragging supply to 0 implies extract mode", async ({ page }
     }),
   });
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
-  // Turn match off so dragging supply doesn't drag extract along.
+  await expect(
+    page.locator('input[data-action="automode-toggle"][data-name="playroom"]')
+  ).toBeChecked();
+  const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
+  await supply.evaluate((el: HTMLInputElement) => {
+    el.value = "70";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  expect(modePost?.body).toEqual({ mode: "ventilation" });
+});
+
+test("preset editor: automode off + supply→0 implies extract mode", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
+    }),
+  });
+  await openEditorAutomodeOff(page);
   await page.locator('input[data-action="match-speeds-toggle"][data-name="playroom"]').uncheck();
   const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
   await supply.evaluate((el: HTMLInputElement) => {
@@ -370,23 +399,20 @@ test("preset editor: dragging supply to 0 implies extract mode", async ({ page }
     el.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await page.waitForTimeout(250);
-  // No /preset write (supply=0 below protocol min); /mode write to extract.
   const presetPost = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
   const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
   expect(presetPost).toBeFalsy();
   expect(modePost?.body).toEqual({ mode: "extract" });
 });
 
-test("preset editor: dragging extract to 0 implies supply mode", async ({ page }) => {
-  // Symmetric counterpart to the supply→0 test: confirms the implied-
-  // mode logic isn't accidentally biased toward the supply side.
+test("preset editor: automode off + extract→0 implies supply mode", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
     }),
   });
-  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await openEditorAutomodeOff(page);
   await page.locator('input[data-action="match-speeds-toggle"][data-name="playroom"]').uncheck();
   const extract = page.locator('input[data-action="preset-extract-slider"][data-name="playroom"]');
   await extract.evaluate((el: HTMLInputElement) => {
@@ -400,14 +426,14 @@ test("preset editor: dragging extract to 0 implies supply mode", async ({ page }
   expect(modePost?.body).toEqual({ mode: "supply" });
 });
 
-test("preset editor: both > 0 in match-on mode implies regeneration", async ({ page }) => {
+test("preset editor: automode off + both > 0 implies regeneration", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
       configured: { speed_mode: "preset2", airflow_mode: "supply", preset2: { supply: 55, extract: 60 } },
     }),
   });
-  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await openEditorAutomodeOff(page);
   const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
   await supply.evaluate((el: HTMLInputElement) => {
     el.value = "70";
@@ -418,6 +444,23 @@ test("preset editor: both > 0 in match-on mode implies regeneration", async ({ p
   const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
   expect(presetPost?.body).toEqual({ preset: 2, supply: 70, extract: 70 });
   expect(modePost?.body).toEqual({ mode: "regeneration" });
+});
+
+test("preset activation (automode on): clicks ventilation alongside the preset", async ({ page }) => {
+  // Activating an inactive preset writes both /speed {preset:N} and
+  // /mode {ventilation} when automode is on (default).
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset1", airflow_mode: "regeneration", preset1: { supply: 30, extract: 35 }, preset3: { supply: 100, extract: 100 } },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="3"]');
+  await page.waitForTimeout(250);
+  const speedPost = requests.find(r => r.method === "POST" && r.url.endsWith("/speed"));
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  expect(speedPost?.body).toEqual({ preset: 3 });
+  expect(modePost?.body).toEqual({ mode: "ventilation" });
 });
 
 test("mode click: each button POSTs its mode string", async ({ page }) => {
