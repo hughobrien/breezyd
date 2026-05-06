@@ -765,6 +765,23 @@ test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {
   expect(post!.body).toEqual({ mode: "night" });
 });
 
+test("active special_mode hides the manual panel (Mode block + slider)", async ({ page }) => {
+  // While turbo or night is running, the user's manual settings are
+  // overridden, so showing the Mode buttons + slider would be misleading.
+  // Hidden during the timer; reappears when special_mode is "off".
+  for (const sm of ["turbo", "night"]) {
+    await loadDashboard(page, {
+      devices: [{ name: "playroom" }],
+      snapshot: (n) => baseSnapshot(n, {
+        configured: { speed_mode: "manual", manual_pct: 50, airflow_mode: "regeneration" },
+        live: { special_mode: sm, fan_supply_pct: 50, fan_extract_pct: 50, fan_supply_rpm: 3120, fan_extract_rpm: 3180, in_user_control: false, sensor_alerts: {} },
+      }),
+    });
+    await expect(page.locator(".card .ctrl", { hasText: "MODE" })).toHaveCount(0);
+    await expect(page.locator(".card .ctrl .fan-slider-row")).toHaveCount(0);
+  }
+});
+
 test("timer click on active mode: POSTs {mode:'off'} to stop the timer", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],

@@ -633,7 +633,7 @@ function renderControls(name, snap, stale) {
         ${presetBtn(3)}
         ${manualBtn()}
       </div>
-      ${speedMode === "manual" ? `
+      ${speedMode === "manual" && specialMode === "off" ? `
         <span class="ctrl-label">MODE</span>
         <div class="seg">
           ${modeBtn("auto",    "ventilation")}
@@ -643,7 +643,7 @@ function renderControls(name, snap, stale) {
         </div>
         ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
       ` : ""}
-      ${speedMode === "manual"
+      ${speedMode === "manual" && specialMode === "off"
         ? manualSliderRow(name, snap.live, manualPct, !disabled && !editorOpen)
         : ""}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
