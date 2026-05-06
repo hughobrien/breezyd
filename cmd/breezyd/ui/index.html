@@ -979,6 +979,18 @@ document.addEventListener("toggle", (ev) => {
   }
 }, true);
 
+// Live-drag visual feedback. `change` fires only on mouseup/blur, so
+// without `input` the right-side `.val` readout sits frozen at the old
+// value while the user drags. Update only the visible text — POSTs
+// still go through the `change` listener below.
+document.addEventListener("input", (ev) => {
+  const el = ev.target;
+  if (!el.matches('input[type="range"]')) return;
+  const row = el.closest(".slider-row");
+  const valSpan = row?.querySelector(".val");
+  if (valSpan) valSpan.textContent = `${el.value}%`;
+});
+
 // Change handler — covers the manual-slider, the two preset-editor
 // sliders, and the match-speeds checkbox. `change` fires on mouseup/blur
 // for sliders and on click for checkboxes.
