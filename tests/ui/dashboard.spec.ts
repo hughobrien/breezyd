@@ -1,11 +1,18 @@
 import { test, expect, Page, Route } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+
+const STYLE_CSS = readFileSync(
+  resolve(__dirname, "..", "..", "cmd", "breezyd", "ui", "style.css"),
+  "utf8",
+);
+const styleHash = createHash("sha256").update(STYLE_CSS).digest("hex").slice(0, 10);
 
 const INDEX_HTML = readFileSync(
   resolve(__dirname, "..", "..", "cmd", "breezyd", "ui", "index.html"),
   "utf8",
-);
+).replaceAll("STYLEHASH", styleHash);
 
 // A fake origin used so that relative /v1/... fetches resolve correctly.
 const BASE_URL = "http://breezy.test";
@@ -96,6 +103,15 @@ async function loadDashboard(
       status: 200,
       contentType: "text/html",
       body: INDEX_HTML,
+    });
+  });
+
+  // Serve the extracted stylesheet at its content-hashed URL.
+  await page.route(`${BASE_URL}/ui/style-*.css`, async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/css; charset=utf-8",
+      body: STYLE_CSS,
     });
   });
 

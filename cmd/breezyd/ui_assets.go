@@ -43,9 +43,10 @@ func init() {
 
 // getIndex serves the embedded dashboard shell.
 func (h *Handler) getIndex(w http.ResponseWriter, r *http.Request) {
+	body := strings.ReplaceAll(string(indexHTML), "STYLEHASH", styleHash)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(indexHTML)
+	_, _ = w.Write([]byte(body))
 }
 
 // getStyle serves the extracted stylesheet at /ui/style-<hash>.css.
