@@ -37,11 +37,16 @@ func init() {
 	}
 	vendorRoot = root
 
+	// MUST match tests/ui/screenshot.ts and tests/ui/dashboard.spec.ts:
+	// sha256(style.css) → hex → first 10 chars. Drift = 404 on the stylesheet.
 	sum := sha256.Sum256(styleCSS)
 	styleHash = hex.EncodeToString(sum[:])[:10]
 }
 
-// getIndex serves the embedded dashboard shell.
+// getIndex serves the embedded dashboard shell. The STYLEHASH placeholder is
+// substituted at serve time as a stopgap until Task 9 of the htmx migration
+// switches getIndex to templ-rendered output. See
+// docs/superpowers/plans/2026-05-06-htmx-migration.md.
 func (h *Handler) getIndex(w http.ResponseWriter, r *http.Request) {
 	body := strings.ReplaceAll(string(indexHTML), "STYLEHASH", styleHash)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

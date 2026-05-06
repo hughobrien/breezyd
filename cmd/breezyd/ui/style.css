@@ -6,10 +6,10 @@
   --bg-hover:         #eee;
   --bg-error:         #fee;
   --fg:               #111;
-  --fg-muted:         #666;
-  --fg-subtle:        #888;
-  --fg-secondary:     #444;
-  --fg-label:         #555;
+  --fg-weak:         #666;
+  --fg-faint:        #888;
+  --fg-strong:     #444;
+  --fg-medium:         #555;
   --fg-heading:       #333;
   --border:           #eee;
   --border-card:      #ccc;
@@ -61,15 +61,15 @@ h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
   max-width: 65%;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.card .ip { color: var(--fg-muted); font-size: 0.85rem; }
-.ts { font-size: 0.85rem; color: var(--fg-muted); }
+.card .ip { color: var(--fg-weak); font-size: 0.85rem; }
+.ts { font-size: 0.85rem; color: var(--fg-weak); }
 .ts.red { color: var(--error); }
 .power-on { color: var(--success); }
 .power-off { color: var(--error); }
 .row { display: flex; justify-content: space-between; padding: 0.1rem 0; align-items: baseline; }
 /* .k matches the Sensors block's small grey labels so the expanded
    Device Info reads as one consistent body. */
-.k { color: var(--fg-muted); font-size: 0.7rem; }
+.k { color: var(--fg-weak); font-size: 0.7rem; }
 /* Match the value font to the key font inside Device Info so both
    sides of each row read at the same scale. */
 .device-info .row > span { font-size: 0.7rem; }
@@ -80,7 +80,7 @@ h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
   color: var(--fg-heading); text-transform: uppercase; letter-spacing: 0.05em;
 }
 .block summary { cursor: pointer; }
-.block summary::marker { font-size: 0.7em; color: var(--fg-subtle); }
+.block summary::marker { font-size: 0.7em; color: var(--fg-faint); }
 /* Device <details> uses the device name (<h2>) as the summary so
    clicking the name expands the panel. Layout is a flex row so the
    name sits on the left and the inline Power button on the right. */
@@ -97,7 +97,7 @@ h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .device-info > summary::before {
   content: "▶";
   font-size: 0.65em;
-  color: var(--fg-subtle);
+  color: var(--fg-faint);
   align-self: center;
 }
 .device-info[open] > summary::before { content: "▼"; }
@@ -121,7 +121,7 @@ details.energy > summary::before,
 details.block.sensors > summary::before {
   content: "▶";
   font-size: 0.65em;
-  color: var(--fg-subtle);
+  color: var(--fg-faint);
   align-self: center;
 }
 details.energy[open] > summary::before,
@@ -134,7 +134,7 @@ details.block.schedule > summary {
 }
 details.block.schedule > summary::-webkit-details-marker { display: none; }
 details.block.schedule > summary::before {
-  content: "▶"; font-size: 0.65em; color: var(--fg-subtle); align-self: center;
+  content: "▶"; font-size: 0.65em; color: var(--fg-faint); align-self: center;
 }
 details.block.schedule[open] > summary::before { content: "▼"; }
 details.block.schedule > summary > h3 { margin: 0; }
@@ -147,14 +147,14 @@ details.block.schedule > summary > h3 { margin: 0; }
 .schedule-table th, .schedule-table td {
   padding: 0.2rem 0.3rem; text-align: left; border-bottom: 1px solid var(--border);
 }
-.schedule-table th { color: var(--fg-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
+.schedule-table th { color: var(--fg-weak); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
 .schedule-table input[type="text"],
 .schedule-table select,
 .schedule-table input[type="number"] {
   font-family: inherit; font-size: 0.8rem; padding: 0.1rem 0.2rem;
 }
 .schedule-table input.at { width: 7ch; text-align: center; }
-.schedule-table input.pct-disabled { background: var(--bg-hover); color: var(--fg-subtle); }
+.schedule-table input.pct-disabled { background: var(--bg-hover); color: var(--fg-faint); }
 .schedule-table tr.row-error td { background: var(--bg-error); }
 .schedule-table button.del { font-size: 0.85rem; padding: 0 0.4rem; }
 .warn { color: var(--warn); font-size: 0.85rem; margin-top: 0.4rem; }
@@ -162,14 +162,14 @@ details.block.schedule > summary > h3 { margin: 0; }
   background: var(--bg-error); border: 1px solid var(--border-error); padding: 0.75rem;
   border-radius: 6px; margin-bottom: 1rem; color: var(--error-text);
 }
-.fw { font-size: 0.75rem; color: var(--fg-subtle); margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.fw { font-size: 0.75rem; color: var(--fg-faint); margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
 .controls { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
 .controls h3 {
   margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
   color: var(--fg-heading); text-transform: uppercase; letter-spacing: 0.05em;
 }
 .ctrl { margin: 0.4rem 0; }
-.ctrl-label { color: var(--fg-muted); font-size: 0.75rem; margin-bottom: 0.15rem; display: block; }
+.ctrl-label { color: var(--fg-weak); font-size: 0.75rem; margin-bottom: 0.15rem; display: block; }
 .seg { display: flex; gap: 0.25rem; flex-wrap: wrap; }
 .seg button, .toggle {
   font-family: inherit; font-size: 0.85rem;
@@ -215,14 +215,14 @@ details.block.schedule > summary > h3 { margin: 0; }
    tell supply from exhaust at a glance, and by the fan-slider-row for
    the live rpm readout. 4.5rem fits "5340rpm" without clipping. */
 .slider-row .val-label {
-  min-width: 4.5rem; color: var(--fg-muted); font-size: 0.75rem;
+  min-width: 4.5rem; color: var(--fg-weak); font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 /* Fan-side identifier ("supply" / "exhaust") at the very left of the
    fan-slider-row. 7ch fits the longer word ("exhaust") so the rpm
    column lines up across both rows. */
 .slider-row .fan-side {
-  min-width: 7ch; color: var(--fg-muted); font-size: 0.75rem;
+  min-width: 7ch; color: var(--fg-weak); font-size: 0.75rem;
 }
 .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Editor sliders: tint the 0-10% portion of the track red as a visual
@@ -250,7 +250,7 @@ details.block.schedule > summary > h3 { margin: 0; }
   display: flex; flex-direction: column; gap: 0.3rem;
 }
 .preset-editor .match-speeds {
-  font-size: 0.75rem; color: var(--fg-secondary); display: inline-flex;
+  font-size: 0.75rem; color: var(--fg-strong); display: inline-flex;
   align-items: center; gap: 0.3rem;
 }
 .toast {
@@ -291,7 +291,7 @@ details.block.schedule > summary > h3 { margin: 0; }
   flex-direction: column;
   min-width: 0;
 }
-.sensor-label { color: var(--fg-muted); font-size: 0.7rem; }
+.sensor-label { color: var(--fg-weak); font-size: 0.7rem; }
 .thresh-edit { display: inline-flex; align-items: center; gap: 0.25rem; }
 .thresh-input {
   width: 4.5rem; padding: 0.1rem 0.25rem;
@@ -326,7 +326,7 @@ details.block.schedule > summary > h3 { margin: 0; }
   gap: 0.25rem;
   margin-left: 0.4rem;
   font-size: 0.85rem;
-  color: var(--fg-label);
+  color: var(--fg-medium);
   cursor: pointer;
   user-select: none;
 }
