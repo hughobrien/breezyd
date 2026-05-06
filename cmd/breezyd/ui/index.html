@@ -133,9 +133,10 @@
     font-variant-numeric: tabular-nums;
   }
   /* Fan-side identifier ("supply" / "exhaust") at the very left of the
-     fan-slider-row, ahead of the rpm. ~5ch fits both words. */
+     fan-slider-row. 7ch fits the longer word ("exhaust") so the rpm
+     column lines up across both rows. */
   .slider-row .fan-side {
-    min-width: 5ch; color: #666; font-size: 0.75rem;
+    min-width: 7ch; color: #666; font-size: 0.75rem;
   }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
   /* Preset editor: a tight inline panel under the preset buttons. */
