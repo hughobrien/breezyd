@@ -649,3 +649,49 @@ func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
 		t.Fatal("second LockUDP never returned after first unlocked")
 	}
 }
+
+func TestPoller_EnergyTickCalled(t *testing.T) {
+	// Wire a real EnergyTracker (with t.TempDir for state) onto a poller
+	// running against a fakeClient; assert Tick advances LastTick (proxy
+	// for "Tick was actually called after a successful poll").
+	dir := t.TempDir()
+	tr := &EnergyTracker{Device: "p", StateDir: dir}
+	if err := tr.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	state := NewState()
+	fc := &fakeClient{
+		values: map[breezy.ParamID][]byte{
+			0x0001: {1},    // power_state (on)
+			0x00B9: {0, 0}, // unit_type
+		},
+	}
+
+	p := &Poller{
+		Name:     "p",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001, 0x00B9},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+		Energy: tr,
+	}
+
+	p.tick(context.Background())
+
+	snap := tr.Snapshot()
+	_ = snap // not asserting energy math here — just that Tick was called
+
+	tr.mu.Lock() // reading internal state for white-box test; mu held
+	lastTick := tr.LastTick
+	tr.mu.Unlock()
+
+	if lastTick.IsZero() {
+		t.Fatal("tr.LastTick is zero after successful poll; expected Tick to have been called")
+	}
+}

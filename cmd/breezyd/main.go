@@ -135,7 +135,11 @@ func run(parent context.Context) error {
 		ClientFactory: makeClientFactory(devices),
 	}
 
-	pollers, pollersWg := startPollers(rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval, state, metrics, handler.SyncHomekit)
+	stateDir, err := daemonStateDir()
+	if err != nil {
+		slog.Warn("energy: could not create state dir; energy tracking will not persist", "err", err)
+	}
+	pollers, pollersWg := startPollers(rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval, stateDir, state, metrics, handler.SyncHomekit)
 	handler.Pollers = pollers
 
 	// Periodic discovery: parse "periodic:<duration>" and tick a goroutine
@@ -222,6 +226,45 @@ func run(parent context.Context) error {
 	return runErr
 }
 
+// daemonStateDir returns the base directory where the daemon stores
+// per-device state files (e.g. energy counters). Precedence:
+//
+//  1. $STATE_DIRECTORY — set by systemd when StateDirectory = "breezyd"
+//     is in the unit (the NixOS module's canonical case). Survives
+//     ProtectSystem=strict because systemd pre-creates and chowns it.
+//  2. $XDG_STATE_HOME/breezyd — for direct-run / development cases.
+//  3. $HOME/.local/state/breezyd — XDG fallback when XDG_STATE_HOME is
+//     unset.
+//
+// The directory is created (mode 0700) if it does not exist. On error
+// the path is returned alongside the error so callers can decide whether
+// to abort or continue without persistence.
+func daemonStateDir() (string, error) {
+	// Systemd-managed deployments (the NixOS module is the canonical
+	// example) set STATE_DIRECTORY to the writable path that survives
+	// ProtectSystem=strict. Honour it first; otherwise fall back to
+	// XDG_STATE_HOME for direct-run / development cases.
+	if dir := os.Getenv("STATE_DIRECTORY"); dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return dir, fmt.Errorf("daemonStateDir: mkdir %s: %w", dir, err)
+		}
+		return dir, nil
+	}
+	dir := os.Getenv("XDG_STATE_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("daemonStateDir: home dir: %w", err)
+		}
+		dir = filepath.Join(home, ".local", "state")
+	}
+	dir = filepath.Join(dir, "breezyd")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return dir, fmt.Errorf("daemonStateDir: mkdir %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
 // buildDeviceMap converts internal/config.Device entries into the
 // daemon's local DeviceConfig form, normalising IPs to include the
 // default port 4000 when the operator omitted it.
@@ -257,6 +300,7 @@ func startPollers(
 	parent context.Context,
 	devices map[string]DeviceConfig,
 	interval time.Duration,
+	stateDir string,
 	state *State,
 	metrics *Metrics,
 	onPoll func(name string, snap Snapshot),
@@ -273,6 +317,12 @@ func startPollers(
 		devName := name
 		devID := d.ID
 
+		tr := &EnergyTracker{
+			Device:   devName,
+			StateDir: stateDir,
+		}
+		tr.Load() // always returns nil; missing/malformed handled internally with slog.Warn
+
 		p := &Poller{
 			Name:     devName,
 			IP:       d.IP,
@@ -286,6 +336,7 @@ func startPollers(
 				slog.Debug("poll error", "device", n, "kind", kind)
 			},
 			OnPoll: onPoll,
+			Energy: tr,
 		}
 		pollers[devName] = p
 
