@@ -13,7 +13,11 @@
   }
   header { margin-bottom: 1rem; }
   h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  /* Cards capped at 360px (~20% narrower than the previous full-fr layout)
+     so wide viewports leave generous breathing space rather than stretching
+     each card to filling-the-screen width. minmax(0, …) lets columns shrink
+     gracefully on intermediate widths before the 900px single-column flip. */
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 360px)); gap: 1rem; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   .card {
     background: #fff; border: 1px solid #ccc; border-radius: 6px;
@@ -122,11 +126,16 @@
   .slider-row .val { min-width: 3rem; }
   .slider-row .val { text-align: right; font-variant-numeric: tabular-nums; }
   /* Left-side label used by the preset editor's two sliders so users can
-     tell supply from extract at a glance, and by the fan-slider-row for
+     tell supply from exhaust at a glance, and by the fan-slider-row for
      the live rpm readout. 4.5rem fits "5340rpm" without clipping. */
   .slider-row .val-label {
     min-width: 4.5rem; color: #666; font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
+  }
+  /* Fan-side identifier ("supply" / "exhaust") at the very left of the
+     fan-slider-row, ahead of the rpm. ~5ch fits both words. */
+  .slider-row .fan-side {
+    min-width: 5ch; color: #666; font-size: 0.75rem;
   }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
   /* Preset editor: a tight inline panel under the preset buttons. */
@@ -236,9 +245,9 @@ const deviceInfoOpen = {}; // name -> bool
 const THRESHOLD_KINDS = {
   humidity: { label: "RH",   suffix: "%",   min: 40,  max: 80,   step: 1,
               valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity" },
-  co2:      { label: "eCO₂", suffix: "ppm", min: 400, max: 2000, step: 10,
+  co2:      { label: "eCO₂", suffix: " ppm", min: 400, max: 2000, step: 10,
               valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2" },
-  voc:      { label: "VOC",  suffix: "idx", min: 50,  max: 250,  step: 1,
+  voc:      { label: "VOC",  suffix: " idx", min: 50,  max: 250,  step: 1,
               valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc",
               tooltip: "VOC Index — Sensirion 0-500 scale, ~100 = baseline indoor air" },
 };
@@ -451,12 +460,6 @@ function fmt(v, fallback, suffix) {
   return `${esc(String(v))}${suffix || ""}`;
 }
 
-function fanLine(pct, rpm) {
-  if (rpm === null || rpm === undefined) return "—";
-  if (pct === null || pct === undefined) return `${esc(String(rpm))}rpm`;
-  return `${esc(String(pct))}% ${esc(String(rpm))}rpm`;
-}
-
 function filterStatus(svc) {
   if (!svc) return "—";
   const status = svc.filter_status || "—";
@@ -527,26 +530,30 @@ function renderControls(name, snap, stale) {
     `<button data-action="mode" data-name="${esc(name)}" data-value="${esc(value)}" ${dis}
         aria-pressed="${mode === value ? "true" : "false"}">${esc(label)}</button>`;
 
+  const presetLabels = { 1: "low", 2: "med", 3: "high" };
   const presetBtn = (n) =>
     `<button data-action="preset" data-name="${esc(name)}" data-value="${n}" ${dis}
-        aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${n}</button>`;
+        aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${presetLabels[n]}</button>`;
 
   const editing = editingPreset[name];
   // editor is only meaningful for an active preset — manual mode never has one.
   const editorOpen = typeof editing === "number" && speedMode === "preset" + editing;
   const matchOn = matchSpeeds[name] !== false; // default true
 
-  // Slider thumb sits at manual_pct in manual mode, otherwise at 10 — the
-  // re-entry signal from task #24. The right-side readout shows the LIVE
-  // fan pct (not the slider's value), per the v1.8.0 layout: rpm-left,
-  // slider, pct-right replaces the old separate Fans block.
-  const sliderThumbVal = speedMode === "manual" ? manualPct : 10;
-  // Supply's slider is the interactive manual control when no editor is
-  // open. Otherwise it mirrors but is disabled so the user reaches for
-  // the preset editor below. Extract is always disabled — manual mode has
-  // a single % shared by both fans (no per-fan manual control on the
-  // device), so an interactive extract slider would mislead.
-  const supplyInteractive = !editorOpen && !disabled;
+  // Per-fan editability is driven by the device's airflow_mode (read from
+  // the snapshot, never local UI state). In supply-only mode the extract
+  // fan is firmware-forced to 0; in extract-only mode the supply fan is
+  // 0; in ventilation/regeneration both run. Whichever fan is running and
+  // is named-after-the-mode owns the interactive slider — its drag POSTs
+  // manual_pct (0x44) which the firmware applies to the active fan(s).
+  const supplyRuns = mode === "ventilation" || mode === "regeneration" || mode === "supply";
+  const extractRuns = mode === "ventilation" || mode === "regeneration" || mode === "extract";
+  const editable = !editorOpen && !disabled;
+  // In dual-fan modes, supply hosts the control (canonical). In extract-
+  // only mode, extract does. Falls back to supply if airflow_mode is
+  // missing so we never end up with no interactive slider at all.
+  const supplyInteractive = editable && supplyRuns;
+  const extractInteractive = editable && !supplyRuns && extractRuns;
 
   return `<div class="controls">
     <h3>Controls</h3>
@@ -558,8 +565,8 @@ function renderControls(name, snap, stale) {
         ${presetBtn(2)}
         ${presetBtn(3)}
       </div>
-      ${fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  sliderThumbVal, supplyInteractive)}
-      ${fanSliderRow(name, "extract", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, sliderThumbVal, false)}
+      ${fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  supplyInteractive)}
+      ${fanSliderRow(name, "exhaust", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, extractInteractive)}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
       ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
@@ -571,7 +578,7 @@ function renderControls(name, snap, stale) {
         ${modeBtn("auto",    "ventilation")}
         ${modeBtn("regen",   "regeneration")}
         ${modeBtn("supply",  "supply")}
-        ${modeBtn("extract", "extract")}
+        ${modeBtn("exhaust", "extract")}
       </div>
       ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
     </div>
@@ -602,21 +609,29 @@ function renderControls(name, snap, stale) {
 }
 
 // Renders one fan's slider row in the Speed control. Layout is
-// rpm-left / slider / pct-right; the slider thumb tracks the manual
-// control state, and the right-side pct is the LIVE fan pct (not the
-// slider's). Only supply's row is ever interactive (manual mode has a
-// single % covering both fans on this device); extract is rendered
-// identically but disabled so users see live extract data without
-// thinking they can drag it independently.
-function fanSliderRow(name, side, rpm, livePct, thumbVal, interactive) {
-  const rpmLabel = (rpm === null || rpm === undefined) ? "—rpm" : `${esc(String(rpm))}rpm`;
+// side-label / rpm / slider / pct. The slider thumb tracks the LIVE fan
+// pct (not the manual control state), so a fan that's firmware-forced
+// to 0 in single-direction modes shows thumb at 0 honestly. The slider
+// is interactive only for the fan that's actually running per
+// airflow_mode (computed by the caller).
+//
+// min=0 lets the disabled 0% case render correctly; the change handler
+// clamps POST values to >=10 so the protocol's writable range is
+// respected when the user drags.
+function fanSliderRow(name, side, rpm, livePct, interactive) {
+  // 0 rpm means firmware-forced off (single-direction mode or stopped),
+  // so collapse the rpm slot to "off" — clearer than "0rpm".
+  const rpmLabel = (rpm === null || rpm === undefined)
+    ? "— rpm"
+    : (rpm === 0 ? "off" : `${esc(String(rpm))} rpm`);
   const pctLabel = (livePct === null || livePct === undefined) ? "—" : `${esc(String(livePct))}%`;
-  const dataAction = side === "supply" ? "manual-slider" : "extract-slider-display";
+  const thumbVal = (typeof livePct === "number") ? livePct : 0;
   const disAttr = interactive ? "" : "disabled";
   return `<div class="slider-row fan-slider-row">
+    <span class="fan-side">${esc(side)}</span>
     <span class="val-label">${rpmLabel}</span>
-    <input type="range" min="10" max="100" step="5" value="${thumbVal}"
-      data-action="${dataAction}" data-name="${esc(name)}" ${disAttr}>
+    <input type="range" min="0" max="100" step="5" value="${thumbVal}"
+      data-action="manual-slider" data-name="${esc(name)}" data-side="${esc(side)}" ${disAttr}>
     <span class="val">${pctLabel}</span>
   </div>`;
 }
@@ -643,7 +658,7 @@ function presetEditor(name, preset, cfg, matchOn, dis) {
       <span class="val">${supplyVal}%</span>
     </div>
     <div class="slider-row">
-      <span class="val-label">extract</span>
+      <span class="val-label">exhaust</span>
       <input type="range" min="10" max="100" step="5" value="${extractVal}"
         data-action="preset-extract-slider" data-name="${esc(name)}"
         data-preset="${preset}" ${dis}>
@@ -783,9 +798,11 @@ document.addEventListener("change", async (ev) => {
 
   if (el.matches('input[type="range"][data-action="manual-slider"]')) {
     // Touching the manual slider always closes any open preset editor
-    // and falls into manual mode.
+    // and falls into manual mode. Slider min=0 lets disabled rows show
+    // 0% honestly; the protocol's writable range is 10-100 so we clamp
+    // up before POSTing.
     delete editingPreset[name];
-    const pct = parseInt(el.value, 10);
+    const pct = Math.max(10, parseInt(el.value, 10));
     await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                     { manual: pct });
     return;

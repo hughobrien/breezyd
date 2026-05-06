@@ -59,7 +59,13 @@ function baseSnapshot(name: string, overrides: Record<string, unknown> = {}) {
       ...((overrides as any).service ?? {}),
     },
     firmware: { version: "0.11", build_date: "2025-03-21" },
-    ...overrides,
+    // Top-level overrides allowed for fields like last_poll/id/ip; nested
+    // configured/live/sensors/service are already merged above, so excise
+    // them here to prevent the outer spread from clobbering the merge.
+    ...(() => {
+      const { configured: _c, live: _l, sensors: _s, service: _sv, ...rest } = overrides as any;
+      return rest;
+    })(),
   };
 }
 
@@ -178,7 +184,7 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await loadDashboard(page, { devices: [{ name: "playroom" }] });
   const card = page.locator(".card").first();
   await expect(card).toContainText("52%");
-  await expect(card).toContainText("3500ppm");
+  await expect(card).toContainText("3500 ppm");
   await expect(card).toContainText("20.8°C");
   await expect(card).toContainText("85%");
 });
@@ -197,17 +203,19 @@ test("fans: rpm-left / slider / pct-right per fan in the Speed control", async (
   });
   const rows = page.locator(".card .ctrl .fan-slider-row");
   await expect(rows).toHaveCount(2);
-  // Supply row: 5340rpm on the left, 30% on the right, slider interactive.
-  await expect(rows.nth(0).locator(".val-label")).toHaveText("5340rpm");
+  // Supply row: side label "supply", 5340rpm, slider interactive (regen mode runs both, supply hosts the control), 30% pct.
+  await expect(rows.nth(0).locator(".fan-side")).toHaveText("supply");
+  await expect(rows.nth(0).locator(".val-label")).toHaveText("5340 rpm");
   await expect(rows.nth(0).locator(".val")).toHaveText("30%");
   await expect(rows.nth(0).locator('input[type="range"]')).not.toBeDisabled();
-  // Extract row: 5400rpm on the left, 30% on the right, slider disabled.
-  await expect(rows.nth(1).locator(".val-label")).toHaveText("5400rpm");
+  // Exhaust row: side label "exhaust", 5400rpm, slider disabled (supply has the control), 30% pct.
+  await expect(rows.nth(1).locator(".fan-side")).toHaveText("exhaust");
+  await expect(rows.nth(1).locator(".val-label")).toHaveText("5400 rpm");
   await expect(rows.nth(1).locator(".val")).toHaveText("30%");
   await expect(rows.nth(1).locator('input[type="range"]')).toBeDisabled();
 });
 
-test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
+test("fans: rpm=0 collapses to 'off' in the side label", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -221,9 +229,10 @@ test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
     }),
   });
   const rows = page.locator(".card .ctrl .fan-slider-row");
-  await expect(rows.nth(0).locator(".val-label")).toHaveText("0rpm");
+  // 0 rpm reads "off" in the rpm slot; pct slot stays numeric.
+  await expect(rows.nth(0).locator(".val-label")).toHaveText("off");
   await expect(rows.nth(0).locator(".val")).toHaveText("0%");
-  await expect(rows.nth(1).locator(".val-label")).toHaveText("0rpm");
+  await expect(rows.nth(1).locator(".val-label")).toHaveText("off");
   await expect(rows.nth(1).locator(".val")).toHaveText("0%");
 });
 
@@ -360,13 +369,13 @@ test("speed preset editor: manual slider hidden while editor is open", async ({ 
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
   await expect(page.locator(".preset-editor")).toBeVisible();
   await expect(
-    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
+    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]')
   ).toBeDisabled();
   // Click again → editor closes, manual slider becomes interactive.
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
   await expect(page.locator(".preset-editor")).toHaveCount(0);
   await expect(
-    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
+    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]')
   ).not.toBeDisabled();
 });
 
@@ -407,7 +416,7 @@ test("speed preset editor: manual slider interactive when editor closed", async 
   });
   // Initial render: preset1 active, editor closed → manual slider enabled.
   await expect(
-    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
+    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]')
   ).not.toBeDisabled();
   await expect(page.locator(".preset-editor")).toHaveCount(0);
 });
@@ -417,7 +426,7 @@ test("speed manual slider: POSTs once on change, not on input", async ({ page })
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, { configured: { speed_mode: "manual", manual_pct: 30 } }),
   });
-  const slider = page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]');
+  const slider = page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]');
   await slider.evaluate((el: HTMLInputElement) => {
     el.value = "50";
     el.dispatchEvent(new Event("change", { bubbles: true }));
