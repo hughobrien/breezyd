@@ -212,6 +212,9 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 		e.CoolingTodayKWh = 0
 		e.ConsumedTodayKWh = 0
 		e.Today = today
+		if err := e.save(); err != nil {
+			slog.Warn("energy: rollover save failed", "device", e.Device, "err", err)
+		}
 	}
 
 	// Compute dt and advance LastTick. First-tick after Load (LastTick

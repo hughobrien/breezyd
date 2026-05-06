@@ -382,6 +382,36 @@ func TestEnergyTracker_Tick_DateRollover(t *testing.T) {
 	}
 }
 
+func TestEnergyTracker_Tick_RolloverPersists(t *testing.T) {
+	dir := t.TempDir()
+	tr := &EnergyTracker{
+		Device:          "rollover-persist",
+		StateDir:        dir,
+		HeatingTodayKWh: 2.5,
+		Today:           "2026-05-05",
+	}
+	// Tick at just after midnight on 2026-05-06 with a non-regen mode so
+	// the function returns early after the rollover block — no accumulation,
+	// no end-of-function save. The rollover save must have written the new
+	// date before we hit that early return.
+	t1 := time.Date(2026, 5, 6, 0, 0, 5, 0, time.Local)
+	notRegen := makeRegenSnap(50, 0, 20)
+	notRegen[0x00B7] = []byte{0} // ventilation
+	tr.Tick(notRegen, t1)
+
+	// Reload from disk: today_date must be the new date; today counters zero.
+	tr2 := &EnergyTracker{Device: "rollover-persist", StateDir: dir}
+	if err := tr2.Load(); err != nil {
+		t.Fatalf("Load after rollover: %v", err)
+	}
+	if tr2.Today != "2026-05-06" {
+		t.Errorf("persisted Today = %q, want 2026-05-06", tr2.Today)
+	}
+	if tr2.HeatingTodayKWh != 0 {
+		t.Errorf("persisted HeatingTodayKWh = %v, want 0 after rollover", tr2.HeatingTodayKWh)
+	}
+}
+
 func TestEnergyTracker_Tick_UnsupportedModel(t *testing.T) {
 	tr := newTracker(t)
 	tr.Load()

@@ -1,5 +1,7 @@
 # Daemon-side Energy Recovery Tracking
 
+> **Errata (2026-05-06):** This document originally said the regeneration wire value for `0x00B7` was 2. The actual firmware encoding is **1** (per `pkg/breezy/status.go::AirflowModeName`). The implementation matches the firmware; references to `mode != 2` / `{2}` for regen in this document should be read as `mode != 1` / `{1}`.
+
 ## Goal
 
 Show the user how much heating and cooling energy the HRV has recovered: a live wattage figure plus today and lifetime kWh totals, separated into heating-recovered and cooling-recovered. Track only while in regeneration airflow mode (the only mode where the heat exchanger is actually running). Add an ENERGY block to the dashboard at the bottom of each card; surface the same numbers in the JSON snapshot and on `/metrics`.

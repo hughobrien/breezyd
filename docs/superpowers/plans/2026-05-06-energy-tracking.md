@@ -1,5 +1,7 @@
 # Energy Recovery Tracking Implementation Plan
 
+> **Errata (2026-05-06):** This document originally said the regeneration wire value for `0x00B7` was 2. The actual firmware encoding is **1** (per `pkg/breezy/status.go::AirflowModeName`). The implementation matches the firmware; references to `mode != 2` / `{2}` for regen in this document should be read as `mode != 1` / `{1}`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers-extended-cc:subagent-driven-development (recommended) or superpowers-extended-cc:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Track heating-recovered, cooling-recovered, and fan-electric-consumed kWh per device on the daemon side (today + lifetime), gated to regeneration airflow_mode, persisted in `state_dir`, surfaced through `service.energy` on the JSON snapshot, eight Prometheus gauges, and a new collapsed-by-default ENERGY block on the dashboard. Concurrently move the existing override warnings out of the Speed control into a new NOTICE block at the bottom of each card.
