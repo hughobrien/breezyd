@@ -1301,6 +1301,40 @@ func TestHandler_PutSchedule_Validation(t *testing.T) {
 	}
 }
 
+func TestHandler_GetDevice_IncludesSchedule(t *testing.T) {
+	h, _, _, _ := newServerHandlerWithSchedule(t)
+	put := map[string]any{
+		"enabled": true,
+		"entries": []map[string]any{{"at": "08:00", "action": "regeneration", "pct": 60}},
+	}
+	if rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", put); rec.Code != http.StatusOK {
+		t.Fatalf("seed PUT failed: %s", rec.Body.String())
+	}
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	svc, _ := body["service"].(map[string]any)
+	sched, _ := svc["schedule"].(map[string]any)
+	if sched == nil {
+		t.Fatalf("service.schedule missing from response: %s", rec.Body.String())
+	}
+	if sched["enabled"] != true {
+		t.Errorf("service.schedule.enabled=%v, want true", sched["enabled"])
+	}
+	if entries, _ := sched["entries"].([]any); len(entries) != 1 {
+		t.Errorf("service.schedule.entries=%v, want 1", entries)
+	}
+	if _, ok := sched["alert"]; !ok {
+		t.Errorf("service.schedule.alert missing")
+	}
+	if _, present := sched["last_apply"]; present {
+		t.Errorf("service.schedule.last_apply should be absent when no fire has happened; got %v", sched["last_apply"])
+	}
+}
+
 func TestHandler_PutSchedule_Persists(t *testing.T) {
 	h, _, _, stateDir := newServerHandlerWithSchedule(t)
 	put := map[string]any{

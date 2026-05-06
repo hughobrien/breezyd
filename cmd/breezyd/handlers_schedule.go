@@ -11,11 +11,26 @@ import (
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
-// scheduleResponse is the over-wire JSON shape for GET and PUT.
+// scheduleResponse is the over-wire JSON shape used by both the
+// /schedule endpoints and the service.schedule glue on /v1/devices/{name}.
+// `alert` is a derived bool the dashboard reads to decide force-expand —
+// duplicated here so the UI doesn't have to descend into last_apply.
 type scheduleResponse struct {
 	Enabled   bool            `json:"enabled"`
 	Entries   []ScheduleEntry `json:"entries"`
+	Alert     bool            `json:"alert"`
 	LastApply *LastApply      `json:"last_apply,omitempty"`
+}
+
+// scheduleResponseFrom builds a scheduleResponse from a ScheduleSnapshot,
+// computing the derived alert flag.
+func scheduleResponseFrom(s ScheduleSnapshot) scheduleResponse {
+	return scheduleResponse{
+		Enabled:   s.Enabled,
+		Entries:   nilToEmpty(s.Entries),
+		Alert:     s.LastApply != nil && !s.LastApply.OK,
+		LastApply: s.LastApply,
+	}
 }
 
 // getSchedule renders the in-memory schedule.
@@ -31,12 +46,7 @@ func (h *Handler) getSchedule(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, scheduleResponse{Enabled: false, Entries: []ScheduleEntry{}})
 		return
 	}
-	snap := sch.Snapshot()
-	writeJSON(w, http.StatusOK, scheduleResponse{
-		Enabled:   snap.Enabled,
-		Entries:   nilToEmpty(snap.Entries),
-		LastApply: snap.LastApply,
-	})
+	writeJSON(w, http.StatusOK, scheduleResponseFrom(sch.Snapshot()))
 }
 
 // putSchedule replaces the schedule wholesale. Validation lives in
@@ -66,12 +76,7 @@ func (h *Handler) putSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "internal", err.Error())
 		return
 	}
-	snap := sch.Snapshot()
-	writeJSON(w, http.StatusOK, scheduleResponse{
-		Enabled:   snap.Enabled,
-		Entries:   nilToEmpty(snap.Entries),
-		LastApply: snap.LastApply,
-	})
+	writeJSON(w, http.StatusOK, scheduleResponseFrom(sch.Snapshot()))
 }
 
 // nilToEmpty makes JSON render `[]` instead of `null` when the schedule
