@@ -189,10 +189,11 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await expect(card).toContainText("85%");
 });
 
-test("fans: slider/pct per fan in Speed control; rpms in Sensors block", async ({ page }) => {
-  // Dual-row Speed layout is the preset-mode layout (manual mode uses a
-  // single combined row, exercised below). Live rpm now lives in the
-  // Sensors grid, not in the slider row.
+test("preset mode: only the active fan's slider row renders; rpms in Sensors", async ({ page }) => {
+  // Non-editable mirror rows were dropped: in regen/ventilation the
+  // supply slider is the canonical interactive control (extract row
+  // hidden); in extract-only the exhaust slider takes over (supply
+  // hidden). Live rpms live in the Sensors block, not the slider row.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -206,17 +207,39 @@ test("fans: slider/pct per fan in Speed control; rpms in Sensors block", async (
     }),
   });
   const rows = page.locator(".card .ctrl .fan-slider-row");
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(1);
   await expect(rows.nth(0).locator(".fan-side")).toHaveText("supply");
   await expect(rows.nth(0).locator(".val")).toHaveText("30%");
   await expect(rows.nth(0).locator('input[type="range"]')).not.toBeDisabled();
-  await expect(rows.nth(1).locator(".fan-side")).toHaveText("exhaust");
-  await expect(rows.nth(1).locator(".val")).toHaveText("30%");
-  await expect(rows.nth(1).locator('input[type="range"]')).toBeDisabled();
-  // rpms appear as Sensors cells.
+  // rpms appear as Sensors cells regardless of speed_mode.
   const card = page.locator(".card").first();
   await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("5340 rpm");
   await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("exhaust rpm"))')).toContainText("5400 rpm");
+});
+
+test("preset mode + extract airflow: only the exhaust row renders", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "extract", preset2: { supply: 50, extract: 50 } },
+      live: { fan_supply_rpm: 0, fan_extract_rpm: 3120, fan_supply_pct: 0, fan_extract_pct: 50 },
+    }),
+  });
+  const rows = page.locator(".card .ctrl .fan-slider-row");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.nth(0).locator(".fan-side")).toHaveText("exhaust");
+});
+
+test("preset editor open: no fan slider rows (editor is the control surface)", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await expect(page.locator(".preset-editor")).toBeVisible();
+  await expect(page.locator(".card .ctrl .fan-slider-row")).toHaveCount(0);
 });
 
 test("fans: rpm=0 reads 'off' in the Sensors block", async ({ page }) => {
@@ -289,52 +312,45 @@ test("mode click in manual: carries the higher fan pct as new manual_pct", async
   expect(speedPost?.body).toEqual({ manual: 50 });
 });
 
-test("mode click: optimistic live update fills the new active fan immediately", async ({ page }) => {
-  // Preset speed_mode keeps the dual-row layout in play so we can assert
-  // per-fan optimistic patching. The daemon's cache won't show the new
-  // fan pcts until the 12 s settle window passes; the dashboard should
-  // optimistically patch the live values so the user doesn't watch the
-  // slider sit at 0 for that long.
+test("mode click in manual: optimistic overlay flips Sensors rpms immediately", async ({ page }) => {
+  // The daemon's cache won't show the new fan_*_pct until the 12 s
+  // fan-settle window passes; the dashboard should optimistically patch
+  // the live values so the user doesn't see stale rpm/pct readings for
+  // that long. Mode buttons are only visible in manual speed_mode now.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
-      configured: { speed_mode: "preset2", airflow_mode: "extract", preset2: { supply: 50, extract: 50 } },
+      configured: { speed_mode: "manual", manual_pct: 50, airflow_mode: "extract" },
       live: { fan_supply_rpm: 0, fan_extract_rpm: 3120, fan_supply_pct: 0, fan_extract_pct: 50 },
     }),
   });
-  const rows = page.locator(".card .ctrl .fan-slider-row");
   const card = page.locator(".card").first();
-  // Pre-click sanity: supply slider reads 0%; supply rpm in Sensors is "off".
-  await expect(rows.nth(0).locator(".val")).toHaveText("0%");
+  // Pre-click sanity: supply rpm reads "off" (extract-only mode).
   await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("off");
-  // Switch to supply mode. Daemon keeps returning the stale (extract-
-  // mode) snapshot for this test — the optimistic overlay is what
-  // should flip supply to 50% (slider) / "—" (rpm in Sensors, since the
-  // overlay sets fan_supply_rpm to null until the next real poll).
+  // Switch to supply mode. Daemon keeps returning the stale snapshot —
+  // the optimistic overlay is what should flip supply rpm to "—" (the
+  // overlay sets fan_supply_rpm to null until the next real poll) and
+  // exhaust rpm to "off".
   await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
   await page.waitForTimeout(250);
-  await expect(rows.nth(0).locator(".val")).toHaveText("50%");
-  await expect(rows.nth(1).locator(".val")).toHaveText("0%");
   await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("—");
   await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("exhaust rpm"))')).toContainText("off");
 });
 
-test("preset editor: mode block hidden while editor is open", async ({ page }) => {
+test("Mode block: visible only in manual speed_mode", async ({ page }) => {
+  // In preset modes the airflow direction is encoded through the
+  // preset-editor sliders (set a side to 0 = that fan off), so the
+  // Mode buttons are redundant. They surface only in manual mode.
   await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
-    }),
+    devices: [{ name: "preset" }, { name: "manual" }],
+    snapshot: (n) => baseSnapshot(n, n === "preset"
+      ? { configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } } }
+      : { configured: { speed_mode: "manual", airflow_mode: "regeneration" } }),
   });
-  // Editor closed: Mode block visible.
-  await expect(page.locator(".card .ctrl", { hasText: "Mode" })).toBeVisible();
-  // Open editor → Mode block disappears.
-  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
-  await expect(page.locator(".preset-editor")).toBeVisible();
-  await expect(page.locator(".card .ctrl", { hasText: "Mode" })).toHaveCount(0);
-  // Close editor → Mode block returns.
-  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
-  await expect(page.locator(".card .ctrl", { hasText: "Mode" })).toBeVisible();
+  const presetCard = page.locator(".card", { hasText: "preset" }).first();
+  const manualCard = page.locator(".card", { hasText: "manual" }).first();
+  await expect(presetCard.locator(".ctrl", { hasText: "Mode" })).toHaveCount(0);
+  await expect(manualCard.locator(".ctrl", { hasText: "Mode" })).toBeVisible();
 });
 
 test("preset editor: dragging supply to 0 implies extract mode", async ({ page }) => {
@@ -378,22 +394,6 @@ test("preset editor: both > 0 in match-on mode implies regeneration", async ({ p
   const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
   expect(presetPost?.body).toEqual({ preset: 2, supply: 70, extract: 70 });
   expect(modePost?.body).toEqual({ mode: "regeneration" });
-});
-
-test("mode click in preset: no manual_pct write (would kick out of preset)", async ({ page }) => {
-  const { requests } = await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      configured: { speed_mode: "preset2", airflow_mode: "extract", preset2: { supply: 55, extract: 60 } },
-      live: { fan_supply_rpm: 0, fan_extract_rpm: 3500, fan_supply_pct: 0, fan_extract_pct: 60 },
-    }),
-  });
-  await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
-  await page.waitForTimeout(200);
-  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
-  const speedPosts = requests.filter(r => r.method === "POST" && r.url.endsWith("/speed"));
-  expect(modePost?.body).toEqual({ mode: "supply" });
-  expect(speedPosts).toEqual([]);
 });
 
 test("mode click: each button POSTs its mode string", async ({ page }) => {
@@ -477,31 +477,6 @@ test("speed preset editor: match-speeds default true → moving supply POSTs bot
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
   expect(post).toBeTruthy();
   expect(post!.body).toEqual({ preset: 2, supply: 70, extract: 70 });
-});
-
-test("speed preset editor: manual slider hidden while editor is open", async ({ page }) => {
-  await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      configured: {
-        speed_mode: "preset2",
-        preset2: { supply: 55, extract: 60 },
-      },
-    }),
-  });
-  // Open the editor; the supply (manual) slider stays visible for live
-  // ramp feedback but is disabled so the user reaches for the editor.
-  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
-  await expect(page.locator(".preset-editor")).toBeVisible();
-  await expect(
-    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]')
-  ).toBeDisabled();
-  // Click again → editor closes, manual slider becomes interactive.
-  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
-  await expect(page.locator(".preset-editor")).toHaveCount(0);
-  await expect(
-    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"][data-side="supply"]')
-  ).not.toBeDisabled();
 });
 
 test("speed preset editor: match-speeds off → moving extract preserves cached supply", async ({ page }) => {

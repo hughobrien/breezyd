@@ -40,8 +40,10 @@
   .ts.red { color: #c00; }
   .power-on { color: #383; }
   .power-off { color: #c00; }
-  .row { display: flex; justify-content: space-between; padding: 0.1rem 0; }
-  .k { color: #666; }
+  .row { display: flex; justify-content: space-between; padding: 0.1rem 0; align-items: baseline; }
+  /* .k matches the Sensors block's small grey labels so the expanded
+     Device Info reads as one consistent body. */
+  .k { color: #666; font-size: 0.7rem; }
   .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
   .block h3,
   .block summary {
@@ -567,10 +569,20 @@ function renderControls(name, snap, stale) {
     `<button data-action="mode" data-name="${esc(name)}" data-value="${esc(value)}" ${dis}
         aria-pressed="${mode === value ? "true" : "false"}">${esc(label)}</button>`;
 
-  const presetLabels = { 1: "low", 2: "med", 3: "high" };
+  // Preset button labels show the configured supply/extract pcts so the
+  // user can pick a preset by its actual speed values (the previous
+  // low/med/high was an arbitrary mapping that didn't reflect the
+  // device's stored numbers). "—" if the cache hasn't loaded the
+  // configured.presetN entry yet.
+  const presetLabel = (n) => {
+    const p = cfg["preset" + n];
+    const s = typeof p?.supply === "number" ? p.supply : "—";
+    const e = typeof p?.extract === "number" ? p.extract : "—";
+    return `${s}/${e}`;
+  };
   const presetBtn = (n) =>
     `<button data-action="preset" data-name="${esc(name)}" data-value="${n}" ${dis}
-        aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${presetLabels[n]}</button>`;
+        aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${presetLabel(n)}</button>`;
   const manualBtn = () =>
     `<button data-action="manual-speed" data-name="${esc(name)}" ${dis}
         aria-pressed="${speedMode === "manual" ? "true" : "false"}">manual</button>`;
@@ -606,25 +618,24 @@ function renderControls(name, snap, stale) {
         ${presetBtn(3)}
         ${manualBtn()}
       </div>
+      ${speedMode === "manual" ? `
+        <span class="ctrl-label">Mode</span>
+        <div class="seg">
+          ${modeBtn("auto",    "ventilation")}
+          ${modeBtn("regen",   "regeneration")}
+          ${modeBtn("supply",  "supply")}
+          ${modeBtn("exhaust", "extract")}
+        </div>
+        ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
+      ` : ""}
       ${speedMode === "manual"
         ? manualSliderRow(name, snap.live, manualPct, !disabled && !editorOpen)
-        : `${fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  supplyInteractive)}
-           ${fanSliderRow(name, "exhaust", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, extractInteractive)}`}
+        : `${supplyInteractive ? fanSliderRow(name, "supply",  snap.live?.fan_supply_rpm,  snap.live?.fan_supply_pct,  true) : ""}
+           ${extractInteractive ? fanSliderRow(name, "exhaust", snap.live?.fan_extract_rpm, snap.live?.fan_extract_pct, true) : ""}`}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
       ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
-
-    ${editorOpen ? "" : `<div class="ctrl">
-      <span class="ctrl-label">Mode</span>
-      <div class="seg">
-        ${modeBtn("auto",    "ventilation")}
-        ${modeBtn("regen",   "regeneration")}
-        ${modeBtn("supply",  "supply")}
-        ${modeBtn("exhaust", "extract")}
-      </div>
-      ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
-    </div>`}
 
     <div class="ctrl ctrl-pair">
       <div class="ctrl-group ctrl-group-timer">
