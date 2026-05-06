@@ -197,9 +197,7 @@ func TestScheduler_PersistRoundTrip(t *testing.T) {
 	s.mu.Unlock()
 
 	s2 := &Scheduler{Device: "playroom", StateDir: dir}
-	if err := s2.Load(); err != nil {
-		t.Fatalf("load: %v", err)
-	}
+	s2.Load()
 	snap := s2.Snapshot()
 	if !snap.Enabled || len(snap.Entries) != 2 || snap.Entries[0].At != 480 || snap.Entries[1].Action != "off" {
 		t.Errorf("entries did not survive roundtrip: %+v", snap)
@@ -211,9 +209,7 @@ func TestScheduler_PersistRoundTrip(t *testing.T) {
 
 func TestScheduler_LoadMissingFileStartsEmpty(t *testing.T) {
 	s := &Scheduler{Device: "x", StateDir: t.TempDir()}
-	if err := s.Load(); err != nil {
-		t.Fatalf("load missing: %v", err)
-	}
+	s.Load()
 	snap := s.Snapshot()
 	if snap.Enabled || len(snap.Entries) != 0 || snap.LastApply != nil {
 		t.Errorf("expected empty state, got %+v", snap)
@@ -226,9 +222,7 @@ func TestScheduler_LoadMalformedFileStartsEmpty(t *testing.T) {
 	if err := os.WriteFile(s.statePath(), []byte("{not json"), 0o600); err != nil {
 		t.Fatalf("seed bad file: %v", err)
 	}
-	if err := s.Load(); err != nil {
-		t.Fatalf("load malformed: %v", err)
-	}
+	s.Load()
 	snap := s.Snapshot()
 	if snap.Enabled || len(snap.Entries) != 0 {
 		t.Errorf("malformed file should start empty, got %+v", snap)

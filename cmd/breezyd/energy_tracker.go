@@ -88,13 +88,14 @@ func (e *EnergyTracker) statePath() string {
 	return filepath.Join(e.StateDir, fmt.Sprintf("energy_%s.json", e.Device))
 }
 
-// Load reads the persisted state file and restores counters.  It always
-// returns nil: a missing file starts fresh; a corrupt file is warned and
-// discarded.  On any successful or fresh load, LastTick is zeroed so the
-// first Tick (Task 3) primes without accumulating a spurious interval.
-// If the persisted today_date differs from today, the today counters are
-// zeroed (lifetime carries over).
-func (e *EnergyTracker) Load() error {
+// Load reads the persisted state file and restores counters. A missing
+// file starts fresh; a corrupt file is warned and discarded. On any
+// successful or fresh load, LastTick is zeroed so the first Tick (Task 3)
+// primes without accumulating a spurious interval. If the persisted
+// today_date differs from today, the today counters are zeroed (lifetime
+// carries over). All errors are handled internally — the caller has
+// nothing to check, hence no return value.
+func (e *EnergyTracker) Load() {
 	today := time.Now().Local().Format("2006-01-02")
 
 	data, err := os.ReadFile(e.statePath())
@@ -105,7 +106,7 @@ func (e *EnergyTracker) Load() error {
 		}
 		e.Today = today
 		e.LastTick = time.Time{}
-		return nil
+		return
 	}
 
 	var p persistedEnergy
@@ -114,7 +115,7 @@ func (e *EnergyTracker) Load() error {
 			"device", e.Device, "err", err)
 		e.Today = today
 		e.LastTick = time.Time{}
-		return nil
+		return
 	}
 
 	// Restore lifetime counters unconditionally.
@@ -155,7 +156,6 @@ func (e *EnergyTracker) Load() error {
 	// Always zero LastTick so the first Tick after Load primes without
 	// accumulating a spurious interval from the previous daemon run.
 	e.LastTick = time.Time{}
-	return nil
 }
 
 // save writes the current state atomically to statePath via a sibling temp
