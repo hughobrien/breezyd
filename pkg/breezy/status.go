@@ -78,6 +78,15 @@ func BuildStatus(values map[ParamID][]byte, name, id, ip string, lastPoll *time.
 	if v, ok := Uint16At(values, 0x031F); ok {
 		resp.Configured["voc_threshold_index"] = int(v)
 	}
+	if b, ok := Uint8At(values, 0x000F); ok {
+		resp.Configured["humidity_sensor_enabled"] = b == 1
+	}
+	if b, ok := Uint8At(values, 0x0011); ok {
+		resp.Configured["co2_sensor_enabled"] = b == 1
+	}
+	if b, ok := Uint8At(values, 0x0315); ok {
+		resp.Configured["voc_sensor_enabled"] = b == 1
+	}
 	// Per-preset stored supply/extract percentages so the UI can show
 	// current values in the per-preset editor (POST /preset writes here).
 	for i, params := range [][2]ParamID{
