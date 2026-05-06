@@ -474,7 +474,7 @@ test("threshold: cancel reverts without POSTing", async ({ page }) => {
 test("device info: collapsed by default", async ({ page }) => {
   await loadDashboard(page, { devices: [{ name: "playroom" }] });
   const card = page.locator(".card").first();
-  const info = card.locator("details.device-info", { hasText: "Device" });
+  const info = card.locator("details.device-info");
   await expect(info).toHaveCount(1);
   await expect(info).not.toHaveAttribute("open", "");
   // Body rows (serial, ip, fw, filter, …) aren't visible while collapsed.
@@ -488,7 +488,7 @@ test("device info: auto-expanded when fault is active", async ({ page }) => {
       service: { fault_level: "alarm" },
     }),
   });
-  const info = page.locator("details.device-info", { hasText: "Device" }).first();
+  const info = page.locator("details.device-info").first();
   await expect(info).toHaveAttribute("open", "");
 });
 
@@ -499,13 +499,13 @@ test("device info: auto-expanded when filter is soiled", async ({ page }) => {
       service: { filter_status: "soiled" },
     }),
   });
-  const info = page.locator("details.device-info", { hasText: "Device" }).first();
+  const info = page.locator("details.device-info").first();
   await expect(info).toHaveAttribute("open", "");
 });
 
 test("device info: clicking summary toggles open and reveals serial/ip/fw", async ({ page }) => {
   await loadDashboard(page, { devices: [{ name: "playroom" }] });
-  const info = page.locator("details.device-info", { hasText: "Device" }).first();
+  const info = page.locator("details.device-info").first();
   await expect(info).not.toHaveAttribute("open", "");
   await info.locator("summary").click();
   await expect(info).toHaveAttribute("open", "");

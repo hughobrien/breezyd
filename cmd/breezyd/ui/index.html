@@ -11,12 +11,8 @@
     margin: 0; padding: 1rem;
     color: #111; background: #f6f6f6;
   }
-  header {
-    display: flex; justify-content: space-between; align-items: baseline;
-    margin-bottom: 1rem;
-  }
+  header { margin-bottom: 1rem; }
   h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
-  .meta { color: #666; font-size: 0.85rem; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   .card {
@@ -42,18 +38,35 @@
   .power-off { color: #c00; }
   .row { display: flex; justify-content: space-between; padding: 0.1rem 0; }
   .k { color: #666; }
-  .block,
-  .device-info { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
+  .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
   .block h3,
-  .block summary,
-  .device-info summary {
+  .block summary {
     margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
     color: #333; text-transform: uppercase; letter-spacing: 0.05em;
   }
-  .block summary,
-  .device-info summary { cursor: pointer; }
-  .block summary::marker,
-  .device-info summary::marker { font-size: 0.7em; color: #888; }
+  .block summary { cursor: pointer; }
+  .block summary::marker { font-size: 0.7em; color: #888; }
+  /* Device <details> uses the device name (<h2>) as the summary so
+     clicking the name expands the panel. Layout is a flex row so the
+     name sits on the left and the inline Power button on the right. */
+  .device-info > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 1ch;
+    cursor: pointer;
+    list-style: none;
+    margin-bottom: 0.25rem;
+  }
+  .device-info > summary > .toggle-inline { margin-left: auto; }
+  .device-info > summary::-webkit-details-marker { display: none; }
+  .device-info > summary::before {
+    content: "▶";
+    font-size: 0.65em;
+    color: #888;
+    align-self: center;
+  }
+  .device-info[open] > summary::before { content: "▼"; }
+  .device-info > summary > h2 { margin: 0; flex: 1 1 auto; }
   .warn { color: #b07000; font-size: 0.85rem; margin-top: 0.4rem; }
   .err-banner {
     background: #fee; border: 1px solid #c66; padding: 0.75rem;
@@ -152,7 +165,6 @@
 <body>
   <header>
     <h1>breezy</h1>
-    <span class="meta" id="meta">loading…</span>
   </header>
   <div id="banner"></div>
   <div class="grid" id="grid"></div>
@@ -201,7 +213,6 @@ async function bootstrap() {
     render();
     await refreshAll();
     setInterval(refreshAll, POLL_INTERVAL_MS);
-    setInterval(updateMeta, 1000);
   } catch (e) {
     showBanner(`cannot reach daemon — is breezyd running? (${e.message})`);
     setTimeout(bootstrap, POLL_INTERVAL_MS);
@@ -237,13 +248,6 @@ async function refreshAll() {
 function render() {
   document.getElementById("grid").innerHTML =
     deviceNames.map(name => renderCard(name, lastSnapshots[name])).join("");
-  updateMeta();
-}
-
-function updateMeta() {
-  const meta = document.getElementById("meta");
-  const last = Math.max(0, ...Object.values(lastSnapshots).map(s => s._fetchedAt || 0));
-  meta.textContent = last === 0 ? "no data yet" : `refreshed ${humanAgo(Date.now() - last)} ago`;
 }
 
 function renderCard(name, snap) {
@@ -276,18 +280,12 @@ function renderCard(name, snap) {
   // full-width treatment .toggle gets in the Controls block).
   const cardDis = (stale || inFlight[name]) ? "disabled" : "";
   return `<div class="card${stale ? " stale" : ""}">
-    <div class="row">
-      <h2>${esc(name)}</h2>
-      <button class="toggle toggle-inline" data-action="power" data-name="${esc(name)}" ${cardDis}
-        aria-pressed="${power === true ? "true" : "false"}">power</button>
-    </div>
-    ${(toasts[name] || {}).power ? `<div class="toast" role="alert">${esc(toasts[name].power)}</div>` : ""}
-    <div class="row">
-      <span class="ts${stale ? " red" : ""}">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span>
-    </div>
-
     <details class="device-info"${infoOpen ? " open" : ""}>
-      <summary>Device</summary>
+      <summary>
+        <h2>${esc(name)}</h2>
+        <button class="toggle toggle-inline" data-action="power" data-name="${esc(name)}" ${cardDis}
+          aria-pressed="${power === true ? "true" : "false"}">power</button>
+      </summary>
       ${kv("ip",               esc(snap.ip || "?"))}
       ${kv("serial",           esc(snap.id || "?"))}
       ${kv("firmware version", fwVersion)}
@@ -297,6 +295,8 @@ function renderCard(name, snap) {
       ${kv("RTC",              fmt(snap.service?.rtc_battery_volts, "—", "V"))}
       ${kv("faults",           fmt(snap.service?.fault_level, "—"))}
     </details>
+    ${(toasts[name] || {}).power ? `<div class="toast" role="alert">${esc(toasts[name].power)}</div>` : ""}
+    ${stale ? `<div class="row"><span class="ts red">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span></div>` : ""}
 
     <div class="block">
       <h3>Sensors</h3>
@@ -524,6 +524,12 @@ function renderControls(name, snap, stale) {
 document.addEventListener("click", async (ev) => {
   const el = ev.target.closest("[data-action]");
   if (!el) return;
+  // Action buttons inside a <summary> would otherwise trigger the
+  // <details> default toggle as the click bubbles up. preventDefault
+  // cancels that without affecting our action dispatch below.
+  if (el.closest("summary")) {
+    ev.preventDefault();
+  }
   const name = el.dataset.name;
   const action = el.dataset.action;
   const value = el.dataset.value;
