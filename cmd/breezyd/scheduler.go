@@ -261,3 +261,143 @@ func (s *Scheduler) save() error {
 func sortEntries(entries []ScheduleEntry) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].At < entries[j].At })
 }
+
+// fireTimeout bounds a single fire attempt's UDP round-trip.
+const fireTimeout = 5 * time.Second
+
+// tick processes one minute boundary. now is the wall-clock; tests pass
+// a synthetic value via s.Now.
+//
+// Window detection uses the half-open interval (lastTick, nowMinute];
+// midnight wraparound (nowMinute < lastTick) becomes the union
+// (lastTick, 1440) ∪ [0, nowMinute]. Multiple matches fire the latest
+// one only — earlier matches are stale.
+//
+// Retry state-machine handling lands in Task 4; for now `tick` does not
+// inspect or mutate s.retry.
+func (s *Scheduler) tick(ctx context.Context, now time.Time) {
+	s.mu.Lock()
+	enabled := s.enabled
+	entries := append([]ScheduleEntry(nil), s.entries...)
+	haveLastTick := s.haveLastTick
+	lastTick := s.lastTick
+	s.mu.Unlock()
+
+	nowMinute := ScheduleTime(now.Hour()*60 + now.Minute())
+
+	if !enabled {
+		s.mu.Lock()
+		s.lastTick = nowMinute
+		s.haveLastTick = true
+		s.mu.Unlock()
+		return
+	}
+	if !haveLastTick {
+		s.mu.Lock()
+		s.lastTick = nowMinute
+		s.haveLastTick = true
+		s.mu.Unlock()
+		return
+	}
+	if nowMinute == lastTick {
+		return
+	}
+
+	inWindow := func(at ScheduleTime) bool {
+		if nowMinute > lastTick {
+			return at > lastTick && at <= nowMinute
+		}
+		return at > lastTick || at <= nowMinute
+	}
+
+	// Pick the latest entry in the window. "Latest" is measured by
+	// distance from lastTick (mod 1440) so wraparound reads linearly.
+	dist := func(t ScheduleTime) int {
+		d := int(t) - int(lastTick)
+		if d <= 0 {
+			d += 1440
+		}
+		return d
+	}
+	var latest *ScheduleEntry
+	latestIdx := -1
+	for i, e := range entries {
+		if !inWindow(e.At) {
+			continue
+		}
+		if latest == nil || dist(e.At) > dist(latest.At) {
+			cp := e
+			latest = &cp
+			latestIdx = i
+		}
+	}
+
+	s.mu.Lock()
+	s.lastTick = nowMinute
+	s.haveLastTick = true
+	s.mu.Unlock()
+
+	if latest != nil {
+		s.fire(ctx, *latest, latestIdx, now)
+	}
+}
+
+// fire dispatches one entry's writes through Dial. Records lastApply on
+// completion (success or failure) and persists. Retry installation lands
+// in Task 4.
+func (s *Scheduler) fire(ctx context.Context, e ScheduleEntry, _ int, now time.Time) {
+	if s.LockUDP != nil {
+		unlock := s.LockUDP()
+		defer unlock()
+	}
+	cctx, cancel := context.WithTimeout(ctx, fireTimeout)
+	defer cancel()
+
+	var fireErr error
+	if s.Dial == nil {
+		fireErr = errors.New("scheduler: Dial not configured")
+	} else {
+		client, raw, err := s.Dial(cctx)
+		if err != nil {
+			fireErr = err
+		} else {
+			defer func() { _ = raw.Close() }()
+			fireErr = applyAction(cctx, client, e)
+		}
+	}
+
+	la := &LastApply{
+		At:    e.At,
+		Fired: now,
+		OK:    fireErr == nil,
+	}
+	if fireErr != nil {
+		la.Err = fireErr.Error()
+		la.Retries = 0 // Task 4 will set this from the retry counter.
+		slog.Warn("schedule: fire failed", "device", s.Device, "at", e.At.String(), "err", fireErr)
+	} else {
+		slog.Info("schedule: fired", "device", s.Device, "at", e.At.String(), "action", e.Action, "pct", e.Pct)
+	}
+
+	s.mu.Lock()
+	s.lastApply = la
+	if err := s.save(); err != nil {
+		slog.Warn("schedule: save after fire failed", "device", s.Device, "err", err)
+	}
+	s.mu.Unlock()
+}
+
+// applyAction issues the device-side writes corresponding to one entry's
+// Action. Order: Power → Mode → SpeedManual. "off" issues Power(false) only.
+func applyAction(ctx context.Context, c breezy.DeviceClient, e ScheduleEntry) error {
+	if e.Action == "off" {
+		return breezy.Power(ctx, c, false)
+	}
+	if err := breezy.Power(ctx, c, true); err != nil {
+		return err
+	}
+	if err := breezy.SetMode(ctx, c, e.Action); err != nil {
+		return err
+	}
+	return breezy.SetSpeedManual(ctx, c, e.Pct)
+}

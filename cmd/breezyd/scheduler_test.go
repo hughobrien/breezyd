@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +12,62 @@ import (
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
+
+// schedFakeClient implements breezy.DeviceClient for tests.
+type schedFakeClient struct {
+	writes [][]breezy.ParamWrite
+	err    error
+}
+
+func (f *schedFakeClient) ReadParams(_ context.Context, _ []breezy.ParamID) (map[breezy.ParamID][]byte, error) {
+	return map[breezy.ParamID][]byte{}, nil
+}
+func (f *schedFakeClient) WriteParams(_ context.Context, ws []breezy.ParamWrite) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.writes = append(f.writes, append([]breezy.ParamWrite(nil), ws...))
+	return nil
+}
+
+// flatWrites returns every ParamWrite in order across all WriteParams calls.
+func (f *schedFakeClient) flatWrites() []breezy.ParamWrite {
+	out := []breezy.ParamWrite{}
+	for _, batch := range f.writes {
+		out = append(out, batch...)
+	}
+	return out
+}
+
+// schedFakeRaw implements HandlerClient (so Scheduler.Dial can return one).
+type schedFakeRaw struct{}
+
+func (schedFakeRaw) ReadParams(_ context.Context, _ []breezy.ParamID) (map[breezy.ParamID][]byte, error) {
+	return nil, nil
+}
+func (schedFakeRaw) WriteParams(_ context.Context, _ []breezy.ParamWrite) error { return nil }
+func (schedFakeRaw) Close() error                                               { return nil }
+
+// newSchedTest builds a Scheduler wired to a fake client whose writes
+// the test can inspect afterwards.
+func newSchedTest(t *testing.T) (*Scheduler, *schedFakeClient) {
+	t.Helper()
+	fc := &schedFakeClient{}
+	s := &Scheduler{
+		Device:   "playroom",
+		StateDir: t.TempDir(),
+		LockUDP:  func() func() { return func() {} },
+		Dial: func(_ context.Context) (breezy.DeviceClient, HandlerClient, error) {
+			return fc, schedFakeRaw{}, nil
+		},
+	}
+	return s, fc
+}
+
+// helper: build a time at a given local HH:MM (date doesn't matter).
+func atHM(h, m int) time.Time {
+	return time.Date(2026, 5, 6, h, m, 0, 0, time.Local)
+}
 
 func TestScheduleTime_ParseAndString(t *testing.T) {
 	cases := []struct {
@@ -52,11 +109,9 @@ func TestScheduler_Validation(t *testing.T) {
 	if err := s.validate(good); err != nil {
 		t.Errorf("good schedule rejected: %v", err)
 	}
+	// validate accepts an empty entry slice — no rule depends on enabled.
 	if err := s.validate(nil); err != nil {
-		t.Errorf("empty disabled schedule rejected: %v", err)
-	}
-	if err := s.validate(nil); err != nil {
-		t.Errorf("empty enabled schedule rejected: %v", err)
+		t.Errorf("empty schedule rejected: %v", err)
 	}
 
 	type badCase struct {
@@ -191,5 +246,151 @@ func TestScheduler_SaveAtomic(t *testing.T) {
 		if filepath.Ext(e.Name()) == ".tmp" {
 			t.Errorf("temp file leaked: %s", e.Name())
 		}
+	}
+}
+
+func TestScheduler_Tick_NoCatchupOnStartup(t *testing.T) {
+	s, fc := newSchedTest(t)
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(14, 0))
+	if len(fc.writes) != 0 {
+		t.Errorf("first tick fired unexpectedly: %+v", fc.writes)
+	}
+	s.tick(context.Background(), atHM(14, 0))
+	if len(fc.writes) != 0 {
+		t.Errorf("second tick at same minute should not fire: %+v", fc.writes)
+	}
+}
+
+func TestScheduler_Tick_FiresOnAtTime_Regeneration(t *testing.T) {
+	s, fc := newSchedTest(t)
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	got := fc.flatWrites()
+	if len(got) < 3 {
+		t.Fatalf("want >=3 writes (Power, Mode, SpeedManual), got %d: %+v", len(got), got)
+	}
+	if got[0].ID != 0x0001 || got[0].Value[0] != 1 {
+		t.Errorf("first write should be Power(true); got id=0x%04X val=%v", uint16(got[0].ID), got[0].Value)
+	}
+	if got[1].ID != 0x00B7 || got[1].Value[0] != 1 { // 1 = regeneration
+		t.Errorf("second write should be SetMode(regeneration); got id=0x%04X val=%v", uint16(got[1].ID), got[1].Value)
+	}
+	saw0x44 := false
+	for _, w := range got[2:] {
+		if w.ID == 0x0044 && w.Value[0] == 60 {
+			saw0x44 = true
+		}
+	}
+	if !saw0x44 {
+		t.Errorf("expected SpeedManual write of 60%% via 0x44; writes=%+v", got)
+	}
+	snap := s.Snapshot()
+	if snap.LastApply == nil || !snap.LastApply.OK || snap.LastApply.At != 480 {
+		t.Errorf("lastApply not recorded as OK at 08:00: %+v", snap.LastApply)
+	}
+}
+
+func TestScheduler_Tick_FiresOff(t *testing.T) {
+	s, fc := newSchedTest(t)
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 1320, Action: "off", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(21, 59))
+	s.tick(context.Background(), atHM(22, 0))
+	got := fc.flatWrites()
+	if len(got) != 1 {
+		t.Fatalf("want exactly one Power(false), got %d writes: %+v", len(got), got)
+	}
+	if got[0].ID != 0x0001 || got[0].Value[0] != 0 {
+		t.Errorf("off should be Power(false); got id=0x%04X val=%v", uint16(got[0].ID), got[0].Value)
+	}
+}
+
+func TestScheduler_Tick_DisabledIsInert(t *testing.T) {
+	s, fc := newSchedTest(t)
+	s.mu.Lock()
+	s.enabled = false
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	if len(fc.writes) != 0 {
+		t.Errorf("disabled scheduler should not fire: %+v", fc.writes)
+	}
+}
+
+func TestScheduler_Tick_MultipleMatchFiresLatest(t *testing.T) {
+	s, fc := newSchedTest(t)
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{
+		{At: 480, Action: "regeneration", Pct: 60},
+		{At: 540, Action: "ventilation", Pct: 70},
+	}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(9, 1))
+	got := fc.flatWrites()
+	saw0x44_70 := false
+	for _, w := range got {
+		if w.ID == 0x0044 && w.Value[0] == 70 {
+			saw0x44_70 = true
+		}
+	}
+	if !saw0x44_70 {
+		t.Errorf("multi-match window should fire latest (09:00 → ventilation 70%%); writes=%+v", got)
+	}
+	powerOnCount := 0
+	for _, w := range got {
+		if w.ID == 0x0001 && w.Value[0] == 1 {
+			powerOnCount++
+		}
+	}
+	if powerOnCount != 1 {
+		t.Errorf("multi-match should fire one entry only; got %d Power(true) writes", powerOnCount)
+	}
+}
+
+func TestScheduler_Tick_FiresAcrossMidnight(t *testing.T) {
+	s, fc := newSchedTest(t)
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 5, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(23, 59))
+	if len(fc.writes) != 0 {
+		t.Fatalf("priming tick should not fire: %+v", fc.writes)
+	}
+	s.tick(context.Background(), atHM(0, 6))
+	got := fc.flatWrites()
+	if len(got) == 0 {
+		t.Errorf("00:05 entry should fire across midnight: writes=%+v", got)
+	}
+}
+
+func TestScheduler_Fire_FailureRecordsLastApply(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("simulated UDP timeout")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	snap := s.Snapshot()
+	if snap.LastApply == nil || snap.LastApply.OK {
+		t.Errorf("failed fire should record lastApply.ok=false: %+v", snap.LastApply)
+	}
+	if snap.LastApply.Err == "" {
+		t.Errorf("failed fire should record an err message: %+v", snap.LastApply)
 	}
 }
