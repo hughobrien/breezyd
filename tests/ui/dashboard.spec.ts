@@ -931,6 +931,31 @@ test("device info: clicking summary toggles open and reveals serial/ip/fw", asyn
   await expect(info).toContainText("0.11");
 });
 
+test("ENERGY block: open state survives the 5 s grid re-render", async ({ page }) => {
+  // The dashboard rebuilds <div id="grid">.innerHTML on every poll, which
+  // would destroy and recreate the <details> element. The energyOpen
+  // state map + toggle listener keep the panel open across re-renders.
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: true, instant_w: 100, consumed_w: 10,
+                  heating_today_kwh: 0.5, cooling_today_kwh: 0,
+                  consumed_today_kwh: 0.05, heating_lifetime_kwh: 50,
+                  cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 5 },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toHaveAttribute("open", "");
+  // Force a re-render to mimic the 5 s poll cycle.
+  await page.evaluate(() => (window as any).render?.() ?? null);
+  // The fresh <details> element should have its open attr re-applied
+  // from energyOpen state.
+  await expect(page.locator(".card details.energy")).toHaveAttribute("open", "");
+});
+
 test("ENERGY block: collapsed by default, expanding shows now-line + 3-col grid", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],

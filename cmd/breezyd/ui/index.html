@@ -73,6 +73,25 @@
   }
   .device-info[open] > summary::before { content: "▼"; }
   .device-info > summary > h2 { margin: 0; flex: 1 1 auto; }
+  /* ENERGY <details>: same chevron-on-the-left treatment as Device Info,
+     so the marker sits beside the heading instead of stacking under it.
+     Without this, the browser-default marker overlaps the <h3> content. */
+  details.energy > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 1ch;
+    cursor: pointer;
+    list-style: none;
+  }
+  details.energy > summary::-webkit-details-marker { display: none; }
+  details.energy > summary::before {
+    content: "▶";
+    font-size: 0.65em;
+    color: #888;
+    align-self: center;
+  }
+  details.energy[open] > summary::before { content: "▼"; }
+  details.energy > summary > h3 { margin: 0; }
   .warn { color: #b07000; font-size: 0.85rem; margin-top: 0.4rem; }
   .err-banner {
     background: #fee; border: 1px solid #c66; padding: 0.75rem;
@@ -278,6 +297,9 @@ const matchSpeeds = {};     // name -> bool
 // rule ORs with this — a user-collapsed panel re-opens on the next render
 // if a fault appears.
 const deviceInfoOpen = {}; // name -> bool
+// Same pattern for the ENERGY <details>: the 5 s grid re-render destroys
+// and recreates the element, which would reset its open state otherwise.
+const energyOpen = {};     // name -> bool
 
 // Per-kind config for the editable sensor rows. Mirrors the daemon's
 // SetThreshold validation: humidity 40-80, co2 400-2000 step 10, voc 50-250.
@@ -423,11 +445,13 @@ function renderCard(name, snap) {
 function renderEnergy(name, snap) {
   const ev = snap.service?.energy;
   if (!ev) return "";
-  // <details> default closed (no `open` attr); summary holds the heading.
+  // Default closed; survives the 5 s grid re-render via energyOpen state
+  // tracked by the toggle listener at the bottom of this file.
+  const open = energyOpen[name] === true ? " open" : "";
   const inner = ev.error
     ? `<div class="warn">${esc(ev.error)}</div>`
     : energyBody(ev);
-  return `<details class="block energy">
+  return `<details class="block energy"${open}>
     <summary><h3>ENERGY</h3></summary>
     ${inner}
   </details>`;
@@ -1016,12 +1040,14 @@ async function saveThreshold(name, kind) {
 // data-attribute through, which keeps the markup minimal.
 document.addEventListener("toggle", (ev) => {
   const el = ev.target;
-  if (!el.classList?.contains("device-info")) return;
   const name = el.closest(".card")?.querySelector("h2")?.textContent;
-  if (el.open) {
-    deviceInfoOpen[name] = true;
-  } else {
-    delete deviceInfoOpen[name];
+  if (!name) return;
+  if (el.classList?.contains("device-info")) {
+    if (el.open) deviceInfoOpen[name] = true;
+    else delete deviceInfoOpen[name];
+  } else if (el.classList?.contains("energy")) {
+    if (el.open) energyOpen[name] = true;
+    else delete energyOpen[name];
   }
 }, true);
 
