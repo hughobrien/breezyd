@@ -602,7 +602,7 @@ function renderControls(name, snap, stale) {
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
 
-    <div class="ctrl">
+    ${editorOpen ? "" : `<div class="ctrl">
       <span class="ctrl-label">Mode</span>
       <div class="seg">
         ${modeBtn("auto",    "ventilation")}
@@ -611,7 +611,7 @@ function renderControls(name, snap, stale) {
         ${modeBtn("exhaust", "extract")}
       </div>
       ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
-    </div>
+    </div>`}
 
     <div class="ctrl ctrl-pair">
       <div class="ctrl-group ctrl-group-timer">
@@ -688,14 +688,14 @@ function presetEditor(name, preset, cfg, matchOn, dis) {
     </label>
     <div class="slider-row">
       <span class="val-label">supply</span>
-      <input type="range" min="10" max="100" step="5" value="${supplyVal}"
+      <input type="range" min="0" max="100" step="5" value="${supplyVal}"
         data-action="preset-supply-slider" data-name="${esc(name)}"
         data-preset="${preset}" ${dis}>
       <span class="val">${supplyVal}%</span>
     </div>
     <div class="slider-row">
       <span class="val-label">exhaust</span>
-      <input type="range" min="10" max="100" step="5" value="${extractVal}"
+      <input type="range" min="0" max="100" step="5" value="${extractVal}"
         data-action="preset-extract-slider" data-name="${esc(name)}"
         data-preset="${preset}" ${dis}>
       <span class="val">${extractVal}%</span>
@@ -929,10 +929,51 @@ document.addEventListener("change", async (ev) => {
       supply = fallbackOther;
       extract = newPct;
     }
-    // Toast key reuses "speed" because the editor lives inside the Speed
-    // control — any error surfaces in that block's toast slot.
-    await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/preset",
-                    { preset, supply, extract });
+    // The protocol's preset register only accepts 10..100; a slider value
+    // of 0 means "this fan off in this configuration" and is encoded via
+    // airflow_mode (supply / extract single-direction modes) rather than
+    // a literal register write. Skip the /preset POST if either side is
+    // below 10 so the existing register keeps its last legal value.
+    const canWritePreset = supply >= 10 && extract >= 10;
+    if (canWritePreset) {
+      // Toast key reuses "speed" because the editor lives inside the Speed
+      // control — any error surfaces in that block's toast slot.
+      await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/preset",
+                      { preset, supply, extract });
+    }
+    // Infer airflow_mode from the future supply/extract pair. Only act
+    // when this preset is the active speed_mode (otherwise we'd be
+    // changing the running mode based on a non-active preset's edit).
+    const speedMode = lastSnapshots[name]?.configured?.speed_mode;
+    if (speedMode === "preset" + preset) {
+      let impliedMode = null;
+      if (supply === 0 && extract > 0) impliedMode = "extract";
+      else if (extract === 0 && supply > 0) impliedMode = "supply";
+      else if (supply > 0 && extract > 0) impliedMode = "regeneration";
+      const currentMode = lastSnapshots[name]?.configured?.airflow_mode;
+      if (impliedMode && impliedMode !== currentMode) {
+        await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
+                        { mode: impliedMode });
+        // Optimistic UI: the daemon's cache is stale through the settle
+        // window; patch the snapshot so the highlighted mode button and
+        // the live fan rows update without waiting for the next poll.
+        if (lastSnapshots[name]?.configured) {
+          lastSnapshots[name].configured.airflow_mode = impliedMode;
+        }
+        const supplyRuns = impliedMode === "regeneration" || impliedMode === "supply" || impliedMode === "ventilation";
+        const extractRuns = impliedMode === "regeneration" || impliedMode === "extract" || impliedMode === "ventilation";
+        setOptimisticLive(name, {
+          fan_supply_pct: supplyRuns ? supply : 0,
+          fan_extract_pct: extractRuns ? extract : 0,
+          fan_supply_rpm: supplyRuns ? null : 0,
+          fan_extract_rpm: extractRuns ? null : 0,
+        });
+        if (lastSnapshots[name]) {
+          lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
+        }
+        render();
+      }
+    }
     return;
   }
 

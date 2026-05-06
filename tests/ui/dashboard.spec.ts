@@ -314,23 +314,65 @@ test("mode click: optimistic live update fills the new active fan immediately", 
   await expect(rows.nth(1).locator(".val")).toHaveText("0%");
 });
 
-test("mode click closes any open preset editor", async ({ page }) => {
+test("preset editor: mode block hidden while editor is open", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
-      configured: {
-        speed_mode: "preset2",
-        airflow_mode: "regeneration",
-        preset2: { supply: 55, extract: 60 },
-      },
+      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
     }),
   });
-  // Open the preset editor.
+  // Editor closed: Mode block visible.
+  await expect(page.locator(".card .ctrl", { hasText: "Mode" })).toBeVisible();
+  // Open editor → Mode block disappears.
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
   await expect(page.locator(".preset-editor")).toBeVisible();
-  // Click any mode button → editor closes.
-  await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
-  await expect(page.locator(".preset-editor")).toHaveCount(0);
+  await expect(page.locator(".card .ctrl", { hasText: "Mode" })).toHaveCount(0);
+  // Close editor → Mode block returns.
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await expect(page.locator(".card .ctrl", { hasText: "Mode" })).toBeVisible();
+});
+
+test("preset editor: dragging supply to 0 implies extract mode", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "regeneration", preset2: { supply: 55, extract: 60 } },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  // Turn match off so dragging supply doesn't drag extract along.
+  await page.locator('input[data-action="match-speeds-toggle"][data-name="playroom"]').uncheck();
+  const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
+  await supply.evaluate((el: HTMLInputElement) => {
+    el.value = "0";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  // No /preset write (supply=0 below protocol min); /mode write to extract.
+  const presetPost = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  expect(presetPost).toBeFalsy();
+  expect(modePost?.body).toEqual({ mode: "extract" });
+});
+
+test("preset editor: both > 0 in match-on mode implies regeneration", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "preset2", airflow_mode: "supply", preset2: { supply: 55, extract: 60 } },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
+  await supply.evaluate((el: HTMLInputElement) => {
+    el.value = "70";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  const presetPost = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
+  const modePost = requests.find(r => r.method === "POST" && r.url.endsWith("/mode"));
+  expect(presetPost?.body).toEqual({ preset: 2, supply: 70, extract: 70 });
+  expect(modePost?.body).toEqual({ mode: "regeneration" });
 });
 
 test("mode click in preset: no manual_pct write (would kick out of preset)", async ({ page }) => {
