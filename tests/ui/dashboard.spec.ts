@@ -897,6 +897,121 @@ test("auto-fan: toggling-only POSTs {kind, enabled}", async ({ page }) => {
   expect(post!.body).not.toHaveProperty("value");
 });
 
+test("schedule: empty state renders collapsed block with 'no entries'", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { schedule: { enabled: false, entries: [], alert: false } },
+    }),
+  });
+  const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
+  const block = card.locator("details.schedule");
+  await expect(block).toBeVisible();
+  await expect(block).not.toHaveAttribute("open", "");
+  // Expand to confirm "no entries" text is rendered inside.
+  await block.locator("summary").click();
+  await expect(card).toContainText("no entries");
+});
+
+test("schedule: populated state renders rows with At, Action, Pct", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { schedule: {
+        enabled: true,
+        entries: [
+          { at: "08:00", action: "regeneration", pct: 60 },
+          { at: "22:00", action: "off", pct: 60 },
+        ],
+        alert: false,
+      } },
+    }),
+  });
+  const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
+  await card.locator("details.schedule summary").click();
+  await expect(card.locator(".schedule-table tbody tr")).toHaveCount(2);
+  // Action select for the first row should be "regeneration".
+  await expect(card.locator(".schedule-table tbody tr").first().locator("select")).toHaveValue("regeneration");
+});
+
+test("schedule: action=off greys the pct input", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { schedule: {
+        enabled: true,
+        entries: [{ at: "22:00", action: "off", pct: 60 }],
+        alert: false,
+      } },
+    }),
+  });
+  const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
+  await card.locator("details.schedule summary").click();
+  const pct = card.locator('input[data-action="schedule-pct"]');
+  await expect(pct).toHaveAttribute("readonly", "");
+  await expect(pct).toHaveClass(/pct-disabled/);
+});
+
+test("schedule: duplicate-at disables save", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { schedule: {
+        enabled: true,
+        entries: [
+          { at: "10:00", action: "regeneration", pct: 60 },
+          { at: "10:00", action: "off", pct: 60 },
+        ],
+        alert: false,
+      } },
+    }),
+  });
+  const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
+  await card.locator("details.schedule summary").click();
+  const save = card.locator('button[data-action="schedule-save"]');
+  await expect(save).toBeDisabled();
+});
+
+test("schedule: alert forces panel open with warn line", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { schedule: {
+        enabled: true,
+        entries: [{ at: "22:00", action: "off", pct: 60 }],
+        alert: true,
+        last_apply: { at: 1320, fired: "2026-05-06T22:00:14+01:00", ok: false,
+                      err: "device_unreachable: i/o timeout", retries: 5 },
+      } },
+    }),
+  });
+  const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
+  await expect(card.locator("details.schedule")).toHaveAttribute("open", "");
+  const warn = card.locator("details.schedule .warn");
+  await expect(warn).toContainText("22:00");
+  await expect(warn).toContainText("device_unreachable");
+  await expect(warn).toContainText("retried 5 times");
+});
+
+test("schedule: save click PUTs the edited table", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: { schedule: { enabled: false, entries: [], alert: false } },
+    }),
+  });
+  const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
+  await card.locator("details.schedule summary").click();
+  await card.locator('button[data-action="schedule-add"]').click();
+  await card.locator('button[data-action="schedule-save"]').click();
+  // Wait briefly for the PUT to be captured.
+  await page.waitForTimeout(200);
+  const put = requests.find(r => r.method === "PUT" && r.url.endsWith("/schedule"));
+  expect(put).toBeTruthy();
+  expect(put!.body.entries.length).toBe(1);
+  expect(put!.body.entries[0]).toMatchObject({ at: "08:00", action: "regeneration", pct: 60 });
+});
+
 test("auto-fan: editing both value and checkbox POSTs {kind, value, enabled}", async ({ page }) => {
   const { requests } = await loadDashboard(page, { devices: [{ name: "playroom" }] });
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
