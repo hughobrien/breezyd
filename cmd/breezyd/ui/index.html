@@ -258,13 +258,25 @@
     gap: 0.2rem;
   }
   .thresh-edit-inline .thresh-input {
-    width: 3rem;
+    width: 4.5rem;
     padding: 0.05rem 0.2rem;
     font-family: inherit;
     font-size: 0.85rem;
     border: 1px solid #aaa;
     border-radius: 3px;
   }
+  .thresh-auto-fan {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: 0.4rem;
+    font-size: 0.85rem;
+    color: #555;
+    cursor: pointer;
+    user-select: none;
+  }
+  .thresh-auto-fan-input { margin: 0; }
+  .thresh-auto-fan-input:disabled { cursor: not-allowed; }
   .thresh-edit-inline button {
     font-family: inherit;
     font-size: 0.85rem;
@@ -355,11 +367,14 @@ const sensorsCollapsed = {}; // name -> true (absent = default expanded)
 // SetThreshold validation: humidity 40-80, co2 400-2000 step 10, voc 50-250.
 const THRESHOLD_KINDS = {
   humidity: { label: "RH",   suffix: "%",   min: 40,  max: 80,   step: 1,
-              valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity" },
+              valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity",
+              enabledKey: "humidity_sensor_enabled" },
   co2:      { label: "eCO₂", suffix: " ppm", min: 400, max: 2000, step: 10,
-              valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2" },
+              valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2",
+              enabledKey: "co2_sensor_enabled" },
   voc:      { label: "VOC",  suffix: " idx", min: 50,  max: 250,  step: 1,
               valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc",
+              enabledKey: "voc_sensor_enabled",
               tooltip: "VOC Index — Sensirion 0-500 scale, ~100 = baseline indoor air" },
 };
 
@@ -616,11 +631,19 @@ function thresholdCell(name, kind, snap) {
       : false);
     const dis = (inFlight[name] || stale) ? "disabled" : "";
     const inputVal = (thresh === null || thresh === undefined) ? cfg.min : thresh;
+    const enabledKey = cfg.enabledKey;
+    const enabledNow = snap.configured?.[enabledKey];
+    const checkedAttr = (enabledNow === false) ? "" : " checked";
     body = `<span class="thresh-edit-inline">
       <input type="number" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}"
              value="${inputVal}"
              data-name="${esc(name)}" data-kind="${esc(kind)}"
              class="thresh-input" ${dis}>
+      <label class="thresh-auto-fan">
+        <input type="checkbox" class="thresh-auto-fan-input"
+               data-name="${esc(name)}" data-kind="${esc(kind)}"${checkedAttr} ${dis}>
+        auto fan
+      </label>
       <button data-action="threshold-save" data-name="${esc(name)}" data-kind="${esc(kind)}" ${dis}>✓</button>
       <button data-action="threshold-cancel" data-name="${esc(name)}" data-kind="${esc(kind)}" ${dis}>✕</button>
     </span>`;
@@ -1070,12 +1093,27 @@ document.addEventListener("keydown", async (ev) => {
 async function saveThreshold(name, kind) {
   const input = document.querySelector(
     `.thresh-input[data-name="${name}"][data-kind="${kind}"]`);
-  if (!input) return;
+  const cb = document.querySelector(
+    `.thresh-auto-fan-input[data-name="${name}"][data-kind="${kind}"]`);
+  if (!input || !cb) return;
   const value = parseInt(input.value, 10);
   if (isNaN(value)) return;
+  const cfg = THRESHOLD_KINDS[kind];
+  const snap = lastSnapshots[name] || {};
+  const prevValue = snap.configured?.[cfg.thresholdKey];
+  const prevEnabled = snap.configured?.[cfg.enabledKey];
+  const enabledNow = cb.checked;
+  const body = { kind };
+  let dirty = false;
+  if (value !== prevValue) { body.value = value; dirty = true; }
+  if (enabledNow !== prevEnabled) { body.enabled = enabledNow; dirty = true; }
+  if (!dirty) {
+    delete editingThreshold[name];
+    render();
+    return;
+  }
   const ok = await postWrite(name, "threshold-" + kind,
-    "/v1/devices/" + encodeURIComponent(name) + "/threshold",
-    { kind, value });
+    "/v1/devices/" + encodeURIComponent(name) + "/threshold", body);
   if (ok) {
     delete editingThreshold[name];
     render();

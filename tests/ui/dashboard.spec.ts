@@ -26,6 +26,9 @@ function baseSnapshot(name: string, overrides: Record<string, unknown> = {}) {
       humidity_threshold_pct: 60,
       co2_threshold_ppm: 1500,
       voc_threshold_index: 250,
+      humidity_sensor_enabled: true,
+      co2_sensor_enabled: true,
+      voc_sensor_enabled: true,
       ...((overrides as any).configured ?? {}),
     },
     live: {
@@ -847,6 +850,7 @@ test("threshold: save POSTs {kind, value} to /threshold and exits edit mode", as
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/threshold"));
   expect(post).toBeTruthy();
   expect(post!.body).toEqual({ kind: "humidity", value: 55 });
+  expect(post!.body).not.toHaveProperty("enabled");
   await expect(input).toHaveCount(0);
 });
 
@@ -861,6 +865,49 @@ test("threshold: cancel reverts without POSTing", async ({ page }) => {
   await expect(input).toHaveCount(0);
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/threshold"));
   expect(post).toBeFalsy();
+});
+
+test("auto-fan: checkbox state reflects configured.<kind>_sensor_enabled", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { humidity_sensor_enabled: false },
+    }),
+  });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  const cb = page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]');
+  await expect(cb).not.toBeChecked();
+
+  // co2 default is true; opening that editor should show a checked checkbox.
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="co2"]');
+  const cbCo2 = page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="co2"]');
+  await expect(cbCo2).toBeChecked();
+});
+
+test("auto-fan: toggling-only POSTs {kind, enabled}", async ({ page }) => {
+  const { requests } = await loadDashboard(page, { devices: [{ name: "playroom" }] });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  // Default is enabled=true; uncheck.
+  await page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]').uncheck();
+  await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
+  await page.waitForTimeout(200);
+  const post = requests.find((r) => r.method === "POST" && r.url.endsWith("/threshold"));
+  expect(post).toBeTruthy();
+  expect(post!.body).toEqual({ kind: "humidity", enabled: false });
+  expect(post!.body).not.toHaveProperty("value");
+});
+
+test("auto-fan: editing both value and checkbox POSTs {kind, value, enabled}", async ({ page }) => {
+  const { requests } = await loadDashboard(page, { devices: [{ name: "playroom" }] });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
+  await input.fill("55");
+  await page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]').uncheck();
+  await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
+  await page.waitForTimeout(200);
+  const post = requests.find((r) => r.method === "POST" && r.url.endsWith("/threshold"));
+  expect(post).toBeTruthy();
+  expect(post!.body).toEqual({ kind: "humidity", value: 55, enabled: false });
 });
 
 test("device info: collapsed by default", async ({ page }) => {
