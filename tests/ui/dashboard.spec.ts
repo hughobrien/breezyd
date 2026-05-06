@@ -785,7 +785,7 @@ test("threshold: sensor row shows current value only (threshold hidden until edi
   await expect(sensors).not.toContainText("alert 70%");
 });
 
-test("threshold: opening the editor reveals 'set alert ≥' label and threshold input", async ({ page }) => {
+test("threshold: opening the editor renders the input inside the clicked cell", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -793,10 +793,14 @@ test("threshold: opening the editor reveals 'set alert ≥' label and threshold 
     }),
   });
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  // Input + save/cancel buttons must live inside the same .sensor-cell as the RH label.
+  const rhCell = page.locator('.sensor-cell:has(.sensor-label:text-is("RH"))');
+  await expect(rhCell.locator('.thresh-input')).toHaveValue("70");
+  await expect(rhCell.locator('button[data-action="threshold-save"][data-kind="humidity"]')).toBeVisible();
+  await expect(rhCell.locator('button[data-action="threshold-cancel"][data-kind="humidity"]')).toBeVisible();
+  // The dropped "set alert ≥" prefix label must not appear anymore.
   const sensors = page.locator(".card .block", { hasText: "Sensors" });
-  await expect(sensors).toContainText("set alert ≥");
-  const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
-  await expect(input).toHaveValue("70");
+  await expect(sensors).not.toContainText("set alert ≥");
 });
 
 test("threshold: alert-fire class on the value when sensor_alerts is true", async ({ page }) => {
