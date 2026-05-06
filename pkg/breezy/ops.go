@@ -41,6 +41,32 @@ func SetSpeedPreset(ctx context.Context, c DeviceClient, preset int) error {
 	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0002, Value: []byte{byte(preset)}}})
 }
 
+// SetPresetSpeed writes the per-preset supply and extract percentages
+// for one of the three numbered presets. Each preset has its own pair of
+// stored percentages (preset 1: 0x3A/0x3B, preset 2: 0x3C/0x3D, preset
+// 3: 0x3E/0x3F). Both percentages are uint8, range 10..100.
+//
+// Editing the currently-active preset takes effect immediately on the
+// running fan; editing an inactive preset only updates its stored
+// configuration and takes effect when that preset is selected.
+func SetPresetSpeed(ctx context.Context, c DeviceClient, preset, supply, extract int) error {
+	if preset < 1 || preset > 3 {
+		return fmt.Errorf("%w: preset must be 1-3, got %d", ErrInvalidArg, preset)
+	}
+	if supply < 10 || supply > 100 {
+		return fmt.Errorf("%w: supply percent must be 10-100, got %d", ErrInvalidArg, supply)
+	}
+	if extract < 10 || extract > 100 {
+		return fmt.Errorf("%w: extract percent must be 10-100, got %d", ErrInvalidArg, extract)
+	}
+	supplyID := ParamID(0x003A + (preset-1)*2)
+	extractID := ParamID(0x003B + (preset-1)*2)
+	return c.WriteParams(ctx, []ParamWrite{
+		{ID: supplyID, Value: []byte{byte(supply)}},
+		{ID: extractID, Value: []byte{byte(extract)}},
+	})
+}
+
 // SetSpeedManual sets manual fan speed to pct% (10..100) and switches
 // the device into manual mode in a single packet. Order matters per the
 // vendor manual: write 0x0044 (percentage) BEFORE 0x0002 (manual flag),

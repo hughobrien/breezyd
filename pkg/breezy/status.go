@@ -78,6 +78,26 @@ func BuildStatus(values map[ParamID][]byte, name, id, ip string, lastPoll *time.
 	if v, ok := Uint16At(values, 0x031F); ok {
 		resp.Configured["voc_threshold_index"] = int(v)
 	}
+	// Per-preset stored supply/extract percentages so the UI can show
+	// current values in the per-preset editor (POST /preset writes here).
+	for i, params := range [][2]ParamID{
+		{0x003A, 0x003B}, // preset 1
+		{0x003C, 0x003D}, // preset 2
+		{0x003E, 0x003F}, // preset 3
+	} {
+		supply, supplyOK := Uint8At(values, params[0])
+		extract, extractOK := Uint8At(values, params[1])
+		if supplyOK || extractOK {
+			entry := map[string]any{}
+			if supplyOK {
+				entry["supply"] = int(supply)
+			}
+			if extractOK {
+				entry["extract"] = int(extract)
+			}
+			resp.Configured[fmt.Sprintf("preset%d", i+1)] = entry
+		}
+	}
 
 	// Live: the device's actual current behavior.
 	supplyRPM, supplyRPMOK := Uint16At(values, 0x004A)
