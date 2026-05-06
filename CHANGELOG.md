@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-05-05
+
+### Changed
+
+- Speed control's fan info now sits inside the slider rows instead of as separate kv lines above. Each fan gets a `<rpm>  [slider-bar]  <pct%>` row — supply on top with the interactive manual slider, extract below as a disabled visual mirror (the device has a single shared manual %, so an interactive extract slider would mislead). The right-side pct shows live fan pct in all modes; in preset mode the slider thumb still resets to 10 as the manual re-entry signal.
+
 ## [1.8.0] - 2026-05-05
 
 ### Added

@@ -183,7 +183,7 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await expect(card).toContainText("85%");
 });
 
-test("fans: pct and rpm rendered inline in the Speed control", async ({ page }) => {
+test("fans: rpm-left / slider / pct-right per fan in the Speed control", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -195,9 +195,16 @@ test("fans: pct and rpm rendered inline in the Speed control", async ({ page }) 
       },
     }),
   });
-  const speed = page.locator(".card .ctrl", { hasText: "Speed" });
-  await expect(speed).toContainText("30% 5340rpm");
-  await expect(speed).toContainText("30% 5400rpm");
+  const rows = page.locator(".card .ctrl .fan-slider-row");
+  await expect(rows).toHaveCount(2);
+  // Supply row: 5340rpm on the left, 30% on the right, slider interactive.
+  await expect(rows.nth(0).locator(".val-label")).toHaveText("5340rpm");
+  await expect(rows.nth(0).locator(".val")).toHaveText("30%");
+  await expect(rows.nth(0).locator('input[type="range"]')).not.toBeDisabled();
+  // Extract row: 5400rpm on the left, 30% on the right, slider disabled.
+  await expect(rows.nth(1).locator(".val-label")).toHaveText("5400rpm");
+  await expect(rows.nth(1).locator(".val")).toHaveText("30%");
+  await expect(rows.nth(1).locator('input[type="range"]')).toBeDisabled();
 });
 
 test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
@@ -213,8 +220,11 @@ test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
       },
     }),
   });
-  const speed = page.locator(".card .ctrl", { hasText: "Speed" });
-  await expect(speed).toContainText("0% 0rpm");
+  const rows = page.locator(".card .ctrl .fan-slider-row");
+  await expect(rows.nth(0).locator(".val-label")).toHaveText("0rpm");
+  await expect(rows.nth(0).locator(".val")).toHaveText("0%");
+  await expect(rows.nth(1).locator(".val-label")).toHaveText("0rpm");
+  await expect(rows.nth(1).locator(".val")).toHaveText("0%");
 });
 
 test("stale indicator: old last_poll desaturates the card", async ({ page }) => {
@@ -345,18 +355,19 @@ test("speed preset editor: manual slider hidden while editor is open", async ({ 
       },
     }),
   });
-  // Open the editor; the manual slider is replaced by the preset sliders.
+  // Open the editor; the supply (manual) slider stays visible for live
+  // ramp feedback but is disabled so the user reaches for the editor.
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
   await expect(page.locator(".preset-editor")).toBeVisible();
   await expect(
     page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
-  ).toHaveCount(0);
-  // Click again → editor closes, manual slider returns.
+  ).toBeDisabled();
+  // Click again → editor closes, manual slider becomes interactive.
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
   await expect(page.locator(".preset-editor")).toHaveCount(0);
   await expect(
     page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
-  ).toBeVisible();
+  ).not.toBeDisabled();
 });
 
 test("speed preset editor: match-speeds off → moving extract preserves cached supply", async ({ page }) => {
@@ -383,7 +394,7 @@ test("speed preset editor: match-speeds off → moving extract preserves cached 
   expect(post!.body).toEqual({ preset: 2, supply: 55, extract: 80 });
 });
 
-test("speed preset editor: manual slider visible when editor closed; opens editor on preset switch", async ({ page }) => {
+test("speed preset editor: manual slider interactive when editor closed", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -394,10 +405,10 @@ test("speed preset editor: manual slider visible when editor closed; opens edito
       },
     }),
   });
-  // Initial render: preset1 active, editor closed → manual slider visible.
+  // Initial render: preset1 active, editor closed → manual slider enabled.
   await expect(
     page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
-  ).toBeVisible();
+  ).not.toBeDisabled();
   await expect(page.locator(".preset-editor")).toHaveCount(0);
 });
 
