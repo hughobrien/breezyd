@@ -226,6 +226,43 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// postPreset writes the per-preset supply/extract percentages for one of
+// the three numbered presets. Body: {"preset":1|2|3, "supply":N, "extract":N}.
+// Editing the currently-active preset takes effect immediately on the
+// running fan — there is no firmware "scratch" preset to stage edits in.
+func (h *Handler) postPreset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.requireDevice(w, name); !ok {
+		return
+	}
+	var body struct {
+		Preset  *int `json:"preset"`
+		Supply  *int `json:"supply"`
+		Extract *int `json:"extract"`
+	}
+	if !readBody(w, r, &body) {
+		return
+	}
+	if body.Preset == nil || body.Supply == nil || body.Extract == nil {
+		writeErr(w, "bad_request", "missing required field(s); send 'preset' (1-3), 'supply' (10-100), 'extract' (10-100)")
+		return
+	}
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		writeErr(w, classifyClientErr(err), err.Error())
+		return
+	}
+	defer unlock()
+	defer raw.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetPresetSpeed(ctx, rc, *body.Preset, *body.Supply, *body.Extract); err != nil {
+		writeErr(w, classifyClientErr(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h *Handler) postMode(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.requireDevice(w, name); !ok {

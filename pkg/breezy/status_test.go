@@ -4,6 +4,7 @@ package breezy
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +132,32 @@ func TestBuildStatus_TempSensorSentinels(t *testing.T) {
 	}
 	if v := s.Sensors["temp_exhaust_inlet_c"].(float64); v != 20.0 {
 		t.Errorf("temp_exhaust_inlet_c: want 20.0, got %v", v)
+	}
+}
+
+func TestBuildStatus_PresetSpeeds(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x003A: {30}, 0x003B: {35}, // preset 1
+		0x003C: {55}, 0x003D: {60}, // preset 2
+		0x003E: {100}, 0x003F: {100}, // preset 3
+	}
+	s := BuildStatus(values, "n", "i", "ip", nil)
+	for i, want := range []map[string]any{
+		{"supply": 30, "extract": 35},
+		{"supply": 55, "extract": 60},
+		{"supply": 100, "extract": 100},
+	} {
+		key := fmt.Sprintf("preset%d", i+1)
+		got, ok := s.Configured[key].(map[string]any)
+		if !ok {
+			t.Errorf("%s missing or wrong type: %v", key, s.Configured[key])
+			continue
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s.%s = %v, want %v", key, k, got[k], v)
+			}
+		}
 	}
 }
 
