@@ -27,7 +27,7 @@ against the same device.
   <img src="tests/ui/screenshots/homekit-accessories.png" width="45%" alt="Each Breezy as a separate AirPurifier accessory in the Apple Home rooms list" />
 </p>
 
-The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater/timer. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
+The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater/timer plus per-device 24-hour schedules. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
 
 ## At a glance
 
@@ -64,12 +64,13 @@ What's covered:
 - Single-page web dashboard at `GET /` on the daemon, served from the
   same binary; auto-refreshes every 5 s; covers sensors, fans, service
   info, and the four high-level controls (power / mode / speed / heater).
+- Daemon-driven per-device schedules: edit a small `At | Action | Pct` table from the dashboard's collapsible SCHEDULE block; the daemon fires writes on schedule with bounded retry on failure and an alert banner on persistent failure.
 - Optional HomeKit bridge: each Breezy appears in the Apple Home app
   with power, fan speed, supply/extract switches, and the full sensor
   surface (RH, eCO2, VOC, four temperatures).
 
-What's deliberately out: schedule editing, WiFi reconfig, MQTT bridge,
-Home Assistant component. See [Known limitations](#known-limitations).
+What's deliberately out: WiFi reconfig, MQTT bridge, Home Assistant
+component. See [Known limitations](#known-limitations).
 
 ### Supported devices
 
@@ -839,9 +840,6 @@ that VLAN, rather than binding `breezyd` to your trusted LAN.
 These are deliberate omissions, not bugs. Each is a design choice; see the
 spec for the full rationale.
 
-- **No schedule editing.** The device's seven-day schedule is on-board; the
-  CLI exposes the live state but does not let you re-program it — the
-  operator's stated workflow uses the unit's own buttons.
 - **No WiFi reconfig.** Changing the WiFi SSID/password from the CLI is
   technically possible but operationally hazardous (one bad write strands the
   unit). Use the vendor app for this.

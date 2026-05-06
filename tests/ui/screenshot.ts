@@ -86,6 +86,16 @@ function snapshot(name: string) {
             cooling_lifetime_kwh: 71.2,
             consumed_lifetime_kwh: 8.1,
           },
+      schedule: name === "bedroom"
+        ? {
+            enabled: true,
+            entries: [
+              { at: "08:00", action: "regeneration", pct: 60 },
+              { at: "22:00", action: "off", pct: 60 },
+            ],
+            alert: false,
+          }
+        : undefined,
     },
     firmware: { version: "0.11", build_date: "2025-03-21" },
   };
@@ -135,6 +145,18 @@ async function captureViewport(width: number, height: number, outFile: string) {
   await page.waitForSelector(".card", { timeout: 5000 });
   // Give one extra render tick so all three cards are populated.
   await page.waitForTimeout(500);
+
+  // Expand the bedroom SCHEDULE block so the screenshot shows the table.
+  // The other cards' SCHEDULE blocks remain absent because their snapshots
+  // omit service.schedule.
+  const bedroomCard = page.locator(".card").filter({
+    has: page.locator("h2", { hasText: "bedroom" }),
+  });
+  const sched = bedroomCard.locator("details.schedule summary");
+  if (await sched.count() > 0) {
+    await sched.click();
+    await page.waitForTimeout(100); // give the toggle event time to settle
+  }
 
   await page.screenshot({ path: outFile, fullPage: true });
 
