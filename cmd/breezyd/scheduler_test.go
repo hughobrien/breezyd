@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -392,5 +393,146 @@ func TestScheduler_Fire_FailureRecordsLastApply(t *testing.T) {
 	}
 	if snap.LastApply.Err == "" {
 		t.Errorf("failed fire should record an err message: %+v", snap.LastApply)
+	}
+}
+
+func TestRetry_TimeoutInstallsRetry(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("i/o timeout")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	s.mu.Lock()
+	r := s.retry
+	s.mu.Unlock()
+	if r == nil {
+		t.Fatalf("retry not installed after failure")
+	}
+	if r.attempts != 1 {
+		t.Errorf("attempts=%d, want 1", r.attempts)
+	}
+}
+
+func TestRetry_AuthFailsNoRetry(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = breezy.ErrAuth
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	s.mu.Lock()
+	r := s.retry
+	la := s.lastApply
+	s.mu.Unlock()
+	if r != nil {
+		t.Errorf("auth failure should not install retry: %+v", r)
+	}
+	if la == nil || la.OK {
+		t.Errorf("expected lastApply.ok=false, got %+v", la)
+	}
+	if !strings.Contains(la.Err, "auth_failed") {
+		t.Errorf("expected auth_failed in err, got %q", la.Err)
+	}
+}
+
+func TestRetry_SucceedsClearsRetry(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("transient")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	fc.err = nil
+	// 8:01 is past the 30s nextAttempt (8:00:30); the retry fires and succeeds.
+	s.tick(context.Background(), atHM(8, 1))
+	s.mu.Lock()
+	r := s.retry
+	la := s.lastApply
+	s.mu.Unlock()
+	if r != nil {
+		t.Errorf("retry should be cleared after success: %+v", r)
+	}
+	if la == nil || !la.OK {
+		t.Errorf("expected lastApply.ok=true after retry success: %+v", la)
+	}
+}
+
+func TestRetry_DeadlineAbandons(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("transient")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	// March forward minute by minute; deadline is 8:10 (8:00 + 10m), so
+	// the m=10 tick at 08:10:00 hits `now ≥ deadline` and abandons.
+	for m := 1; m <= 11; m++ {
+		s.tick(context.Background(), atHM(8, m))
+	}
+	s.mu.Lock()
+	r := s.retry
+	la := s.lastApply
+	s.mu.Unlock()
+	if r != nil {
+		t.Errorf("retry should be abandoned past deadline: %+v", r)
+	}
+	if la == nil || la.OK {
+		t.Errorf("lastApply.ok should remain false after deadline: %+v", la)
+	}
+}
+
+func TestRetry_SupersededByNextEntry(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("transient")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{
+		{At: 480, Action: "regeneration", Pct: 60},
+		{At: 540, Action: "ventilation", Pct: 70},
+	}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	fc.err = nil
+	s.tick(context.Background(), atHM(9, 0))
+	s.mu.Lock()
+	r := s.retry
+	la := s.lastApply
+	s.mu.Unlock()
+	if r != nil {
+		t.Errorf("supersede should clear retry: %+v", r)
+	}
+	if la == nil || la.At != 540 || !la.OK {
+		t.Errorf("expected lastApply for 09:00 ok: %+v", la)
+	}
+}
+
+func TestRetry_DisableClearsRetry(t *testing.T) {
+	s, fc := newSchedTest(t)
+	fc.err = errors.New("transient")
+	s.mu.Lock()
+	s.enabled = true
+	s.entries = []ScheduleEntry{{At: 480, Action: "regeneration", Pct: 60}}
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(7, 59))
+	s.tick(context.Background(), atHM(8, 0))
+	s.mu.Lock()
+	s.enabled = false
+	s.mu.Unlock()
+	s.tick(context.Background(), atHM(8, 1))
+	s.mu.Lock()
+	r := s.retry
+	s.mu.Unlock()
+	if r != nil {
+		t.Errorf("disable should clear retry: %+v", r)
 	}
 }

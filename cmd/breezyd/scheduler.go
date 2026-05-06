@@ -265,6 +265,11 @@ func sortEntries(entries []ScheduleEntry) {
 // fireTimeout bounds a single fire attempt's UDP round-trip.
 const fireTimeout = 5 * time.Second
 
+const (
+	retryCadence  = 30 * time.Second
+	retryDeadline = 10 * time.Minute
+)
+
 // tick processes one minute boundary. now is the wall-clock; tests pass
 // a synthetic value via s.Now.
 //
@@ -273,8 +278,9 @@ const fireTimeout = 5 * time.Second
 // (lastTick, 1440) ∪ [0, nowMinute]. Multiple matches fire the latest
 // one only — earlier matches are stale.
 //
-// Retry state-machine handling lands in Task 4; for now `tick` does not
-// inspect or mutate s.retry.
+// Retry state-machine: after a transient failure, fire retries every 30s
+// for up to 10 minutes. A newer entry arriving in the same tick window
+// supersedes the in-flight retry. Disable always clears it.
 func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	s.mu.Lock()
 	enabled := s.enabled
@@ -286,9 +292,13 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	nowMinute := ScheduleTime(now.Hour()*60 + now.Minute())
 
 	if !enabled {
+		// Disabled: still advance lastTick so re-enabling later doesn't
+		// fire a backlog of just-crossed entries. Also clear any
+		// in-flight retry.
 		s.mu.Lock()
 		s.lastTick = nowMinute
 		s.haveLastTick = true
+		s.retry = nil
 		s.mu.Unlock()
 		return
 	}
@@ -310,8 +320,45 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 		return at > lastTick || at <= nowMinute
 	}
 
-	// Pick the latest entry in the window. "Latest" is measured by
-	// distance from lastTick (mod 1440) so wraparound reads linearly.
+	// Retry path. If a retry is in flight, decide whether to:
+	//   (a) supersede it because a newer entry crosses now this tick,
+	//   (b) attempt the retry because nextAttempt has arrived,
+	//   (c) abandon it because we've passed the deadline.
+	s.mu.Lock()
+	r := s.retry
+	s.mu.Unlock()
+	retryFired := false
+	if r != nil {
+		hasNewer := false
+		for _, e := range entries {
+			if inWindow(e.At) && e.At != r.entry.At {
+				hasNewer = true
+				break
+			}
+		}
+		switch {
+		case hasNewer:
+			// Drop the retry; transition detection below will fire the newer entry.
+			s.mu.Lock()
+			s.retry = nil
+			s.mu.Unlock()
+		case !now.Before(r.deadline):
+			// Abandon. lastApply.ok stays false so the UI keeps the alert.
+			s.mu.Lock()
+			s.retry = nil
+			if err := s.save(); err != nil {
+				slog.Warn("schedule: save after deadline-abandon failed", "device", s.Device, "err", err)
+			}
+			s.mu.Unlock()
+		case !now.Before(r.nextAttempt):
+			s.fire(ctx, r.entry, r.entryIndex, now)
+			retryFired = true
+		}
+	}
+
+	// Transition detection. Skip when a retry attempt fired this tick —
+	// in practice the window will have moved past r.entry.At by then,
+	// but the explicit gate avoids any risk of double-fire.
 	dist := func(t ScheduleTime) int {
 		d := int(t) - int(lastTick)
 		if d <= 0 {
@@ -321,14 +368,16 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	}
 	var latest *ScheduleEntry
 	latestIdx := -1
-	for i, e := range entries {
-		if !inWindow(e.At) {
-			continue
-		}
-		if latest == nil || dist(e.At) > dist(latest.At) {
-			cp := e
-			latest = &cp
-			latestIdx = i
+	if !retryFired {
+		for i, e := range entries {
+			if !inWindow(e.At) {
+				continue
+			}
+			if latest == nil || dist(e.At) > dist(latest.At) {
+				cp := e
+				latest = &cp
+				latestIdx = i
+			}
 		}
 	}
 
@@ -343,9 +392,10 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 }
 
 // fire dispatches one entry's writes through Dial. Records lastApply on
-// completion (success or failure) and persists. Retry installation lands
-// in Task 4.
-func (s *Scheduler) fire(ctx context.Context, e ScheduleEntry, _ int, now time.Time) {
+// completion and persists. On transient failure, installs or extends the
+// retry state machine (30s cadence, 10-minute deadline). ErrAuth fails
+// fast with no retry.
+func (s *Scheduler) fire(ctx context.Context, e ScheduleEntry, idx int, now time.Time) {
 	if s.LockUDP != nil {
 		unlock := s.LockUDP()
 		defer unlock()
@@ -366,25 +416,60 @@ func (s *Scheduler) fire(ctx context.Context, e ScheduleEntry, _ int, now time.T
 		}
 	}
 
-	la := &LastApply{
-		At:    e.At,
-		Fired: now,
-		OK:    fireErr == nil,
-	}
-	if fireErr != nil {
-		la.Err = fireErr.Error()
-		la.Retries = 0 // Task 4 will set this from the retry counter.
-		slog.Warn("schedule: fire failed", "device", s.Device, "at", e.At.String(), "err", fireErr)
-	} else {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if fireErr == nil {
+		s.lastApply = &LastApply{At: e.At, Fired: now, OK: true}
+		s.retry = nil
+		if err := s.save(); err != nil {
+			slog.Warn("schedule: save after success failed", "device", s.Device, "err", err)
+		}
 		slog.Info("schedule: fired", "device", s.Device, "at", e.At.String(), "action", e.Action, "pct", e.Pct)
+		return
 	}
 
-	s.mu.Lock()
-	s.lastApply = la
-	if err := s.save(); err != nil {
-		slog.Warn("schedule: save after fire failed", "device", s.Device, "err", err)
+	if errors.Is(fireErr, breezy.ErrAuth) {
+		s.lastApply = &LastApply{
+			At: e.At, Fired: now, OK: false,
+			Err:     "auth_failed: " + fireErr.Error(),
+			Retries: 0,
+		}
+		s.retry = nil
+		if err := s.save(); err != nil {
+			slog.Warn("schedule: save after auth-fail failed", "device", s.Device, "err", err)
+		}
+		slog.Warn("schedule: auth failure, not retrying", "device", s.Device, "at", e.At.String())
+		return
 	}
-	s.mu.Unlock()
+
+	// Transient failure: install or extend retry.
+	attempts := 1
+	deadline := now.Add(retryDeadline)
+	if s.retry != nil && s.retry.entry.At == e.At {
+		attempts = s.retry.attempts + 1
+		deadline = s.retry.deadline // keep the original 10-min cap
+	}
+	s.retry = &retryState{
+		entry:       e,
+		entryIndex:  idx,
+		attempts:    attempts,
+		nextAttempt: now.Add(retryCadence),
+		deadline:    deadline,
+	}
+	s.lastApply = &LastApply{
+		At: e.At, Fired: now, OK: false,
+		Err: fireErr.Error(),
+		// attempts counts fire calls for this entry (1 = first attempt,
+		// 2 = first retry, ...). Retries counts retries beyond the first
+		// attempt, so it's attempts - 1.
+		Retries: attempts - 1,
+	}
+	if err := s.save(); err != nil {
+		slog.Warn("schedule: save after fail failed", "device", s.Device, "err", err)
+	}
+	slog.Warn("schedule: fire failed; retry installed",
+		"device", s.Device, "at", e.At.String(), "attempts", attempts, "err", fireErr)
 }
 
 // applyAction issues the device-side writes corresponding to one entry's
