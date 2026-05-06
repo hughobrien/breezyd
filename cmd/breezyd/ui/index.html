@@ -76,25 +76,32 @@
   }
   .device-info[open] > summary::before { content: "▼"; }
   .device-info > summary > h2 { margin: 0; flex: 1 1 auto; }
-  /* ENERGY <details>: same chevron-on-the-left treatment as Device Info,
-     so the marker sits beside the heading instead of stacking under it.
-     Without this, the browser-default marker overlaps the <h3> content. */
-  details.energy > summary {
+  /* ENERGY and Sensors <details>: same chevron-on-the-left treatment as
+     Device Info, so the marker sits beside the heading instead of stacking
+     under it. Without this, the browser-default marker overlaps the <h3>
+     content. Sensors is expanded by default; alert-active force-expansion
+     is computed in JS, see renderCard. */
+  details.energy > summary,
+  details.block.sensors > summary {
     display: flex;
     align-items: baseline;
     gap: 1ch;
     cursor: pointer;
     list-style: none;
   }
-  details.energy > summary::-webkit-details-marker { display: none; }
-  details.energy > summary::before {
+  details.energy > summary::-webkit-details-marker,
+  details.block.sensors > summary::-webkit-details-marker { display: none; }
+  details.energy > summary::before,
+  details.block.sensors > summary::before {
     content: "▶";
     font-size: 0.65em;
     color: #888;
     align-self: center;
   }
-  details.energy[open] > summary::before { content: "▼"; }
-  details.energy > summary > h3 { margin: 0; }
+  details.energy[open] > summary::before,
+  details.block.sensors[open] > summary::before { content: "▼"; }
+  details.energy > summary > h3,
+  details.block.sensors > summary > h3 { margin: 0; }
   .warn { color: #b07000; font-size: 0.85rem; margin-top: 0.4rem; }
   .err-banner {
     background: #fee; border: 1px solid #c66; padding: 0.75rem;
@@ -337,6 +344,12 @@ const deviceInfoOpen = {}; // name -> bool
 // Same pattern for the ENERGY <details>: the 5 s grid re-render destroys
 // and recreates the element, which would reset its open state otherwise.
 const energyOpen = {};     // name -> bool
+// Per-card Sensors <details> collapsed state. Default is expanded, so we
+// track only when the user has explicitly collapsed it (presence == true).
+// Survives the 5 s grid re-render via the toggle listener at the bottom of
+// this file. Auto-expand on active alert wins over user collapse — when
+// the alert clears, the collapse intent is preserved and re-applies.
+const sensorsCollapsed = {}; // name -> true (absent = default expanded)
 
 // Per-kind config for the editable sensor rows. Mirrors the daemon's
 // SetThreshold validation: humidity 40-80, co2 400-2000 step 10, voc 50-250.
@@ -468,10 +481,15 @@ function renderCard(name, snap) {
     ${(toasts[name] || {}).power ? `<div class="toast" role="alert">${esc(toasts[name].power)}</div>` : ""}
     ${stale ? `<div class="row"><span class="ts red">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span></div>` : ""}
 
-    <div class="block">
-      <h3>Sensors</h3>
+    ${(() => {
+      const sa = snap.live?.sensor_alerts || {};
+      const sensorAlerting = sa.humidity === true || sa.co2 === true || sa.voc === true;
+      const sensorsExpanded = sensorAlerting || !sensorsCollapsed[name];
+      return `<details class="block sensors"${sensorsExpanded ? " open" : ""}>
+      <summary><h3>Sensors</h3></summary>
       ${sensorsGrid(name, snap)}
-    </div>
+    </details>`;
+    })()}
 
     ${renderControls(name, snap, stale)}
     ${renderEnergy(name, snap)}
@@ -1052,6 +1070,10 @@ document.addEventListener("toggle", (ev) => {
   } else if (el.classList?.contains("energy")) {
     if (el.open) energyOpen[name] = true;
     else delete energyOpen[name];
+  } else if (el.classList?.contains("sensors")) {
+    // Inverted: state map tracks user-collapsed (since default is open).
+    if (el.open) delete sensorsCollapsed[name];
+    else sensorsCollapsed[name] = true;
   }
 }, true);
 
