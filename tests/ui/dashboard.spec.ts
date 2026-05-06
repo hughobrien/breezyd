@@ -189,9 +189,10 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await expect(card).toContainText("85%");
 });
 
-test("fans: rpm-left / slider / pct-right per fan in the Speed control", async ({ page }) => {
-  // Dual-row layout is the preset-mode layout; manual mode uses a single
-  // combined row, exercised in its own test below.
+test("fans: slider/pct per fan in Speed control; rpms in Sensors block", async ({ page }) => {
+  // Dual-row Speed layout is the preset-mode layout (manual mode uses a
+  // single combined row, exercised below). Live rpm now lives in the
+  // Sensors grid, not in the slider row.
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -206,20 +207,19 @@ test("fans: rpm-left / slider / pct-right per fan in the Speed control", async (
   });
   const rows = page.locator(".card .ctrl .fan-slider-row");
   await expect(rows).toHaveCount(2);
-  // Supply row: side label "supply", 5340rpm, slider interactive (regen mode runs both, supply hosts the control), 30% pct.
   await expect(rows.nth(0).locator(".fan-side")).toHaveText("supply");
-  await expect(rows.nth(0).locator(".val-label")).toHaveText("5340 rpm");
   await expect(rows.nth(0).locator(".val")).toHaveText("30%");
   await expect(rows.nth(0).locator('input[type="range"]')).not.toBeDisabled();
-  // Exhaust row: side label "exhaust", 5400rpm, slider disabled (supply has the control), 30% pct.
   await expect(rows.nth(1).locator(".fan-side")).toHaveText("exhaust");
-  await expect(rows.nth(1).locator(".val-label")).toHaveText("5400 rpm");
   await expect(rows.nth(1).locator(".val")).toHaveText("30%");
   await expect(rows.nth(1).locator('input[type="range"]')).toBeDisabled();
+  // rpms appear as Sensors cells.
+  const card = page.locator(".card").first();
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("5340 rpm");
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("exhaust rpm"))')).toContainText("5400 rpm");
 });
 
-test("fans: rpm=0 collapses to 'off' in the side label", async ({ page }) => {
-  // Same dual-row layout — preset speed_mode keeps the per-fan rows.
+test("fans: rpm=0 reads 'off' in the Sensors block", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -232,12 +232,9 @@ test("fans: rpm=0 collapses to 'off' in the side label", async ({ page }) => {
       },
     }),
   });
-  const rows = page.locator(".card .ctrl .fan-slider-row");
-  // 0 rpm reads "off" in the rpm slot; pct slot stays numeric.
-  await expect(rows.nth(0).locator(".val-label")).toHaveText("off");
-  await expect(rows.nth(0).locator(".val")).toHaveText("0%");
-  await expect(rows.nth(1).locator(".val-label")).toHaveText("off");
-  await expect(rows.nth(1).locator(".val")).toHaveText("0%");
+  const card = page.locator(".card").first();
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("off");
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("exhaust rpm"))')).toContainText("off");
 });
 
 test("stale indicator: old last_poll desaturates the card", async ({ page }) => {
@@ -305,19 +302,21 @@ test("mode click: optimistic live update fills the new active fan immediately", 
       live: { fan_supply_rpm: 0, fan_extract_rpm: 3120, fan_supply_pct: 0, fan_extract_pct: 50 },
     }),
   });
-  // Pre-click sanity: supply is "off", reads 0%.
   const rows = page.locator(".card .ctrl .fan-slider-row");
-  await expect(rows.nth(0).locator(".val-label")).toHaveText("off");
+  const card = page.locator(".card").first();
+  // Pre-click sanity: supply slider reads 0%; supply rpm in Sensors is "off".
   await expect(rows.nth(0).locator(".val")).toHaveText("0%");
-  // Switch to supply mode. Daemon will keep returning the stale
-  // (extract-mode) snapshot for this test — the optimistic overlay is
-  // what should make supply read 50% / "— rpm".
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("off");
+  // Switch to supply mode. Daemon keeps returning the stale (extract-
+  // mode) snapshot for this test — the optimistic overlay is what
+  // should flip supply to 50% (slider) / "—" (rpm in Sensors, since the
+  // overlay sets fan_supply_rpm to null until the next real poll).
   await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
   await page.waitForTimeout(250);
-  await expect(rows.nth(0).locator(".val-label")).toHaveText("— rpm");
   await expect(rows.nth(0).locator(".val")).toHaveText("50%");
-  await expect(rows.nth(1).locator(".val-label")).toHaveText("off");
   await expect(rows.nth(1).locator(".val")).toHaveText("0%");
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("—");
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("exhaust rpm"))')).toContainText("off");
 });
 
 test("preset editor: mode block hidden while editor is open", async ({ page }) => {
@@ -570,11 +569,14 @@ test("manual mode: single combined slider row replaces the two fan rows", async 
   });
   // Exactly one fan-slider-row in manual mode.
   await expect(page.locator(".card .ctrl .fan-slider-row")).toHaveCount(1);
-  // It carries data-side="manual" and shows the higher rpm + manual_pct.
+  // It carries data-side="manual" and shows the manual_pct setpoint.
   const row = page.locator(".card .ctrl .fan-slider-row");
-  await expect(row.locator(".val-label")).toHaveText("3180 rpm");
   await expect(row.locator(".val")).toHaveText("50%");
   await expect(row.locator('input[type="range"][data-side="manual"]')).not.toBeDisabled();
+  // rpms still surface in the Sensors block.
+  const card = page.locator(".card").first();
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("supply rpm"))')).toContainText("3120 rpm");
+  await expect(card.locator('.sensor-cell:has(.sensor-label:text-is("exhaust rpm"))')).toContainText("3180 rpm");
 });
 
 test("speed manual slider: POSTs once on change, not on input", async ({ page }) => {

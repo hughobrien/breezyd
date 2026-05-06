@@ -172,12 +172,12 @@
     text-decoration-style: dotted;
     text-underline-offset: 2px;
   }
-  /* 3-column grid for sensor cells (used for both the threshold-bearing
-     trio and the temperature 3x2 layout). Each cell is a small label
-     above its value. */
+  /* 2-column grid for the unified Sensors block (eCO₂/VOC, RH/recovery,
+     supply/exhaust temps, post-HRV temps, deltas, fan rpms). Each cell
+     is a small label above its value. */
   .sensor-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 0.4rem 0.5rem;
     margin-top: 0.4rem;
   }
@@ -379,9 +379,7 @@ function renderCard(name, snap) {
 
     <div class="block">
       <h3>Sensors</h3>
-      ${thresholdGrid(name, snap)}
-      ${tempGrid(snap)}
-      ${kv("recovery", fmt(snap.sensors?.recovery_efficiency_pct, "—", "%"))}
+      ${sensorsGrid(name, snap)}
     </div>
 
     ${renderControls(name, snap, stale)}
@@ -392,16 +390,41 @@ function kv(k, v) {
   return `<div class="row"><span class="k">${esc(k)}</span><span>${v}</span></div>`;
 }
 
-// 3x1 grid of the threshold-bearing sensors (RH, eCO₂, VOC). Each cell
-// shows a small label above the live value; clicking the value opens
-// the editor (rendered separately by thresholdEditor below the grid so
-// the grid layout stays stable while editing).
-function thresholdGrid(name, snap) {
+// Unified 2-column Sensors grid. Six rows pair semantically:
+//   eCO₂ / VOC, RH / recovery, supply / exhaust temps, post-HRV temps
+//   (supply_regen / exhaust_regen), supply Δ / exhaust Δ, supply rpm /
+//   exhaust rpm. The threshold-bearing cells (RH, eCO₂, VOC) stay
+//   clickable to open the inline threshold editor.
+function sensorsGrid(name, snap) {
+  const s = snap.sensors || {};
+  const live = snap.live || {};
+  // Δ = post-HRV − pre-HRV. Supply path gains heat (+), exhaust loses (−).
+  const supplyDelta = tempDelta(s.temp_supply_c, s.temp_outdoor_c);
+  const exhaustDelta = tempDelta(s.temp_exhaust_outlet_c, s.temp_exhaust_inlet_c);
   return `<div class="sensor-grid">
-    ${thresholdCell(name, "humidity", snap)}
     ${thresholdCell(name, "co2", snap)}
     ${thresholdCell(name, "voc", snap)}
+    ${thresholdCell(name, "humidity", snap)}
+    ${plainCell("recovery", fmt(s.recovery_efficiency_pct, "—", "%"))}
+    ${plainCell("supply",        tempC(s.temp_outdoor_c))}
+    ${plainCell("exhaust",       tempC(s.temp_exhaust_inlet_c))}
+    ${plainCell("supply_regen",  tempC(s.temp_supply_c))}
+    ${plainCell("exhaust_regen", tempC(s.temp_exhaust_outlet_c))}
+    ${plainCell("Δ", supplyDelta)}
+    ${plainCell("Δ", exhaustDelta)}
+    ${plainCell("supply rpm",  rpmText(live.fan_supply_rpm))}
+    ${plainCell("exhaust rpm", rpmText(live.fan_extract_rpm))}
   </div>${thresholdEditor(name, snap)}`;
+}
+
+function plainCell(label, value) {
+  return `<div class="sensor-cell"><div class="sensor-label">${esc(label)}</div><div>${value}</div></div>`;
+}
+
+function rpmText(v) {
+  if (v === null || v === undefined) return "—";
+  if (v === 0) return "off";
+  return `${esc(String(v))} rpm`;
 }
 
 function thresholdCell(name, kind, snap) {
@@ -462,22 +485,6 @@ function tempC(v) {
 // "_regen" suffix on a label means "after the heat-recovery exchanger";
 // the bare label is the pre-HRV side. Δ shows how much heat the air
 // gained (supply path) or lost (exhaust path) crossing the exchanger.
-function tempGrid(snap) {
-  const s = snap.sensors || {};
-  // Δ = post-HRV − pre-HRV. Supply path gains heat (+), exhaust loses (−).
-  const cells = [
-    ["exhaust",       s.temp_exhaust_inlet_c],
-    ["exhaust_regen", s.temp_exhaust_outlet_c],
-    ["Δ", tempDelta(s.temp_exhaust_outlet_c, s.temp_exhaust_inlet_c)],
-    ["supply",        s.temp_outdoor_c],
-    ["supply_regen",  s.temp_supply_c],
-    ["Δ", tempDelta(s.temp_supply_c, s.temp_outdoor_c)],
-  ];
-  return `<div class="sensor-grid">${cells.map(([label, value]) =>
-    `<div class="sensor-cell"><div class="sensor-label">${esc(label)}</div><div>${typeof value === "string" ? value : tempC(value)}</div></div>`
-  ).join("")}</div>`;
-}
-
 function tempDelta(a, b) {
   if (a === null || a === undefined || b === null || b === undefined) return "—";
   const d = a - b;
@@ -654,12 +661,9 @@ function renderControls(name, snap, stale) {
 // min=0 lets the disabled 0% case render correctly; the change handler
 // clamps POST values to >=10 so the protocol's writable range is
 // respected when the user drags.
-function fanSliderRow(name, side, rpm, livePct, interactive) {
-  // 0 rpm means firmware-forced off (single-direction mode or stopped),
-  // so collapse the rpm slot to "off" — clearer than "0rpm".
-  const rpmLabel = (rpm === null || rpm === undefined)
-    ? "— rpm"
-    : (rpm === 0 ? "off" : `${esc(String(rpm))} rpm`);
+function fanSliderRow(name, side, _rpm, livePct, interactive) {
+  // rpm moved to the Sensors block; this row now reads side-label /
+  // slider / live pct.
   const pctLabel = (livePct === null || livePct === undefined) ? "—" : `${esc(String(livePct))}%`;
   const thumbVal = (typeof livePct === "number") ? livePct : 0;
   // Interactive sliders use min=10 so the protocol's writable range
@@ -671,7 +675,6 @@ function fanSliderRow(name, side, rpm, livePct, interactive) {
   const disAttr = interactive ? "" : "disabled";
   return `<div class="slider-row fan-slider-row">
     <span class="fan-side">${esc(side)}</span>
-    <span class="val-label">${rpmLabel}</span>
     <input type="range" min="${sliderMin}" max="100" step="5" value="${thumbVal}"
       data-action="manual-slider" data-name="${esc(name)}" data-side="${esc(side)}" ${disAttr}>
     <span class="val">${pctLabel}</span>
@@ -685,16 +688,13 @@ function fanSliderRow(name, side, rpm, livePct, interactive) {
 // fans are at 0); right pct is manual_pct (the setpoint, which the slider
 // thumb tracks). data-side="manual" so tests can scope to this row
 // without colliding with the per-fan rows in preset modes.
-function manualSliderRow(name, live, manualPct, interactive) {
-  const supplyRpm = typeof live?.fan_supply_rpm === "number" ? live.fan_supply_rpm : 0;
-  const extractRpm = typeof live?.fan_extract_rpm === "number" ? live.fan_extract_rpm : 0;
-  const rpm = Math.max(supplyRpm, extractRpm);
-  const rpmLabel = rpm === 0 ? "off" : `${esc(String(rpm))} rpm`;
+function manualSliderRow(name, _live, manualPct, interactive) {
+  // rpm moved to the Sensors block; this row is now just the slider
+  // and the manual_pct setpoint readout.
   const sliderMin = interactive ? 10 : 0;
   const disAttr = interactive ? "" : "disabled";
   return `<div class="slider-row fan-slider-row">
     <span class="fan-side"></span>
-    <span class="val-label">${rpmLabel}</span>
     <input type="range" min="${sliderMin}" max="100" step="5" value="${manualPct}"
       data-action="manual-slider" data-name="${esc(name)}" data-side="manual" ${disAttr}>
     <span class="val">${esc(String(manualPct))}%</span>
