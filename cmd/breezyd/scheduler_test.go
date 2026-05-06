@@ -536,3 +536,20 @@ func TestRetry_DisableClearsRetry(t *testing.T) {
 		t.Errorf("disable should clear retry: %+v", r)
 	}
 }
+
+func TestScheduler_Run_ExitsOnContextCancel(t *testing.T) {
+	s, _ := newSchedTest(t)
+	s.Now = func() time.Time { return atHM(8, 0) } // pinned so alignment ~60s
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not exit on context cancel")
+	}
+}

@@ -152,6 +152,9 @@ type Handler struct {
 	// writes to fan-affecting params. NoticeFunc takes precedence; this
 	// is provided for the production wiring where main.go owns the pollers.
 	Pollers map[string]*Poller
+	// Schedulers are per-device subsystems that fire scheduled
+	// Power/Mode/Speed writes. Populated by startPollers.
+	Schedulers map[string]*Scheduler
 	// ClientFactory builds a fresh HandlerClient for one device per
 	// request — the daemon doesn't pool because UDP/4000 is request-reply
 	// and a connection is just a (deviceID, password, addr) triple.
@@ -341,6 +344,27 @@ func (h *Handler) dialRecording(name string) (*recordingClient, HandlerClient, f
 	return newRecordingClient(raw, func(ws []breezy.ParamWrite) {
 		h.recordWrite(name, ws)
 	}), raw, unlock, nil
+}
+
+// scheduleDial returns a Dial closure compatible with Scheduler.Dial.
+// Mirrors dialRecording but does NOT acquire the per-device UDP mutex —
+// the Scheduler holds it via Scheduler.LockUDP set to poller.LockUDP, so
+// taking it again here would deadlock. Cache write-through and
+// NoticeWrite happen via the recordingClient as usual.
+func (h *Handler) scheduleDial(name string) func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error) {
+	return func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error) {
+		if h.ClientFactory == nil {
+			return nil, nil, errors.New("server: ClientFactory not configured")
+		}
+		raw, err := h.ClientFactory(name)
+		if err != nil {
+			return nil, nil, err
+		}
+		rc := newRecordingClient(raw, func(ws []breezy.ParamWrite) {
+			h.recordWrite(name, ws)
+		})
+		return rc, raw, nil
+	}
 }
 
 // notice triggers fan-write settle suppression on the relevant poller after

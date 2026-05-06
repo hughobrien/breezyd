@@ -472,6 +472,40 @@ func (s *Scheduler) fire(ctx context.Context, e ScheduleEntry, idx int, now time
 		"device", s.Device, "at", e.At.String(), "attempts", attempts, "err", fireErr)
 }
 
+// Run blocks until ctx is done, ticking once a minute aligned to the
+// wall-clock minute boundary. The first tick fires immediately after
+// alignment to give callers a deterministic startup point.
+func (s *Scheduler) Run(ctx context.Context) {
+	s.alignToNextMinute(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+	t := time.NewTicker(1 * time.Minute)
+	defer t.Stop()
+	s.tick(ctx, s.now())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.tick(ctx, s.now())
+		}
+	}
+}
+
+// alignToNextMinute sleeps until the next :00 second boundary so subsequent
+// ticks land within a few hundred ms of HH:MM:00. Cancellable via ctx.
+func (s *Scheduler) alignToNextMinute(ctx context.Context) {
+	now := s.now()
+	wait := time.Duration(60-now.Second())*time.Second - time.Duration(now.Nanosecond())
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
+}
+
 // applyAction issues the device-side writes corresponding to one entry's
 // Action. Order: Power → Mode → SpeedManual. "off" issues Power(false) only.
 func applyAction(ctx context.Context, c breezy.DeviceClient, e ScheduleEntry) error {
