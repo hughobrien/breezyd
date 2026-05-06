@@ -930,3 +930,114 @@ test("device info: clicking summary toggles open and reveals serial/ip/fw", asyn
   await expect(info).toContainText("192.168.1.148");
   await expect(info).toContainText("0.11");
 });
+
+test("ENERGY block: collapsed by default, expanding shows now-line + 3-col grid", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: {
+          supported: true,
+          instant_w: 245,
+          consumed_w: 18,
+          heating_today_kwh: 1.234,
+          cooling_today_kwh: 0.456,
+          consumed_today_kwh: 0.123,
+          heating_lifetime_kwh: 234.5,
+          cooling_lifetime_kwh: 123.4,
+          consumed_lifetime_kwh: 12.3,
+        },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await expect(energy).toBeVisible();
+  await expect(energy).not.toHaveAttribute("open", "");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("245 W heating");
+  await expect(energy).toContainText("18 W consumed");
+  const cells = energy.locator(".sensor-cell");
+  await expect(cells).toHaveCount(6);
+  await expect(energy).toContainText("1.23"); // heating today
+  await expect(energy).toContainText("0.12"); // consumed today
+  await expect(energy).toContainText("12.30"); // consumed lifetime
+});
+
+test("ENERGY block: cooling sign + sums in now-line", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: true, instant_w: -180, consumed_w: 18, heating_today_kwh: 0, cooling_today_kwh: 0.5, consumed_today_kwh: 0.05, heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0 },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("180 W cooling");
+  await expect(energy).toContainText("18 W consumed");
+});
+
+test("ENERGY block: not regen → '0 W (not regen)'", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: true, instant_w: 0, consumed_w: 0, heating_today_kwh: 0, cooling_today_kwh: 0, consumed_today_kwh: 0, heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0 },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("(not regen)");
+});
+
+test("ENERGY block: error replaces grid", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: false, error: "unsupported model: Breezy 200 (type=22) — no airflow calibration" },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("unsupported model");
+});
+
+test("ENERGY block: hidden when service.energy missing", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => {
+      const s = baseSnapshot(n);
+      delete (s.service as any).energy;
+      return s;
+    },
+  });
+  await expect(page.locator(".card details.energy")).toHaveCount(0);
+});
+
+test("NOTICE block: hidden when no warnings", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: { in_user_control: true, sensor_alerts: { humidity: false, co2: false, voc: false }, special_mode: "off" },
+    }),
+  });
+  await expect(page.locator(".card .block", { hasText: "NOTICE" })).toHaveCount(0);
+});
+
+test("NOTICE block: shows sensor-override warning; .ctrl no longer carries .warn", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: { in_user_control: false, sensor_alerts: { humidity: false, co2: true, voc: true } },
+    }),
+  });
+  const notice = page.locator(".card .block", { hasText: "NOTICE" });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("sensor override");
+  // The override warning must no longer live inside Speed.
+  await expect(page.locator(".card .ctrl .warn")).toHaveCount(0);
+});

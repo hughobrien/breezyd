@@ -198,6 +198,7 @@
     gap: 0.4rem 0.5rem;
     margin-top: 0.4rem;
   }
+  .sensor-grid.energy-grid { grid-template-columns: repeat(3, 1fr); }
   .sensor-cell {
     display: flex;
     flex-direction: column;
@@ -414,6 +415,52 @@ function renderCard(name, snap) {
     </div>
 
     ${renderControls(name, snap, stale)}
+    ${renderEnergy(name, snap)}
+    ${renderNotice(name, snap)}
+  </div>`;
+}
+
+function renderEnergy(name, snap) {
+  const ev = snap.service?.energy;
+  if (!ev) return "";
+  // <details> default closed (no `open` attr); summary holds the heading.
+  const inner = ev.error
+    ? `<div class="warn">${esc(ev.error)}</div>`
+    : energyBody(ev);
+  return `<details class="block energy">
+    <summary><h3>ENERGY</h3></summary>
+    ${inner}
+  </details>`;
+}
+
+function energyBody(ev) {
+  let recovered;
+  if (ev.instant_w > 0) {
+    recovered = `${Math.round(ev.instant_w)} W heating`;
+  } else if (ev.instant_w < 0) {
+    recovered = `${Math.round(-ev.instant_w)} W cooling`;
+  } else {
+    recovered = `0 W (not regen)`;
+  }
+  const consumed = `${Math.round(ev.consumed_w ?? 0)} W consumed`;
+  const fmtKwh = (v) => `${(v ?? 0).toFixed(2)} kWh`;
+  return `<div class="row"><span>now: ${esc(recovered)} · ${esc(consumed)}</span></div>
+    <div class="sensor-grid energy-grid">
+      <div class="sensor-cell"><div class="sensor-label">heating today</div><div>${fmtKwh(ev.heating_today_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">cooling today</div><div>${fmtKwh(ev.cooling_today_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">consumed today</div><div>${fmtKwh(ev.consumed_today_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">heating lifetime</div><div>${fmtKwh(ev.heating_lifetime_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">cooling lifetime</div><div>${fmtKwh(ev.cooling_lifetime_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">consumed lifetime</div><div>${fmtKwh(ev.consumed_lifetime_kwh)}</div></div>
+    </div>`;
+}
+
+function renderNotice(name, snap) {
+  const warning = overrideLine(snap.live); // existing function; returns "" when no warning applies
+  if (!warning) return "";
+  return `<div class="block">
+    <h3>NOTICE</h3>
+    ${warning}
   </div>`;
 }
 
@@ -647,7 +694,6 @@ function renderControls(name, snap, stale) {
         ? manualSliderRow(name, snap.live, manualPct, !disabled && !editorOpen)
         : ""}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
-      ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
 
