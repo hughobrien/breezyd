@@ -107,7 +107,7 @@ func (d *daemonBackend) httpJSON(ctx context.Context, method, path string, body 
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return resp.StatusCode, raw, err

@@ -36,7 +36,7 @@ func cmdStatus(b backend, name string, stdout, stderr io.Writer) int {
 	defer cancel()
 	s, err := b.Status(ctx, name)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
 	renderStatus(stdout, s)
@@ -48,10 +48,10 @@ func cmdPower(b backend, name string, on bool, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.Power(ctx, name, on); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ok")
+	_, _ = fmt.Fprintln(stdout, "ok")
 	return 0
 }
 
@@ -60,7 +60,7 @@ func cmdPower(b backend, name string, on bool, stdout, stderr io.Writer) int {
 // clear error before the backend round-trip.
 func cmdSpeed(b backend, name string, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
-		fmt.Fprintln(stderr, "usage: breezy <name> speed <1|2|3|manual:PCT>")
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> speed <1|2|3|manual:PCT>")
 		return 2
 	}
 	arg := args[0]
@@ -69,39 +69,39 @@ func cmdSpeed(b backend, name string, args []string, stdout, stderr io.Writer) i
 		raw := strings.TrimPrefix(arg, "manual:")
 		pct, err := strconv.Atoi(raw)
 		if err != nil {
-			fmt.Fprintf(stderr, "speed manual: invalid percentage %q\n", raw)
+			_, _ = fmt.Fprintf(stderr, "speed manual: invalid percentage %q\n", raw)
 			return 2
 		}
 		if pct < 10 {
-			fmt.Fprintf(stderr, "speed manual: %d%% is below the firmware floor of 10%%\n", pct)
+			_, _ = fmt.Fprintf(stderr, "speed manual: %d%% is below the firmware floor of 10%%\n", pct)
 			return 2
 		}
 		if pct > 100 {
-			fmt.Fprintf(stderr, "speed manual: %d%% is above 100%%\n", pct)
+			_, _ = fmt.Fprintf(stderr, "speed manual: %d%% is above 100%%\n", pct)
 			return 2
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := b.SpeedManual(ctx, name, pct); err != nil {
-			fmt.Fprintf(stderr, "error: %s\n", err)
+			_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "ok")
+		_, _ = fmt.Fprintln(stdout, "ok")
 		return 0
 	}
 
 	preset, err := strconv.Atoi(arg)
 	if err != nil || preset < 1 || preset > 3 {
-		fmt.Fprintln(stderr, "speed: must be 1, 2, 3, or manual:<10..100>")
+		_, _ = fmt.Fprintln(stderr, "speed: must be 1, 2, 3, or manual:<10..100>")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.SpeedPreset(ctx, name, preset); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ok")
+	_, _ = fmt.Fprintln(stdout, "ok")
 	return 0
 }
 
@@ -116,27 +116,27 @@ var validModes = map[string]bool{
 
 func cmdMode(b backend, name string, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
-		fmt.Fprintln(stderr, "usage: breezy <name> mode <ventilation|regeneration|supply|extract>")
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> mode <ventilation|regeneration|supply|extract>")
 		return 2
 	}
 	mode := strings.ToLower(args[0])
 	if !validModes[mode] {
-		fmt.Fprintf(stderr, "mode: %q is not one of: ventilation, regeneration, supply, extract\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "mode: %q is not one of: ventilation, regeneration, supply, extract\n", args[0])
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.Mode(ctx, name, mode); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ok")
+	_, _ = fmt.Fprintln(stdout, "ok")
 	return 0
 }
 
 func cmdHeater(b backend, name string, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
-		fmt.Fprintln(stderr, "usage: breezy <name> heater <on|off>")
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> heater <on|off>")
 		return 2
 	}
 	var on bool
@@ -146,16 +146,16 @@ func cmdHeater(b backend, name string, args []string, stdout, stderr io.Writer) 
 	case "off":
 		on = false
 	default:
-		fmt.Fprintln(stderr, "heater: must be on or off")
+		_, _ = fmt.Fprintln(stderr, "heater: must be on or off")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.Heater(ctx, name, on); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ok")
+	_, _ = fmt.Fprintln(stdout, "ok")
 	return 0
 }
 
@@ -169,21 +169,21 @@ var validTimerModes = map[string]bool{
 
 func cmdTimer(b backend, name string, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
-		fmt.Fprintln(stderr, "usage: breezy <name> timer <off|night|turbo>")
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> timer <off|night|turbo>")
 		return 2
 	}
 	mode := strings.ToLower(args[0])
 	if !validTimerModes[mode] {
-		fmt.Fprintf(stderr, "timer: %q is not one of: off, night, turbo\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "timer: %q is not one of: off, night, turbo\n", args[0])
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.Timer(ctx, name, mode); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ok")
+	_, _ = fmt.Fprintln(stdout, "ok")
 	return 0
 }
 
@@ -191,10 +191,10 @@ func cmdResetFilter(b backend, name string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.ResetFilter(ctx, name); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "filter timer reset")
+	_, _ = fmt.Fprintln(stdout, "filter timer reset")
 	return 0
 }
 
@@ -202,10 +202,10 @@ func cmdResetFaults(b backend, name string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.ResetFaults(ctx, name); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "faults cleared")
+	_, _ = fmt.Fprintln(stdout, "faults cleared")
 	return 0
 }
 
@@ -216,7 +216,7 @@ func cmdFaults(b backend, name string, stdout, stderr io.Writer) int {
 	defer cancel()
 	faults, err := b.Faults(ctx, name)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
 	renderFaults(stdout, faults)
@@ -230,7 +230,7 @@ func cmdFirmware(b backend, name string, stdout, stderr io.Writer) int {
 	defer cancel()
 	version, buildDate, err := b.Firmware(ctx, name)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
 	renderFirmware(stdout, version, buildDate)
@@ -242,10 +242,10 @@ func cmdEfficiency(b backend, name string, stdout, stderr io.Writer) int {
 	defer cancel()
 	pct, err := b.Efficiency(ctx, name)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "recovery efficiency %d%%\n", pct)
+	_, _ = fmt.Fprintf(stdout, "recovery efficiency %d%%\n", pct)
 	return 0
 }
 
@@ -258,19 +258,19 @@ func cmdRtc(b backend, name string, args []string, stdout, stderr io.Writer) int
 	if len(args) == 2 && args[0] == "set" {
 		t, err := time.Parse(time.RFC3339, args[1])
 		if err != nil {
-			fmt.Fprintf(stderr, "rtc set: parse %q: %v\n", args[1], err)
+			_, _ = fmt.Fprintf(stderr, "rtc set: parse %q: %v\n", args[1], err)
 			return 2
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := b.SetRTC(ctx, name, t); err != nil {
-			fmt.Fprintf(stderr, "error: %s\n", err)
+			_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "rtc set")
+		_, _ = fmt.Fprintln(stdout, "rtc set")
 		return 0
 	}
-	fmt.Fprintln(stderr, "usage: breezy <name> rtc [set <RFC3339>]")
+	_, _ = fmt.Fprintln(stderr, "usage: breezy <name> rtc [set <RFC3339>]")
 	return 2
 }
 
@@ -284,25 +284,25 @@ func cmdRtcShow(b backend, name string, stdout, stderr io.Writer) int {
 
 	timeBytes, err := b.GetParam(ctx, name, 0x006F)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: read rtc_time: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: read rtc_time: %s\n", err)
 		return 1
 	}
 	dateBytes, err := b.GetParam(ctx, name, 0x0070)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: read rtc_calendar: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: read rtc_calendar: %s\n", err)
 		return 1
 	}
 	tv, err := breezy.Param{Type: breezy.TypeTimeOfDay}.Decode(timeBytes)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: decode rtc_time: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: decode rtc_time: %v\n", err)
 		return 1
 	}
 	dv, err := breezy.Param{Type: breezy.TypeDate}.Decode(dateBytes)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: decode rtc_calendar: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: decode rtc_calendar: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "%s %s\n", dv.String(), tv.String())
+	_, _ = fmt.Fprintf(stdout, "%s %s\n", dv.String(), tv.String())
 	return 0
 }
 
@@ -312,19 +312,19 @@ func cmdRtcShow(b backend, name string, stdout, stderr io.Writer) int {
 // raw hex when the type doesn't decode.
 func cmdGet(b backend, name string, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
-		fmt.Fprintln(stderr, "usage: breezy <name> get <param>")
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> get <param>")
 		return 2
 	}
 	id, p, ok, err := resolveParam(args[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "get: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "get: %v\n", err)
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	rawBytes, herr := b.GetParam(ctx, name, id)
 	if herr != nil {
-		fmt.Fprintf(stderr, "error: %s\n", herr)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", herr)
 		return 1
 	}
 
@@ -347,7 +347,7 @@ func cmdGet(b backend, name string, args []string, stdout, stderr io.Writer) int
 	if ok && p.Unit != "" {
 		unit = " " + p.Unit
 	}
-	fmt.Fprintf(stdout, "%s = %s%s\n", label, display, unit)
+	_, _ = fmt.Fprintf(stdout, "%s = %s%s\n", label, display, unit)
 	return 0
 }
 
@@ -356,31 +356,31 @@ func cmdGet(b backend, name string, args []string, stdout, stderr io.Writer) int
 // backend traffic.
 func cmdSet(b backend, name string, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 2 {
-		fmt.Fprintln(stderr, "usage: breezy <name> set <param> <hex>")
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> set <param> <hex>")
 		return 2
 	}
 	id, p, ok, err := resolveParam(args[0])
 	if err != nil {
-		fmt.Fprintf(stderr, "set: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "set: %v\n", err)
 		return 2
 	}
 	if ok && !p.Caps.CanWrite() {
-		fmt.Fprintf(stderr, "set: param %s (0x%04X) is read-only\n", p.Name, uint16(id))
+		_, _ = fmt.Fprintf(stderr, "set: param %s (0x%04X) is read-only\n", p.Name, uint16(id))
 		return 2
 	}
 	hexStr := strings.TrimPrefix(strings.ToLower(args[1]), "0x")
 	valueBytes, err := hex.DecodeString(hexStr)
 	if err != nil {
-		fmt.Fprintf(stderr, "set: invalid hex %q: %v\n", args[1], err)
+		_, _ = fmt.Fprintf(stderr, "set: invalid hex %q: %v\n", args[1], err)
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := b.SetParam(ctx, name, id, valueBytes); err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ok")
+	_, _ = fmt.Fprintln(stdout, "ok")
 	return 0
 }
 
@@ -429,7 +429,7 @@ func cmdLs(b backend, stdout, stderr io.Writer) int {
 	defer cancel()
 	rows, err := b.Devices(ctx)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 		return 1
 	}
 	renderLs(stdout, rows)
@@ -469,7 +469,7 @@ func cmdDiscover(args []string, stdout, stderr io.Writer) int {
 		switch {
 		case a == "-p" || a == "--password":
 			if i+1 >= len(args) {
-				fmt.Fprintln(stderr, "discover: -p needs a password value")
+				_, _ = fmt.Fprintln(stderr, "discover: -p needs a password value")
 				return 2
 			}
 			password = args[i+1]
@@ -499,24 +499,24 @@ func cmdDiscover(args []string, stdout, stderr io.Writer) int {
 		found, err = breezy.DiscoverAtWithPassword(ctx, normalised, password)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "discover: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "discover: %v\n", err)
 		return 1
 	}
 	if len(found) == 0 {
-		fmt.Fprintln(stdout, "no Breezy devices found")
-		fmt.Fprintln(stdout, "  things to check:")
-		fmt.Fprintln(stdout, "    - UDP/4000 is open on this host (a local firewall drop")
-		fmt.Fprintln(stdout, "      looks identical to no devices answering)")
-		fmt.Fprintln(stdout, "    - if your LAN drops UDP broadcasts (Wi-Fi AP isolation,")
-		fmt.Fprintln(stdout, "      VLANs, mesh hops), pass each device's IP directly:")
-		fmt.Fprintln(stdout, "      breezy discover 192.168.1.148 192.168.1.152")
-		fmt.Fprintln(stdout, "    - if your devices use a non-default password, pass")
-		fmt.Fprintln(stdout, "      -p PASSWORD — some firmware drops mismatched wildcard")
-		fmt.Fprintln(stdout, "      requests despite the spec saying discovery is unauthenticated")
+		_, _ = fmt.Fprintln(stdout, "no Breezy devices found")
+		_, _ = fmt.Fprintln(stdout, "  things to check:")
+		_, _ = fmt.Fprintln(stdout, "    - UDP/4000 is open on this host (a local firewall drop")
+		_, _ = fmt.Fprintln(stdout, "      looks identical to no devices answering)")
+		_, _ = fmt.Fprintln(stdout, "    - if your LAN drops UDP broadcasts (Wi-Fi AP isolation,")
+		_, _ = fmt.Fprintln(stdout, "      VLANs, mesh hops), pass each device's IP directly:")
+		_, _ = fmt.Fprintln(stdout, "      breezy discover 192.168.1.148 192.168.1.152")
+		_, _ = fmt.Fprintln(stdout, "    - if your devices use a non-default password, pass")
+		_, _ = fmt.Fprintln(stdout, "      -p PASSWORD — some firmware drops mismatched wildcard")
+		_, _ = fmt.Fprintln(stdout, "      requests despite the spec saying discovery is unauthenticated")
 		return 0
 	}
 	for _, f := range found {
-		fmt.Fprintf(stdout, "%s  id=%s  type=%d (%s)\n", f.IP, f.DeviceID, f.UnitType, breezy.UnitTypeName(f.UnitType))
+		_, _ = fmt.Fprintf(stdout, "%s  id=%s  type=%d (%s)\n", f.IP, f.DeviceID, f.UnitType, breezy.UnitTypeName(f.UnitType))
 	}
 	return 0
 }

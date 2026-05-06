@@ -178,7 +178,7 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool, pas
 	if err != nil {
 		return nil, err
 	}
-	defer pc.Close()
+	defer func() { _ = pc.Close() }()
 
 	if broadcast {
 		// Some kernels (Linux included, depending on configuration) refuse

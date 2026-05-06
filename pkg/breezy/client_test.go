@@ -455,7 +455,7 @@ func TestNewClient_DefaultPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient host-only: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 }
 
 func TestNewClient_HostPort(t *testing.T) {
@@ -463,7 +463,7 @@ func TestNewClient_HostPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient host:port: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 }
 
 func TestNewClient_BadDeviceID(t *testing.T) {
@@ -485,7 +485,7 @@ func TestWriteParams_ReadOnlyParamRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

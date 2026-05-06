@@ -728,6 +728,10 @@ document.addEventListener("click", async (ev) => {
                       { on: !snap.configured?.power });
       break;
     case "mode": {
+      // Mode change implicitly dismisses any open preset editor — the
+      // user's attention has shifted to airflow direction, not the
+      // preset's per-fan numbers.
+      delete editingPreset[name];
       // Carry the speed-of-record across the mode switch so the newly-
       // active fan(s) ramp to the same %, instead of the off-fan
       // starting from 0. Take the higher of supply/extract live pcts:

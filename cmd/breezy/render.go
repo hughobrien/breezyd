@@ -36,29 +36,29 @@ func renderStatus(w io.Writer, s breezy.Status) {
 	}
 	suffix := joinNonEmpty(", ", fwStr, lastStr)
 	if suffix != "" {
-		fmt.Fprintf(w, "%s @ %s  (%s)\n", s.Name, s.IP, suffix)
+		_, _ = fmt.Fprintf(w, "%s @ %s  (%s)\n", s.Name, s.IP, suffix)
 	} else {
-		fmt.Fprintf(w, "%s @ %s\n", s.Name, s.IP)
+		_, _ = fmt.Fprintf(w, "%s @ %s\n", s.Name, s.IP)
 	}
 
 	// Sensor-override warning: in_user_control is explicitly false.
 	if v, ok := s.Live["in_user_control"].(bool); ok && !v {
 		alerts := alertSummary(s.Live["sensor_alerts"])
 		if alerts != "" {
-			fmt.Fprintf(w, "  !! sensor override active (%s) — fan/heater may not match configured values\n", alerts)
+			_, _ = fmt.Fprintf(w, "  !! sensor override active (%s) — fan/heater may not match configured values\n", alerts)
 		} else {
-			fmt.Fprintln(w, "  !! sensor override active — fan/heater may not match configured values")
+			_, _ = fmt.Fprintln(w, "  !! sensor override active — fan/heater may not match configured values")
 		}
 	}
 
 	// Power.
 	if v, ok := boolField(s.Configured, "power"); ok {
-		fmt.Fprintf(w, "  power      : %s\n", onOff(v))
+		_, _ = fmt.Fprintf(w, "  power      : %s\n", onOff(v))
 	}
 
 	// Mode.
 	if v, ok := s.Configured["airflow_mode"].(string); ok {
-		fmt.Fprintf(w, "  mode       : %s\n", v)
+		_, _ = fmt.Fprintf(w, "  mode       : %s\n", v)
 	}
 
 	// Speed: configured side first, then live RPM if known.
@@ -66,30 +66,30 @@ func renderStatus(w io.Writer, s breezy.Status) {
 	if speedLine != "" {
 		live := liveRPMLine(s.Live)
 		if live != "" {
-			fmt.Fprintf(w, "  speed      : %-15s   (%s)\n", speedLine, live)
+			_, _ = fmt.Fprintf(w, "  speed      : %-15s   (%s)\n", speedLine, live)
 		} else {
-			fmt.Fprintf(w, "  speed      : %s\n", speedLine)
+			_, _ = fmt.Fprintf(w, "  speed      : %s\n", speedLine)
 		}
 	}
 
 	// Sensors.
 	if line := sensorsLine(s.Sensors); line != "" {
-		fmt.Fprintf(w, "  sensors    : %s\n", line)
+		_, _ = fmt.Fprintf(w, "  sensors    : %s\n", line)
 	}
 
 	// Service: filter status + remaining, motor lifetime.
 	if line := serviceLine(s.Service); line != "" {
-		fmt.Fprintf(w, "  service    : %s\n", line)
+		_, _ = fmt.Fprintf(w, "  service    : %s\n", line)
 	}
 
 	// Battery (RTC).
 	if v, ok := floatField(s.Service, "rtc_battery_volts"); ok {
-		fmt.Fprintf(w, "  battery    : RTC %.2f V\n", v)
+		_, _ = fmt.Fprintf(w, "  battery    : RTC %.2f V\n", v)
 	}
 
 	// Faults.
 	if v, ok := s.Service["fault_level"].(string); ok && v != "none" && v != "" {
-		fmt.Fprintf(w, "  faults     : %s (use `breezy %s faults` for detail)\n", v, s.Name)
+		_, _ = fmt.Fprintf(w, "  faults     : %s (use `breezy %s faults` for detail)\n", v, s.Name)
 	}
 }
 
@@ -109,7 +109,7 @@ type lsRow struct {
 // "(no devices configured)" line. Output is sorted by name for stability.
 func renderLs(w io.Writer, rows []lsRow) {
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "(no devices configured)")
+		_, _ = fmt.Fprintln(w, "(no devices configured)")
 		return
 	}
 
@@ -153,9 +153,9 @@ func renderLs(w io.Writer, rows []lsRow) {
 		cells = append(cells, row)
 	}
 
-	fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %s\n", wName, "NAME", wIP, "IP", wPower, "POWER", wMode, "MODE", "LAST POLL")
+	_, _ = fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %s\n", wName, "NAME", wIP, "IP", wPower, "POWER", wMode, "MODE", "LAST POLL")
 	for _, r := range cells {
-		fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %s\n", wName, r[0], wIP, r[1], wPower, r[2], wMode, r[3], r[4])
+		_, _ = fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %s\n", wName, r[0], wIP, r[1], wPower, r[2], wMode, r[3], r[4])
 	}
 }
 
@@ -163,18 +163,18 @@ func renderLs(w io.Writer, rows []lsRow) {
 // "no active faults" line (with newline).
 func renderFaults(w io.Writer, faults []breezy.FaultCode) {
 	if len(faults) == 0 {
-		fmt.Fprintln(w, "no active faults")
+		_, _ = fmt.Fprintln(w, "no active faults")
 		return
 	}
 	for _, f := range faults {
-		fmt.Fprintf(w, "  %s: code %d\n", f.Kind, f.Code)
+		_, _ = fmt.Fprintf(w, "  %s: code %d\n", f.Kind, f.Code)
 	}
 }
 
 // renderFirmware prints "version <v>  built <date>" — both fields come
 // straight from the daemon's GET /firmware route.
 func renderFirmware(w io.Writer, version, buildDate string) {
-	fmt.Fprintf(w, "version %s  built %s\n", version, buildDate)
+	_, _ = fmt.Fprintf(w, "version %s  built %s\n", version, buildDate)
 }
 
 // ----------------------------------------------------------------------------
@@ -430,10 +430,10 @@ func renderParams(w io.Writer, params []breezy.Param) {
 		cells = append(cells, row)
 	}
 
-	fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
+	_, _ = fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
 		wID, hID, wName, hName, wType, hType, wUnit, hUnit, wCaps, hCaps, hDesc)
 	for _, r := range cells {
-		fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
+		_, _ = fmt.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
 			wID, r[0], wName, r[1], wType, r[2], wUnit, r[3], wCaps, r[4], r[5])
 	}
 }

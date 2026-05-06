@@ -15,6 +15,26 @@ test:
 test-race:
 	CGO_ENABLED=1 CC=clang go test -race ./...
 
+# race tests, repeated 5x to flush flakes / heisen-races (clang+TSan)
+test-race-flake:
+	CGO_ENABLED=1 CC=clang go test -race -count=5 ./...
+
+# memory sanitizer: catches reads of uninitialised memory in cgo (clang only)
+test-msan:
+	CGO_ENABLED=1 CC=clang go test -msan ./...
+
+# address sanitizer: catches OOB / use-after-free in cgo (clang only)
+test-asan:
+	CGO_ENABLED=1 CC=clang go test -asan ./...
+
+# golangci-lint full pass; errcheck is the strict bit, hence the broader gate
+test-staticcheck:
+	golangci-lint run --timeout=5m ./...
+
+# heavy gate: race-flake + msan + asan + golangci-lint. Slow (~3 min); run
+# before tagging a release or after risky concurrency / cgo / unsafe code.
+check-deep: test-race-flake test-msan test-asan test-staticcheck
+
 # live integration tests; WRITES to device (each test t.Cleanup-restores)
 test-integration ip id password:
 	BREEZY_INTEGRATION=1 \

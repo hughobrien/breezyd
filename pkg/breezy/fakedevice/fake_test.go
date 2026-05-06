@@ -42,7 +42,7 @@ func newClient(t *testing.T, srv *Server) *net.UDPConn {
 	if err != nil {
 		t.Fatalf("DialUDP: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	if err := conn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestRoundTrip_ReadUnitType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	// Read 0x00B9: snapshot value is "1100" (LE) = 17.
@@ -140,7 +140,7 @@ func TestRoundTrip_ReadHighPageVOC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	// Read 0x0320: VOC index = 350 LE = 5E 01.
@@ -173,7 +173,7 @@ func TestRoundTrip_WriteWithReply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	// Write 0x0001 = 0x00 (turn off).
@@ -218,7 +218,7 @@ func TestRoundTrip_WriteNoResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 
@@ -264,7 +264,7 @@ func TestRoundTrip_UnsupportedParam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	// 0x0003 was FD in the sweep — should be unsupported.
@@ -296,7 +296,7 @@ func TestRoundTrip_WrongPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	_, _, err = roundTrip(t, conn, testDeviceID, "wrongpw",
@@ -311,7 +311,7 @@ func TestRoundTrip_WrongDeviceIDDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	pkt := breezy.EncodeRequest("BREEZYNOTTHISONE", testPassword,
@@ -335,7 +335,7 @@ func TestConcurrentReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { _ = srv.Close() })
 
 	const goroutines = 10
 	const reqsPerG = 100
@@ -357,7 +357,7 @@ func TestConcurrentReads(t *testing.T) {
 				errCh <- err
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			for i := 0; i < reqsPerG; i++ {
 				pkt := breezy.EncodeRequest(testDeviceID, testPassword,

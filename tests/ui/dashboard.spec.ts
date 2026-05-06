@@ -314,6 +314,25 @@ test("mode click: optimistic live update fills the new active fan immediately", 
   await expect(rows.nth(1).locator(".val")).toHaveText("0%");
 });
 
+test("mode click closes any open preset editor", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset2",
+        airflow_mode: "regeneration",
+        preset2: { supply: 55, extract: 60 },
+      },
+    }),
+  });
+  // Open the preset editor.
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await expect(page.locator(".preset-editor")).toBeVisible();
+  // Click any mode button → editor closes.
+  await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
+  await expect(page.locator(".preset-editor")).toHaveCount(0);
+});
+
 test("mode click in preset: no manual_pct write (would kick out of preset)", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
