@@ -132,38 +132,74 @@ func SetTimer(ctx context.Context, c DeviceClient, mode string) error {
 	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0007, Value: []byte{val}}})
 }
 
-// SetThreshold writes one of the per-sensor over-threshold setpoints. The
-// firmware fires the alert (visible in 0x84) and boosts the fan when the
-// matching live reading exceeds this value. Kinds (case-insensitive):
+// SetThresholdConfig writes one or both of: the per-sensor over-threshold
+// setpoint and the per-sensor enable flag (the firmware's "trigger fan
+// boost when this sensor is over its threshold"). At least one of value
+// and enabled must be non-nil; otherwise ErrInvalidArg with no write.
+// Both writes (when supplied) land in a single WriteParams call so the
+// device sees them atomically.
 //
-//   - "humidity" (0x0019, uint8, 40..80 RH%)
-//   - "co2"      (0x001A, uint16 LE, 400..2000 ppm in 10-ppm steps)
-//   - "voc"      (0x031F, uint16 LE, 50..250 VOC index)
+// Kinds (case-insensitive):
+//   - "humidity": value 40..80 RH%; enable flag at 0x000F
+//   - "co2":      value 400..2000 ppm step 10; enable flag at 0x0011
+//   - "voc":      value 50..250 index; enable flag at 0x0315
 //
 // Out-of-range values and unknown kinds return ErrInvalidArg with no write.
-func SetThreshold(ctx context.Context, c DeviceClient, kind string, value int) error {
+func SetThresholdConfig(ctx context.Context, c DeviceClient, kind string, value *int, enabled *bool) error {
+	if value == nil && enabled == nil {
+		return fmt.Errorf("%w: at least one of value or enabled must be supplied", ErrInvalidArg)
+	}
+	enableByte := func(b bool) byte {
+		if b {
+			return 1
+		}
+		return 0
+	}
+	var writes []ParamWrite
 	switch strings.ToLower(kind) {
 	case "humidity":
-		if value < 40 || value > 80 {
-			return fmt.Errorf("%w: humidity threshold must be 40..80, got %d", ErrInvalidArg, value)
+		if value != nil {
+			if *value < 40 || *value > 80 {
+				return fmt.Errorf("%w: humidity threshold must be 40..80, got %d", ErrInvalidArg, *value)
+			}
+			writes = append(writes, ParamWrite{ID: 0x0019, Value: []byte{byte(*value)}})
 		}
-		return c.WriteParams(ctx, []ParamWrite{{ID: 0x0019, Value: []byte{byte(value)}}})
+		if enabled != nil {
+			writes = append(writes, ParamWrite{ID: 0x000F, Value: []byte{enableByte(*enabled)}})
+		}
 	case "co2":
-		if value < 400 || value > 2000 {
-			return fmt.Errorf("%w: co2 threshold must be 400..2000, got %d", ErrInvalidArg, value)
+		if value != nil {
+			if *value < 400 || *value > 2000 {
+				return fmt.Errorf("%w: co2 threshold must be 400..2000, got %d", ErrInvalidArg, *value)
+			}
+			if *value%10 != 0 {
+				return fmt.Errorf("%w: co2 threshold must be a multiple of 10, got %d", ErrInvalidArg, *value)
+			}
+			writes = append(writes, ParamWrite{ID: 0x001A, Value: []byte{byte(*value), byte(*value >> 8)}})
 		}
-		if value%10 != 0 {
-			return fmt.Errorf("%w: co2 threshold must be a multiple of 10, got %d", ErrInvalidArg, value)
+		if enabled != nil {
+			writes = append(writes, ParamWrite{ID: 0x0011, Value: []byte{enableByte(*enabled)}})
 		}
-		return c.WriteParams(ctx, []ParamWrite{{ID: 0x001A, Value: []byte{byte(value), byte(value >> 8)}}})
 	case "voc":
-		if value < 50 || value > 250 {
-			return fmt.Errorf("%w: voc threshold must be 50..250, got %d", ErrInvalidArg, value)
+		if value != nil {
+			if *value < 50 || *value > 250 {
+				return fmt.Errorf("%w: voc threshold must be 50..250, got %d", ErrInvalidArg, *value)
+			}
+			writes = append(writes, ParamWrite{ID: 0x031F, Value: []byte{byte(*value), byte(*value >> 8)}})
 		}
-		return c.WriteParams(ctx, []ParamWrite{{ID: 0x031F, Value: []byte{byte(value), byte(value >> 8)}}})
+		if enabled != nil {
+			writes = append(writes, ParamWrite{ID: 0x0315, Value: []byte{enableByte(*enabled)}})
+		}
 	default:
 		return fmt.Errorf("%w: threshold kind must be one of humidity/co2/voc, got %q", ErrInvalidArg, kind)
 	}
+	return c.WriteParams(ctx, writes)
+}
+
+// SetThreshold writes only the per-sensor over-threshold setpoint. Kept
+// as a one-line wrapper for callers that don't touch the enable flag.
+func SetThreshold(ctx context.Context, c DeviceClient, kind string, value int) error {
+	return SetThresholdConfig(ctx, c, kind, &value, nil)
 }
 
 // ResetFilter writes 1 to 0x0065, resetting the filter-replacement

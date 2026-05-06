@@ -235,6 +235,168 @@ func TestHeater(t *testing.T) {
 	}
 }
 
+// TestCLI_Threshold drives `breezy <name> threshold <kind> <value>` end-to-end
+// through directBackend → fakedevice UDP, then asserts the exact bytes
+// landed in the expected param ID and only that ID.
+func TestCLI_Threshold(t *testing.T) {
+	for _, c := range []struct {
+		kind  string
+		value string
+		hex   string
+		id    breezy.ParamID
+	}{
+		{"humidity", "65", "41", 0x0019},
+		{"co2", "1500", "dc05", 0x001A},
+		{"voc", "200", "c800", 0x031F},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			fake := startFakeDevice(t)
+			devices := map[string]config.Device{
+				"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+			}
+			code, _, stderr := runStandalone(t, devices, "playroom", "threshold", c.kind, c.value)
+			if code != 0 {
+				t.Fatalf("code=%d stderr=%s", code, stderr)
+			}
+			got, ok := fake.Value(c.id)
+			if !ok {
+				t.Fatalf("no value written at 0x%04X", c.id)
+			}
+			if got != c.hex {
+				t.Errorf("hex at 0x%04X = %q, want %q", c.id, got, c.hex)
+			}
+		})
+	}
+}
+
+// TestCLI_Threshold_Usage: missing args must exit 2 and print usage,
+// with no backend round-trip.
+func TestCLI_Threshold_Usage(t *testing.T) {
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: "127.0.0.1:0"},
+	}
+	code, _, stderr := runStandalone(t, devices, "playroom", "threshold")
+	if code != 2 {
+		t.Errorf("code = %d, want 2 (usage error); stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stderr, "usage:") {
+		t.Errorf("stderr=%q (should print usage)", stderr)
+	}
+}
+
+// TestCLI_Threshold_OutOfRange: value beyond the firmware-accepted range
+// surfaces from breezy.SetThresholdConfig as ErrInvalidArg, which the CLI
+// renders as exit code 1 (backend error), distinct from local usage (2).
+func TestCLI_Threshold_OutOfRange(t *testing.T) {
+	fake := startFakeDevice(t)
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, _, stderr := runStandalone(t, devices, "playroom", "threshold", "humidity", "90")
+	if code != 1 {
+		t.Errorf("code = %d, want 1 (validation rejected by ops); stderr=%q", code, stderr)
+	}
+}
+
+// TestCLI_AutoFan drives `breezy <name> auto-fan <kind> on|off` end-to-end
+// and asserts the resulting enable byte at the matching enable-flag param.
+func TestCLI_AutoFan(t *testing.T) {
+	for _, c := range []struct {
+		kind  string
+		state string
+		hex   string
+		id    breezy.ParamID
+	}{
+		{"humidity", "on", "01", 0x000F},
+		{"humidity", "off", "00", 0x000F},
+		{"co2", "on", "01", 0x0011},
+		{"voc", "off", "00", 0x0315},
+	} {
+		t.Run(c.kind+"_"+c.state, func(t *testing.T) {
+			fake := startFakeDevice(t)
+			devices := map[string]config.Device{
+				"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+			}
+			code, _, stderr := runStandalone(t, devices, "playroom", "auto-fan", c.kind, c.state)
+			if code != 0 {
+				t.Fatalf("code=%d stderr=%s", code, stderr)
+			}
+			got, ok := fake.Value(c.id)
+			if !ok {
+				t.Fatalf("no value written at 0x%04X", c.id)
+			}
+			if got != c.hex {
+				t.Errorf("hex at 0x%04X = %q, want %q", c.id, got, c.hex)
+			}
+		})
+	}
+}
+
+// TestCLI_AutoFan_BadState: a state that isn't on/off must exit 2 with no
+// backend round-trip. We deliberately pass a junk IP — if the dispatch
+// logic ever reaches the backend, the test will fail with a UDP error
+// instead of the expected usage exit.
+func TestCLI_AutoFan_BadState(t *testing.T) {
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: "127.0.0.1:0"},
+	}
+	code, _, stderr := runStandalone(t, devices, "playroom", "auto-fan", "humidity", "yes")
+	if code != 2 {
+		t.Errorf("code = %d, want 2 (usage error); stderr=%q", code, stderr)
+	}
+}
+
+// TestCLI_Threshold_Daemon and TestCLI_AutoFan_Daemon assert that the CLI
+// uses the right HTTP path + body shape when talking to the daemon. The
+// stub records the incoming request so we can verify the contract; the
+// directBackend path is covered by the standalone tests above.
+func TestCLI_Threshold_Daemon(t *testing.T) {
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+	code, _, stderr := runCLI(t, srv, "playroom", "threshold", "co2", "1500")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	if got.method != "POST" || got.path != "/v1/devices/playroom/threshold" {
+		t.Fatalf("got %s %s, want POST /v1/devices/playroom/threshold", got.method, got.path)
+	}
+	if got.body["kind"] != "co2" {
+		t.Errorf("body kind=%v want co2", got.body["kind"])
+	}
+	if v, _ := got.body["value"].(float64); int(v) != 1500 {
+		t.Errorf("body value=%v want 1500", got.body["value"])
+	}
+	// "enabled" key must be ABSENT for threshold-only set; sending it as
+	// null/false would let the daemon misread the intent.
+	if _, present := got.body["enabled"]; present {
+		t.Errorf("body should not include 'enabled' for threshold-only set; body=%v", got.body)
+	}
+}
+
+func TestCLI_AutoFan_Daemon(t *testing.T) {
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+	code, _, stderr := runCLI(t, srv, "playroom", "auto-fan", "humidity", "off")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	if got.method != "POST" || got.path != "/v1/devices/playroom/threshold" {
+		t.Fatalf("got %s %s, want POST /v1/devices/playroom/threshold", got.method, got.path)
+	}
+	if got.body["kind"] != "humidity" {
+		t.Errorf("body kind=%v want humidity", got.body["kind"])
+	}
+	if got.body["enabled"] != false {
+		t.Errorf("body enabled=%v want false", got.body["enabled"])
+	}
+	// "value" must be absent for enable-only toggles.
+	if _, present := got.body["value"]; present {
+		t.Errorf("body should not include 'value' for auto-fan toggle; body=%v", got.body)
+	}
+}
+
 func TestResetFilterAndFaults(t *testing.T) {
 	for _, tc := range []struct {
 		verb     string

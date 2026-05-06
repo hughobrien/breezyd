@@ -45,6 +45,11 @@ type backend interface {
 	Mode(ctx context.Context, name string, mode string) error
 	Heater(ctx context.Context, name string, on bool) error
 	Timer(ctx context.Context, name string, mode string) error
+	// ThresholdConfig writes one or both of: the per-sensor over-threshold
+	// setpoint and the per-sensor enable flag. At least one of value and
+	// enabled must be non-nil; the daemon and direct backends route to
+	// breezy.SetThresholdConfig with the same constraints.
+	ThresholdConfig(ctx context.Context, name string, kind string, value *int, enabled *bool) error
 	ResetFilter(ctx context.Context, name string) error
 	ResetFaults(ctx context.Context, name string) error
 	SetRTC(ctx context.Context, name string, t time.Time) error
@@ -183,6 +188,21 @@ func (d *daemonBackend) Mode(ctx context.Context, name, mode string) error {
 
 func (d *daemonBackend) Heater(ctx context.Context, name string, on bool) error {
 	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/heater", map[string]any{"on": on})
+	if err != nil || status >= 400 {
+		return envelopeErr(status, raw, err)
+	}
+	return nil
+}
+
+func (d *daemonBackend) ThresholdConfig(ctx context.Context, name string, kind string, value *int, enabled *bool) error {
+	body := map[string]any{"kind": kind}
+	if value != nil {
+		body["value"] = *value
+	}
+	if enabled != nil {
+		body["enabled"] = *enabled
+	}
+	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/threshold", body)
 	if err != nil || status >= 400 {
 		return envelopeErr(status, raw, err)
 	}
@@ -441,6 +461,14 @@ func (d *directBackend) Heater(ctx context.Context, name string, on bool) error 
 		return err
 	}
 	return breezy.SetHeater(ctx, c, on)
+}
+
+func (d *directBackend) ThresholdConfig(ctx context.Context, name string, kind string, value *int, enabled *bool) error {
+	c, err := d.dial(name)
+	if err != nil {
+		return err
+	}
+	return breezy.SetThresholdConfig(ctx, c, kind, value, enabled)
 }
 
 func (d *directBackend) Timer(ctx context.Context, name, mode string) error {

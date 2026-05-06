@@ -878,7 +878,7 @@ func TestHandler_PostThreshold_BadInputs(t *testing.T) {
 		body map[string]any
 	}{
 		{"missing kind", map[string]any{"value": 50}},
-		{"missing value", map[string]any{"kind": "humidity"}},
+		{"missing both value and enabled", map[string]any{"kind": "humidity"}},
 		{"unknown kind", map[string]any{"kind": "temperature", "value": 50}},
 		{"out of range humidity", map[string]any{"kind": "humidity", "value": 90}},
 		{"co2 not multiple of 10", map[string]any{"kind": "co2", "value": 1505}},
@@ -896,6 +896,56 @@ func TestHandler_PostThreshold_BadInputs(t *testing.T) {
 				t.Errorf("error code = %v, want bad_request", env["code"])
 			}
 		})
+	}
+}
+
+func TestHandler_PostThreshold_EnabledOnly(t *testing.T) {
+	for _, c := range []struct {
+		kind     string
+		enabled  bool
+		paramHex string // expected hex byte at the corresponding enable param
+		paramID  string
+	}{
+		{"humidity", true, "01", "0x000F"},
+		{"co2", false, "00", "0x0011"},
+		{"voc", true, "01", "0x0315"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			h, _, _ := newServerHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold",
+				map[string]any{"kind": c.kind, "enabled": c.enabled})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/"+c.paramID, nil)
+			var resp map[string]any
+			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
+			if resp["hex"] != c.paramHex {
+				t.Errorf("%s enable = %v, want %s", c.kind, resp["hex"], c.paramHex)
+			}
+		})
+	}
+}
+
+func TestHandler_PostThreshold_ValueAndEnabled(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold",
+		map[string]any{"kind": "humidity", "value": 65, "enabled": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// Both params should reflect the write.
+	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0019", nil)
+	var resp map[string]any
+	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
+	if resp["hex"] != "41" {
+		t.Errorf("humidity threshold hex = %v, want 41", resp["hex"])
+	}
+	rec3 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x000F", nil)
+	var resp3 map[string]any
+	_ = json.Unmarshal(rec3.Body.Bytes(), &resp3)
+	if resp3["hex"] != "00" {
+		t.Errorf("humidity enable hex = %v, want 00", resp3["hex"])
 	}
 }
 
