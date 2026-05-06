@@ -69,10 +69,11 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          # action@v7 + golangci-lint v2 are the matched pair. v6 only
-          # supports v1, whose latest release (v1.64.8) was built with
-          # go1.24 and refuses to load configs targeting a newer Go.
-          version: v2.1.6
+          # Need a release built with at least go1.26: earlier v2 releases
+          # (e.g. v2.1.6) are built with go1.24 and refuse to load configs
+          # targeting a newer Go (matches the project's go.mod). v2.11.4
+          # is the version verified to work locally and against this code.
+          version: v2.11.4
           args: --timeout=5m
 
   # Address sanitizer = `just test-asan`. Catches OOB / use-after-free,
