@@ -910,6 +910,25 @@ test("auto-fan: editing both value and checkbox POSTs {kind, value, enabled}", a
   expect(post!.body).toEqual({ kind: "humidity", value: 55, enabled: false });
 });
 
+test("auto-fan: snapshot without _sensor_enabled treats checkbox as default-on; save without toggling skips POST", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => {
+      const s = baseSnapshot(n);
+      delete (s.configured as any).humidity_sensor_enabled;
+      return s;
+    },
+  });
+  await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
+  // Renderer should show checked (default-on for missing key).
+  await expect(page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]')).toBeChecked();
+  // Save without toggling and without changing the value.
+  await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
+  await page.waitForTimeout(200);
+  const post = requests.find((r) => r.method === "POST" && r.url.endsWith("/threshold"));
+  expect(post).toBeFalsy();
+});
+
 test("device info: collapsed by default", async ({ page }) => {
   await loadDashboard(page, { devices: [{ name: "playroom" }] });
   const card = page.locator(".card").first();

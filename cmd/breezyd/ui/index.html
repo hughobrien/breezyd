@@ -633,6 +633,7 @@ function thresholdCell(name, kind, snap) {
     const inputVal = (thresh === null || thresh === undefined) ? cfg.min : thresh;
     const enabledKey = cfg.enabledKey;
     const enabledNow = snap.configured?.[enabledKey];
+    // default-on when missing/true; only render unchecked for explicit false
     const checkedAttr = (enabledNow === false) ? "" : " checked";
     body = `<span class="thresh-edit-inline">
       <input type="number" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}"
@@ -1101,7 +1102,7 @@ async function saveThreshold(name, kind) {
   const cfg = THRESHOLD_KINDS[kind];
   const snap = lastSnapshots[name] || {};
   const prevValue = snap.configured?.[cfg.thresholdKey];
-  const prevEnabled = snap.configured?.[cfg.enabledKey];
+  const prevEnabled = snap.configured?.[cfg.enabledKey] !== false; // default-on when missing/true; matches the renderer's checkedAttr
   const enabledNow = cb.checked;
   const body = { kind };
   let dirty = false;
