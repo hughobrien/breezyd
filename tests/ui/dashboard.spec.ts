@@ -288,6 +288,32 @@ test("mode click in manual: carries the higher fan pct as new manual_pct", async
   expect(speedPost?.body).toEqual({ manual: 50 });
 });
 
+test("mode click: optimistic live update fills the new active fan immediately", async ({ page }) => {
+  // The daemon's cache won't show the new fan pcts until the 12 s settle
+  // window passes; the dashboard should optimistically patch the live
+  // values so the user doesn't watch the slider sit at 0 for that long.
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: { speed_mode: "manual", manual_pct: 50, airflow_mode: "extract" },
+      live: { fan_supply_rpm: 0, fan_extract_rpm: 3120, fan_supply_pct: 0, fan_extract_pct: 50 },
+    }),
+  });
+  // Pre-click sanity: supply is "off", reads 0%.
+  const rows = page.locator(".card .ctrl .fan-slider-row");
+  await expect(rows.nth(0).locator(".val-label")).toHaveText("off");
+  await expect(rows.nth(0).locator(".val")).toHaveText("0%");
+  // Switch to supply mode. Daemon will keep returning the stale
+  // (extract-mode) snapshot for this test — the optimistic overlay is
+  // what should make supply read 50% / "— rpm".
+  await page.click('button[data-action="mode"][data-name="playroom"][data-value="supply"]');
+  await page.waitForTimeout(250);
+  await expect(rows.nth(0).locator(".val-label")).toHaveText("— rpm");
+  await expect(rows.nth(0).locator(".val")).toHaveText("50%");
+  await expect(rows.nth(1).locator(".val-label")).toHaveText("off");
+  await expect(rows.nth(1).locator(".val")).toHaveText("0%");
+});
+
 test("mode click in preset: no manual_pct write (would kick out of preset)", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],

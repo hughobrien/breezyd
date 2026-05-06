@@ -230,6 +230,12 @@ const editingThreshold = {}; // name -> kind
 // when a different card is interacted with elsewhere (we leave it across
 // re-renders so live polling doesn't slam the editor closed mid-drag).
 const editingPreset = {};   // name -> 1 | 2 | 3
+// Per-device optimistic live overlay. After a write that we KNOW affects
+// fan pcts (mode switch, manual slider drag), we preemptively patch the
+// snapshot's live.fan_*_{pct,rpm} so the UI doesn't sit at 0 during the
+// poller's 12 s fan-settle window. Each entry: { expiresAt, fields }.
+// 15 s TTL covers the settle plus a margin.
+const optimisticLive = {}; // name -> { expiresAt, fan_supply_pct, fan_extract_pct, fan_supply_rpm, fan_extract_rpm }
 // Per-card match-speeds toggle for the preset editor. Defaults to true
 // (single-slider feel). False lets users set asymmetric supply/extract.
 const matchSpeeds = {};     // name -> bool
@@ -287,12 +293,35 @@ async function refreshAll() {
   );
   for (const res of results) {
     if (res.status === "fulfilled") {
-      lastSnapshots[res.value.name] = { ...res.value.snap, _fetchedAt: Date.now() };
+      lastSnapshots[res.value.name] = applyOptimisticLive(res.value.name, { ...res.value.snap, _fetchedAt: Date.now() });
       // Clear all toasts for this device on a successful refresh.
       delete toasts[res.value.name];
     }
   }
   render();
+}
+
+// Set optimistic live values for a device. Used when we just wrote
+// something that the daemon's cache won't reflect for ~12 s (settle
+// window). The supplied fields are merged into snap.live until expiry.
+function setOptimisticLive(name, fields, ttlMs = 15000) {
+  optimisticLive[name] = { expiresAt: Date.now() + ttlMs, ...fields };
+}
+
+// Merge any active optimistic live overlay onto a snapshot. Expired
+// entries are deleted lazily here.
+function applyOptimisticLive(name, snap) {
+  const o = optimisticLive[name];
+  if (!o) return snap;
+  if (Date.now() > o.expiresAt) {
+    delete optimisticLive[name];
+    return snap;
+  }
+  const overlay = {};
+  for (const k of Object.keys(o)) {
+    if (k !== "expiresAt") overlay[k] = o[k];
+  }
+  return { ...snap, live: { ...(snap.live ?? {}), ...overlay } };
 }
 
 function render() {
@@ -719,6 +748,39 @@ document.addEventListener("click", async (ev) => {
         await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
                         { manual: preservePct });
       }
+      // Optimistic UI: the daemon's cache won't reflect new fan_*_pct
+      // until the 12 s fan-settle window ends. We just wrote both 0xB7
+      // (mode) and (in manual mode) 0x44 (manual_pct), so we know what
+      // the active fan(s) will be at. Predict per-fan based on which
+      // run in the new mode, masked by speed_mode (preset still uses
+      // its stored per-fan pcts).
+      const supplyRuns = value === "ventilation" || value === "regeneration" || value === "supply";
+      const extractRuns = value === "ventilation" || value === "regeneration" || value === "extract";
+      let supplyTargetPct, extractTargetPct;
+      if (prevSpeedMode === "manual") {
+        const m = preservePct >= 10 ? preservePct : (snap.configured?.manual_pct ?? 0);
+        supplyTargetPct = m;
+        extractTargetPct = m;
+      } else if (typeof prevSpeedMode === "string" && prevSpeedMode.startsWith("preset")) {
+        const cur = snap.configured?.[prevSpeedMode] ?? {};
+        supplyTargetPct = typeof cur.supply === "number" ? cur.supply : 0;
+        extractTargetPct = typeof cur.extract === "number" ? cur.extract : 0;
+      } else {
+        supplyTargetPct = 0;
+        extractTargetPct = 0;
+      }
+      setOptimisticLive(name, {
+        fan_supply_pct: supplyRuns ? supplyTargetPct : 0,
+        fan_extract_pct: extractRuns ? extractTargetPct : 0,
+        // RPM unknown until next real poll — show "— rpm" rather than
+        // a stale or zero value while the fan ramps.
+        fan_supply_rpm: supplyRuns ? null : 0,
+        fan_extract_rpm: extractRuns ? null : 0,
+      });
+      if (lastSnapshots[name]) {
+        lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
+        render();
+      }
       break;
     }
     case "preset": {
@@ -902,7 +964,7 @@ async function postWrite(name, controlKey, url, body) {
       try {
         const snapResp = await fetch("/v1/devices/" + encodeURIComponent(name));
         if (snapResp.ok) {
-          lastSnapshots[name] = { ...(await snapResp.json()), _fetchedAt: Date.now() };
+          lastSnapshots[name] = applyOptimisticLive(name, { ...(await snapResp.json()), _fetchedAt: Date.now() });
         }
       } catch {}
     }
