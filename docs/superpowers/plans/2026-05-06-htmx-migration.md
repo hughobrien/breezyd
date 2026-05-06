@@ -84,13 +84,15 @@ End state: dashboard's read-only behavior is byte-identical to today plus dark m
 - Modify: `flake.nix`
 - Modify: `justfile`
 - Modify: `.gitignore`
+- Modify: `go.mod`, `go.sum` (add `github.com/a-h/templ` runtime dependency)
 
 **Acceptance Criteria:**
 - [ ] `nix develop --command templ version` prints a version
-- [ ] `nix build` still succeeds (compiles only committed Go; templ stays in the devshell only)
+- [ ] `nix build` still succeeds (compiles only committed Go; templ stays in the devshell only). After `go.sum` changes, `flake.nix`'s `vendorHash` MUST be updated — see CLAUDE.md.
 - [ ] `just generate` exists and runs `templ generate ./...`
 - [ ] `just check` includes a drift step that fails if `templ generate` produces diffs
 - [ ] `*_templ.go` files are committed to the repo (not gitignored)
+- [ ] `github.com/a-h/templ` is a direct dep in `go.mod` (the generated `*_templ.go` files import the runtime — Task 5's first generated file revealed this gap)
 
 **Verify:**
 ```sh

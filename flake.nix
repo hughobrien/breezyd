@@ -31,7 +31,7 @@
           pname = "breezyd";
           inherit version;
           src = ./.;
-          vendorHash = "sha256-TQW/KUuf9pI7UmkkvkzZcPWwEJDMraHbR582Q4725Vo=";
+          vendorHash = "sha256-WoDt1L0QYeGTqU8ufCnw1FGI5Ixus+H/K3mIcIsMwS0=";
           subPackages = [ "cmd/breezyd" "cmd/breezy" ];
           # Reproducible: omit `-X main.date=…` so two builds of the same
           # commit produce identical binaries.
