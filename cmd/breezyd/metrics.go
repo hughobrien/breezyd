@@ -80,6 +80,9 @@ type Metrics struct {
 	EnergyHeatingTodayKWh     *prometheus.GaugeVec
 	EnergyCoolingTodayKWh     *prometheus.GaugeVec
 	EnergyConsumedTodayKWh    *prometheus.GaugeVec
+	EnergyHeatingMonthKWh     *prometheus.GaugeVec
+	EnergyCoolingMonthKWh     *prometheus.GaugeVec
+	EnergyConsumedMonthKWh    *prometheus.GaugeVec
 	EnergyHeatingLifetimeKWh  *prometheus.GaugeVec
 	EnergyCoolingLifetimeKWh  *prometheus.GaugeVec
 	EnergyConsumedLifetimeKWh *prometheus.GaugeVec
@@ -259,6 +262,18 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		"breezyd_energy_consumed_today_kwh",
 		"Electric energy consumed by the fans today (resets at local midnight).",
 	)
+	m.EnergyHeatingMonthKWh = energyGauge(
+		"breezyd_energy_heating_month_kwh",
+		"Heating energy recovered this calendar month (resets on first-of-month, local TZ).",
+	)
+	m.EnergyCoolingMonthKWh = energyGauge(
+		"breezyd_energy_cooling_month_kwh",
+		"Cooling energy recovered this calendar month (resets on first-of-month, local TZ).",
+	)
+	m.EnergyConsumedMonthKWh = energyGauge(
+		"breezyd_energy_consumed_month_kwh",
+		"Electric energy consumed by the fans this calendar month (resets on first-of-month, local TZ).",
+	)
 	m.EnergyHeatingLifetimeKWh = energyGauge(
 		"breezyd_energy_heating_lifetime_kwh",
 		"Heating energy recovered cumulative (persists across daemon restart).",
@@ -287,6 +302,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			m.lastPollTimestamp, m.pollErrorsTotal, m.up, m.info,
 			m.EnergyRecoveredWatts, m.EnergyConsumedWatts,
 			m.EnergyHeatingTodayKWh, m.EnergyCoolingTodayKWh, m.EnergyConsumedTodayKWh,
+			m.EnergyHeatingMonthKWh, m.EnergyCoolingMonthKWh, m.EnergyConsumedMonthKWh,
 			m.EnergyHeatingLifetimeKWh, m.EnergyCoolingLifetimeKWh, m.EnergyConsumedLifetimeKWh,
 		}
 		for _, c := range collectors {
@@ -453,6 +469,7 @@ func (m *Metrics) SetEnergy(device string, ev breezy.EnergyValues) {
 	all := []*prometheus.GaugeVec{
 		m.EnergyRecoveredWatts, m.EnergyConsumedWatts,
 		m.EnergyHeatingTodayKWh, m.EnergyCoolingTodayKWh, m.EnergyConsumedTodayKWh,
+		m.EnergyHeatingMonthKWh, m.EnergyCoolingMonthKWh, m.EnergyConsumedMonthKWh,
 		m.EnergyHeatingLifetimeKWh, m.EnergyCoolingLifetimeKWh, m.EnergyConsumedLifetimeKWh,
 	}
 	if ev.Error != "" {
@@ -466,6 +483,9 @@ func (m *Metrics) SetEnergy(device string, ev breezy.EnergyValues) {
 	m.EnergyHeatingTodayKWh.WithLabelValues(device).Set(ev.HeatingTodayKWh)
 	m.EnergyCoolingTodayKWh.WithLabelValues(device).Set(ev.CoolingTodayKWh)
 	m.EnergyConsumedTodayKWh.WithLabelValues(device).Set(ev.ConsumedTodayKWh)
+	m.EnergyHeatingMonthKWh.WithLabelValues(device).Set(ev.HeatingMonthKWh)
+	m.EnergyCoolingMonthKWh.WithLabelValues(device).Set(ev.CoolingMonthKWh)
+	m.EnergyConsumedMonthKWh.WithLabelValues(device).Set(ev.ConsumedMonthKWh)
 	m.EnergyHeatingLifetimeKWh.WithLabelValues(device).Set(ev.HeatingLifetimeKWh)
 	m.EnergyCoolingLifetimeKWh.WithLabelValues(device).Set(ev.CoolingLifetimeKWh)
 	m.EnergyConsumedLifetimeKWh.WithLabelValues(device).Set(ev.ConsumedLifetimeKWh)

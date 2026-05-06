@@ -412,6 +412,63 @@ func TestEnergyTracker_Tick_RolloverPersists(t *testing.T) {
 	}
 }
 
+func TestEnergyTracker_Tick_MonthRollover(t *testing.T) {
+	dir := t.TempDir()
+	tr := &EnergyTracker{
+		Device:             "month-rollover",
+		StateDir:           dir,
+		HeatingTodayKWh:    1.5,
+		HeatingMonthKWh:    20.0,
+		HeatingLifetimeKWh: 100.0,
+		Today:              "2026-04-30",
+		MonthStart:         "2026-04",
+	}
+	// Tick at just after midnight on 2026-05-01: BOTH day and month roll over.
+	t1 := time.Date(2026, 5, 1, 0, 0, 5, 0, time.Local)
+	tr.Tick(makeRegenSnap(50, 0, 20), t1)
+	snap := tr.Snapshot()
+	if snap.HeatingTodayKWh != 0 {
+		t.Errorf("HeatingTodayKWh = %v after rollover, want 0", snap.HeatingTodayKWh)
+	}
+	if snap.HeatingMonthKWh != 0 {
+		t.Errorf("HeatingMonthKWh = %v after rollover, want 0", snap.HeatingMonthKWh)
+	}
+	if snap.HeatingLifetimeKWh != 100.0 {
+		t.Errorf("HeatingLifetimeKWh = %v, want 100 (lifetime must survive rollover)", snap.HeatingLifetimeKWh)
+	}
+	if tr.MonthStart != "2026-05" {
+		t.Errorf("MonthStart = %q, want 2026-05", tr.MonthStart)
+	}
+}
+
+func TestEnergyTracker_Tick_MonthRolloverPersists(t *testing.T) {
+	dir := t.TempDir()
+	tr := &EnergyTracker{
+		Device:          "month-rollover-persist",
+		StateDir:        dir,
+		HeatingMonthKWh: 5.0,
+		// Same calendar day so the date branch is a no-op; only the month
+		// branch fires. Use mid-day on the 1st.
+		Today:      "2026-05-01",
+		MonthStart: "2026-04",
+	}
+	t1 := time.Date(2026, 5, 1, 12, 0, 0, 0, time.Local)
+	notRegen := makeRegenSnap(50, 0, 20)
+	notRegen[0x00B7] = []byte{0} // ventilation; early-return after rollovers
+	tr.Tick(notRegen, t1)
+
+	tr2 := &EnergyTracker{Device: "month-rollover-persist", StateDir: dir}
+	if err := tr2.Load(); err != nil {
+		t.Fatalf("Load after rollover: %v", err)
+	}
+	if tr2.MonthStart != "2026-05" {
+		t.Errorf("persisted MonthStart = %q, want 2026-05", tr2.MonthStart)
+	}
+	if tr2.HeatingMonthKWh != 0 {
+		t.Errorf("persisted HeatingMonthKWh = %v, want 0 after rollover", tr2.HeatingMonthKWh)
+	}
+}
+
 func TestEnergyTracker_Tick_UnsupportedModel(t *testing.T) {
 	tr := newTracker(t)
 	tr.Load()

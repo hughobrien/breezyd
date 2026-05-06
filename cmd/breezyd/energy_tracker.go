@@ -24,9 +24,13 @@ import (
 // persistedEnergy is the on-disk JSON shape for the energy state file.
 type persistedEnergy struct {
 	TodayDate           string  `json:"today_date"`
+	MonthStart          string  `json:"month_start"`
 	HeatingTodayKWh     float64 `json:"heating_today_kwh"`
 	CoolingTodayKWh     float64 `json:"cooling_today_kwh"`
 	ConsumedTodayKWh    float64 `json:"consumed_today_kwh"`
+	HeatingMonthKWh     float64 `json:"heating_month_kwh"`
+	CoolingMonthKWh     float64 `json:"cooling_month_kwh"`
+	ConsumedMonthKWh    float64 `json:"consumed_month_kwh"`
 	HeatingLifetimeKWh  float64 `json:"heating_lifetime_kwh"`
 	CoolingLifetimeKWh  float64 `json:"cooling_lifetime_kwh"`
 	ConsumedLifetimeKWh float64 `json:"consumed_lifetime_kwh"`
@@ -52,6 +56,11 @@ type EnergyTracker struct {
 	CoolingTodayKWh  float64
 	ConsumedTodayKWh float64
 
+	// Month counters (reset on calendar-month rollover, local TZ).
+	HeatingMonthKWh  float64
+	CoolingMonthKWh  float64
+	ConsumedMonthKWh float64
+
 	// Lifetime counters (monotonically increasing).
 	HeatingLifetimeKWh  float64
 	CoolingLifetimeKWh  float64
@@ -66,6 +75,8 @@ type EnergyTracker struct {
 
 	// Today is the YYYY-MM-DD date (system local TZ) of the current rolling day.
 	Today string
+	// MonthStart is the YYYY-MM month (system local TZ) of the current month counters.
+	MonthStart string
 	// LastTick is the wall-clock time of the most recent Tick call.
 	LastTick time.Time
 	// Error is non-empty when the device's UnitType has no calibration data.
@@ -125,6 +136,22 @@ func (e *EnergyTracker) Load() error {
 		e.Today = today
 	}
 
+	// Restore month counters only if the stored month matches this month.
+	thisMonth := time.Now().Local().Format("2006-01")
+	if p.MonthStart == thisMonth {
+		e.HeatingMonthKWh = p.HeatingMonthKWh
+		e.CoolingMonthKWh = p.CoolingMonthKWh
+		e.ConsumedMonthKWh = p.ConsumedMonthKWh
+		e.MonthStart = p.MonthStart
+	} else {
+		// Month rollover: zero month counters; persisted file with no
+		// month_start (e.g. from before this version) lands here too.
+		e.HeatingMonthKWh = 0
+		e.CoolingMonthKWh = 0
+		e.ConsumedMonthKWh = 0
+		e.MonthStart = thisMonth
+	}
+
 	// Always zero LastTick so the first Tick after Load primes without
 	// accumulating a spurious interval from the previous daemon run.
 	e.LastTick = time.Time{}
@@ -136,9 +163,13 @@ func (e *EnergyTracker) Load() error {
 func (e *EnergyTracker) save() error {
 	p := persistedEnergy{
 		TodayDate:           e.Today,
+		MonthStart:          e.MonthStart,
 		HeatingTodayKWh:     e.HeatingTodayKWh,
 		CoolingTodayKWh:     e.CoolingTodayKWh,
 		ConsumedTodayKWh:    e.ConsumedTodayKWh,
+		HeatingMonthKWh:     e.HeatingMonthKWh,
+		CoolingMonthKWh:     e.CoolingMonthKWh,
+		ConsumedMonthKWh:    e.ConsumedMonthKWh,
 		HeatingLifetimeKWh:  e.HeatingLifetimeKWh,
 		CoolingLifetimeKWh:  e.CoolingLifetimeKWh,
 		ConsumedLifetimeKWh: e.ConsumedLifetimeKWh,
@@ -173,6 +204,9 @@ func (e *EnergyTracker) Snapshot() breezy.EnergyValues {
 		HeatingTodayKWh:     e.HeatingTodayKWh,
 		CoolingTodayKWh:     e.CoolingTodayKWh,
 		ConsumedTodayKWh:    e.ConsumedTodayKWh,
+		HeatingMonthKWh:     e.HeatingMonthKWh,
+		CoolingMonthKWh:     e.CoolingMonthKWh,
+		ConsumedMonthKWh:    e.ConsumedMonthKWh,
 		HeatingLifetimeKWh:  e.HeatingLifetimeKWh,
 		CoolingLifetimeKWh:  e.CoolingLifetimeKWh,
 		ConsumedLifetimeKWh: e.ConsumedLifetimeKWh,
@@ -214,6 +248,19 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 		e.Today = today
 		if err := e.save(); err != nil {
 			slog.Warn("energy: rollover save failed", "device", e.Device, "err", err)
+		}
+	}
+	// Month rollover, parallel to date rollover. Crossing a month boundary
+	// also crosses a day boundary, so this fires after the date branch
+	// (saving twice in that rare case is harmless).
+	thisMonth := now.Local().Format("2006-01")
+	if e.MonthStart != thisMonth {
+		e.HeatingMonthKWh = 0
+		e.CoolingMonthKWh = 0
+		e.ConsumedMonthKWh = 0
+		e.MonthStart = thisMonth
+		if err := e.save(); err != nil {
+			slog.Warn("energy: month rollover save failed", "device", e.Device, "err", err)
 		}
 	}
 
@@ -286,12 +333,15 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 
 	if w > 0 {
 		e.HeatingTodayKWh += deltaRecovered
+		e.HeatingMonthKWh += deltaRecovered
 		e.HeatingLifetimeKWh += deltaRecovered
 	} else if w < 0 {
 		e.CoolingTodayKWh += deltaRecovered
+		e.CoolingMonthKWh += deltaRecovered
 		e.CoolingLifetimeKWh += deltaRecovered
 	}
 	e.ConsumedTodayKWh += deltaConsumed
+	e.ConsumedMonthKWh += deltaConsumed
 	e.ConsumedLifetimeKWh += deltaConsumed
 
 	if err := e.save(); err != nil {

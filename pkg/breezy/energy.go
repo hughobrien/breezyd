@@ -100,6 +100,9 @@ type EnergyValues struct {
 	HeatingTodayKWh     float64 `json:"heating_today_kwh"`
 	CoolingTodayKWh     float64 `json:"cooling_today_kwh"`
 	ConsumedTodayKWh    float64 `json:"consumed_today_kwh"`
+	HeatingMonthKWh     float64 `json:"heating_month_kwh"`
+	CoolingMonthKWh     float64 `json:"cooling_month_kwh"`
+	ConsumedMonthKWh    float64 `json:"consumed_month_kwh"`
 	HeatingLifetimeKWh  float64 `json:"heating_lifetime_kwh"`
 	CoolingLifetimeKWh  float64 `json:"cooling_lifetime_kwh"`
 	ConsumedLifetimeKWh float64 `json:"consumed_lifetime_kwh"`

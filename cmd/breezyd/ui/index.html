@@ -481,6 +481,8 @@ function renderCard(name, snap) {
     ${(toasts[name] || {}).power ? `<div class="toast" role="alert">${esc(toasts[name].power)}</div>` : ""}
     ${stale ? `<div class="row"><span class="ts red">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span></div>` : ""}
 
+    ${renderEnergy(name, snap)}
+
     ${(() => {
       const sa = snap.live?.sensor_alerts || {};
       const sensorAlerting = sa.humidity === true || sa.co2 === true || sa.voc === true;
@@ -492,7 +494,6 @@ function renderCard(name, snap) {
     })()}
 
     ${renderControls(name, snap, stale)}
-    ${renderEnergy(name, snap)}
   </div>`;
 }
 
@@ -512,25 +513,50 @@ function renderEnergy(name, snap) {
 }
 
 function energyBody(ev) {
-  let recovered;
-  if (ev.instant_w > 0) {
-    recovered = `${Math.round(ev.instant_w)} W heating`;
-  } else if (ev.instant_w < 0) {
-    recovered = `${Math.round(-ev.instant_w)} W cooling`;
-  } else {
-    recovered = `0 W (not regen)`;
-  }
-  const consumed = `${Math.round(ev.consumed_w ?? 0)} W consumed`;
   const fmtKwh = (v) => `${(v ?? 0).toFixed(2)} kWh`;
-  return `<div class="row"><span>now: ${esc(recovered)} · ${esc(consumed)}</span></div>
-    <div class="sensor-grid energy-grid">
-      <div class="sensor-cell"><div class="sensor-label">heating today</div><div>${fmtKwh(ev.heating_today_kwh)}</div></div>
-      <div class="sensor-cell"><div class="sensor-label">cooling today</div><div>${fmtKwh(ev.cooling_today_kwh)}</div></div>
-      <div class="sensor-cell"><div class="sensor-label">consumed today</div><div>${fmtKwh(ev.consumed_today_kwh)}</div></div>
-      <div class="sensor-cell"><div class="sensor-label">heating lifetime</div><div>${fmtKwh(ev.heating_lifetime_kwh)}</div></div>
-      <div class="sensor-cell"><div class="sensor-label">cooling lifetime</div><div>${fmtKwh(ev.cooling_lifetime_kwh)}</div></div>
-      <div class="sensor-cell"><div class="sensor-label">consumed lifetime</div><div>${fmtKwh(ev.consumed_lifetime_kwh)}</div></div>
-    </div>`;
+  const fmtW   = (v) => `${Math.round(v ?? 0)} W`;
+  // COP = useful-work / consumed. Renders as 1-dp number; "—" when
+  // consumed is zero / non-positive / non-finite to avoid Infinity/NaN.
+  const fmtCop = (num, den) => {
+    if (!den || den <= 0) return "—";
+    const r = Math.abs(num) / den;
+    if (!isFinite(r)) return "—";
+    return r.toFixed(1);
+  };
+
+  const w = ev.instant_w ?? 0;
+  let regenPower;
+  if (w > 0)      regenPower = `${fmtW(w)} heating`;
+  else if (w < 0) regenPower = `${fmtW(-w)} cooling`;
+  else            regenPower = "0 W";
+
+  const regenCost = fmtW(ev.consumed_w ?? 0);
+  const copNow    = fmtCop(ev.instant_w ?? 0, ev.consumed_w ?? 0);
+
+  const copToday    = fmtCop((ev.heating_today_kwh ?? 0)    + (ev.cooling_today_kwh ?? 0),    ev.consumed_today_kwh);
+  const copMonth    = fmtCop((ev.heating_month_kwh ?? 0)    + (ev.cooling_month_kwh ?? 0),    ev.consumed_month_kwh);
+  const copLifetime = fmtCop((ev.heating_lifetime_kwh ?? 0) + (ev.cooling_lifetime_kwh ?? 0), ev.consumed_lifetime_kwh);
+
+  const cell = (label, value) =>
+    `<div class="sensor-cell"><div class="sensor-label">${esc(label)}</div><div>${esc(value)}</div></div>`;
+
+  return `<div class="sensor-grid energy-grid">
+    ${cell("regen power",    regenPower)}
+    ${cell("regen cost",     regenCost)}
+    ${cell("COP",            copNow)}
+    ${cell("COP today",      copToday)}
+    ${cell("COP month",      copMonth)}
+    ${cell("COP lifetime",   copLifetime)}
+    ${cell("heating today",    fmtKwh(ev.heating_today_kwh))}
+    ${cell("heating month",    fmtKwh(ev.heating_month_kwh))}
+    ${cell("heating lifetime", fmtKwh(ev.heating_lifetime_kwh))}
+    ${cell("cooling today",    fmtKwh(ev.cooling_today_kwh))}
+    ${cell("cooling month",    fmtKwh(ev.cooling_month_kwh))}
+    ${cell("cooling lifetime", fmtKwh(ev.cooling_lifetime_kwh))}
+    ${cell("consumed today",    fmtKwh(ev.consumed_today_kwh))}
+    ${cell("consumed month",    fmtKwh(ev.consumed_month_kwh))}
+    ${cell("consumed lifetime", fmtKwh(ev.consumed_lifetime_kwh))}
+  </div>`;
 }
 
 function kv(k, v) {
