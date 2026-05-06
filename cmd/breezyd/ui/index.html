@@ -121,7 +121,22 @@
   .slider-row .val-spacer,
   .slider-row .val { min-width: 3rem; }
   .slider-row .val { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Left-side label used by the preset editor's two sliders so users can
+     tell supply from extract at a glance. */
+  .slider-row .val-label {
+    min-width: 3rem; color: #666; font-size: 0.75rem;
+  }
   .slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* Preset editor: a tight inline panel under the preset buttons. */
+  .preset-editor {
+    margin-top: 0.4rem; padding: 0.4rem 0.5rem;
+    background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px;
+    display: flex; flex-direction: column; gap: 0.3rem;
+  }
+  .preset-editor .match-speeds {
+    font-size: 0.75rem; color: #444; display: inline-flex;
+    align-items: center; gap: 0.3rem;
+  }
   .toast {
     background: #fee; border: 1px solid #c66; color: #800;
     padding: 0.3rem 0.4rem; border-radius: 4px; font-size: 0.75rem;
@@ -198,6 +213,14 @@ const toasts = {}; // name -> { control: msg }
 // Per-card threshold editor state. name -> "humidity" | "co2" | "voc".
 // Only one threshold can be edited per card at a time.
 const editingThreshold = {}; // name -> kind
+// Per-card open preset editor: 1 | 2 | 3 when a preset's supply/extract
+// editor is visible. Cleared on preset re-click, manual-slider use, or
+// when a different card is interacted with elsewhere (we leave it across
+// re-renders so live polling doesn't slam the editor closed mid-drag).
+const editingPreset = {};   // name -> 1 | 2 | 3
+// Per-card match-speeds toggle for the preset editor. Defaults to true
+// (single-slider feel). False lets users set asymmetric supply/extract.
+const matchSpeeds = {};     // name -> bool
 
 // Per-card Device Info <details> open state. Set when the user expands
 // it manually (captured via the toggle event below) and used during render
@@ -318,13 +341,6 @@ function renderCard(name, snap) {
       ${thresholdGrid(name, snap)}
       ${tempGrid(snap)}
       ${kv("recovery", fmt(snap.sensors?.recovery_efficiency_pct, "—", "%"))}
-    </div>
-
-    <div class="block">
-      <h3>Fans</h3>
-      ${kv("supply",   fanLine(snap.live?.fan_supply_pct, snap.live?.fan_supply_rpm))}
-      ${kv("extract",  fanLine(snap.live?.fan_extract_pct, snap.live?.fan_extract_rpm))}
-      ${overrideLine(snap.live)}
     </div>
 
     ${renderControls(name, snap, stale)}
@@ -513,9 +529,35 @@ function renderControls(name, snap, stale) {
     `<button data-action="preset" data-name="${esc(name)}" data-value="${n}" ${dis}
         aria-pressed="${speedMode === "preset" + n ? "true" : "false"}">${n}</button>`;
 
+  const editing = editingPreset[name];
+  // editor is only meaningful for an active preset — manual mode never has one.
+  const editorOpen = typeof editing === "number" && speedMode === "preset" + editing;
+  const matchOn = matchSpeeds[name] !== false; // default true
 
   return `<div class="controls">
     <h3>Controls</h3>
+
+    <div class="ctrl">
+      <span class="ctrl-label">Speed</span>
+      ${kv("supply",  fanLine(snap.live?.fan_supply_pct, snap.live?.fan_supply_rpm))}
+      ${kv("extract", fanLine(snap.live?.fan_extract_pct, snap.live?.fan_extract_rpm))}
+      <div class="seg">
+        ${presetBtn(1)}
+        ${presetBtn(2)}
+        ${presetBtn(3)}
+      </div>
+      ${editorOpen
+        ? presetEditor(name, editing, cfg, matchOn, dis)
+        : `<div class="slider-row">
+             <span class="val-spacer"></span>
+             <input type="range" min="10" max="100" step="5"
+               value="${speedMode === "manual" ? manualPct : 10}"
+               data-action="manual-slider" data-name="${esc(name)}" ${dis}>
+             <span class="val">${speedMode === "manual" ? `${manualPct}%` : ""}</span>
+           </div>`}
+      ${overrideLine(snap.live)}
+      ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
+    </div>
 
     <div class="ctrl">
       <span class="ctrl-label">Mode</span>
@@ -550,23 +592,37 @@ function renderControls(name, snap, stale) {
       </div>
     </div>
 
-    <div class="ctrl">
-      <span class="ctrl-label">Speed</span>
-      <div class="seg">
-        ${presetBtn(1)}
-        ${presetBtn(2)}
-        ${presetBtn(3)}
-      </div>
-      <div class="slider-row">
-        <span class="val-spacer"></span>
-        <input type="range" min="10" max="100" step="5"
-          value="${speedMode === "manual" ? manualPct : 10}"
-          data-action="manual-slider" data-name="${esc(name)}" ${dis}>
-        <span class="val">${speedMode === "manual" ? `${manualPct}%` : ""}</span>
-      </div>
-      ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
-    </div>
+  </div>`;
+}
 
+// Renders the per-preset edit UI: a "match speeds" checkbox plus two
+// sliders (supply / extract). Values come from the cached configured
+// snapshot so the sliders track what the device thinks the preset is.
+function presetEditor(name, preset, cfg, matchOn, dis) {
+  const entry = cfg["preset" + preset] || {};
+  const supplyVal = typeof entry.supply === "number" ? entry.supply : 50;
+  const extractVal = typeof entry.extract === "number" ? entry.extract : 50;
+  const checkAttr = matchOn ? "checked" : "";
+  return `<div class="preset-editor">
+    <label class="match-speeds">
+      <input type="checkbox" data-action="match-speeds-toggle" data-name="${esc(name)}"
+        ${checkAttr} ${dis}>
+      match speeds
+    </label>
+    <div class="slider-row">
+      <span class="val-label">supply</span>
+      <input type="range" min="10" max="100" step="5" value="${supplyVal}"
+        data-action="preset-supply-slider" data-name="${esc(name)}"
+        data-preset="${preset}" ${dis}>
+      <span class="val">${supplyVal}%</span>
+    </div>
+    <div class="slider-row">
+      <span class="val-label">extract</span>
+      <input type="range" min="10" max="100" step="5" value="${extractVal}"
+        data-action="preset-extract-slider" data-name="${esc(name)}"
+        data-preset="${preset}" ${dis}>
+      <span class="val">${extractVal}%</span>
+    </div>
   </div>`;
 }
 
@@ -598,10 +654,26 @@ document.addEventListener("click", async (ev) => {
       await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
                       { mode: value });
       break;
-    case "preset":
-      await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
-                      { preset: parseInt(value, 10) });
+    case "preset": {
+      const n = parseInt(value, 10);
+      const speedMode = snap.configured?.speed_mode || "";
+      const alreadyOnPreset = speedMode === "preset" + n;
+      // Same preset already active and editor open → close editor (no write).
+      // Same preset active but editor closed → just open the editor.
+      // Different preset (or manual) → switch to it AND open its editor.
+      if (alreadyOnPreset && editingPreset[name] === n) {
+        delete editingPreset[name];
+        render();
+      } else if (alreadyOnPreset) {
+        editingPreset[name] = n;
+        render();
+      } else {
+        editingPreset[name] = n;
+        await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                        { preset: n });
+      }
       break;
+    }
     case "heater":
       await postWrite(name, "heater", "/v1/devices/" + encodeURIComponent(name) + "/heater",
                       { on: !snap.configured?.heater_enabled });
@@ -676,14 +748,51 @@ document.addEventListener("toggle", (ev) => {
   }
 }, true);
 
-// Slider handler — fires on `change` (mouseup/blur), not `input`.
+// Change handler — covers the manual-slider, the two preset-editor
+// sliders, and the match-speeds checkbox. `change` fires on mouseup/blur
+// for sliders and on click for checkboxes.
 document.addEventListener("change", async (ev) => {
   const el = ev.target;
-  if (!el.matches('input[type="range"][data-action="manual-slider"]')) return;
   const name = el.dataset.name;
-  const pct = parseInt(el.value, 10);
-  await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
-                  { manual: pct });
+
+  if (el.matches('input[type="range"][data-action="manual-slider"]')) {
+    // Touching the manual slider always closes any open preset editor
+    // and falls into manual mode.
+    delete editingPreset[name];
+    const pct = parseInt(el.value, 10);
+    await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
+                    { manual: pct });
+    return;
+  }
+
+  if (el.matches('input[type="range"][data-action="preset-supply-slider"], input[type="range"][data-action="preset-extract-slider"]')) {
+    const preset = parseInt(el.dataset.preset, 10);
+    const cfg = lastSnapshots[name]?.configured || {};
+    const cur = cfg["preset" + preset] || {};
+    const newPct = parseInt(el.value, 10);
+    const isSupply = el.dataset.action === "preset-supply-slider";
+    const matchOn = matchSpeeds[name] !== false;
+    let supply, extract;
+    if (matchOn) {
+      supply = newPct;
+      extract = newPct;
+    } else if (isSupply) {
+      supply = newPct;
+      extract = (typeof cur.extract === "number") ? cur.extract : newPct;
+    } else {
+      supply = (typeof cur.supply === "number") ? cur.supply : newPct;
+      extract = newPct;
+    }
+    await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/preset",
+                    { preset, supply, extract });
+    return;
+  }
+
+  if (el.matches('input[type="checkbox"][data-action="match-speeds-toggle"]')) {
+    matchSpeeds[name] = el.checked;
+    render();
+    return;
+  }
 });
 
 async function postWrite(name, controlKey, url, body) {

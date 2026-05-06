@@ -183,7 +183,7 @@ test("sensors: mocked values appear in the card", async ({ page }) => {
   await expect(card).toContainText("85%");
 });
 
-test("fans: pct and rpm both rendered on each fan row", async ({ page }) => {
+test("fans: pct and rpm rendered inline in the Speed control", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -195,9 +195,9 @@ test("fans: pct and rpm both rendered on each fan row", async ({ page }) => {
       },
     }),
   });
-  const fans = page.locator(".card .block", { hasText: "Fans" });
-  await expect(fans).toContainText("30% 5340rpm");
-  await expect(fans).toContainText("30% 5400rpm");
+  const speed = page.locator(".card .ctrl", { hasText: "Speed" });
+  await expect(speed).toContainText("30% 5340rpm");
+  await expect(speed).toContainText("30% 5400rpm");
 });
 
 test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
@@ -213,8 +213,8 @@ test("fans: pct=0 / rpm=0 when fans are off", async ({ page }) => {
       },
     }),
   });
-  const fans = page.locator(".card .block", { hasText: "Fans" });
-  await expect(fans).toContainText("0% 0rpm");
+  const speed = page.locator(".card .ctrl", { hasText: "Speed" });
+  await expect(speed).toContainText("0% 0rpm");
 });
 
 test("stale indicator: old last_poll desaturates the card", async ({ page }) => {
@@ -271,6 +271,106 @@ test("speed preset: clicking preset 2 POSTs {preset:2}", async ({ page }) => {
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/speed"));
   expect(post).toBeTruthy();
   expect(post!.body).toEqual({ preset: 2 });
+});
+
+test("speed preset: editor opens after activating, sliders use cached preset values", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset2",
+        preset1: { supply: 30, extract: 35 },
+        preset2: { supply: 55, extract: 60 },
+        preset3: { supply: 100, extract: 100 },
+      },
+    }),
+  });
+  // Preset 2 is already active. First click on 2 with editor closed → editor opens.
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  const editor = page.locator(".preset-editor");
+  await expect(editor).toBeVisible();
+  await expect(editor.locator('input[data-action="preset-supply-slider"]')).toHaveValue("55");
+  await expect(editor.locator('input[data-action="preset-extract-slider"]')).toHaveValue("60");
+});
+
+test("speed preset: clicking same active preset twice closes the editor", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset2",
+        preset2: { supply: 55, extract: 60 },
+      },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await expect(page.locator(".preset-editor")).toBeVisible();
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  await expect(page.locator(".preset-editor")).toHaveCount(0);
+});
+
+test("speed preset editor: match-speeds default true → moving supply POSTs both", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset2",
+        preset2: { supply: 55, extract: 60 },
+      },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  const supply = page.locator('input[data-action="preset-supply-slider"][data-name="playroom"]');
+  await supply.evaluate((el: HTMLInputElement) => {
+    el.value = "70";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(150);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
+  expect(post).toBeTruthy();
+  expect(post!.body).toEqual({ preset: 2, supply: 70, extract: 70 });
+});
+
+test("speed preset editor: match-speeds off → moving extract preserves cached supply", async ({ page }) => {
+  const { requests } = await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset2",
+        preset2: { supply: 55, extract: 60 },
+      },
+    }),
+  });
+  await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
+  const matchBox = page.locator('input[data-action="match-speeds-toggle"][data-name="playroom"]');
+  await matchBox.uncheck();
+  const extract = page.locator('input[data-action="preset-extract-slider"][data-name="playroom"]');
+  await extract.evaluate((el: HTMLInputElement) => {
+    el.value = "80";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(150);
+  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/preset"));
+  expect(post).toBeTruthy();
+  expect(post!.body).toEqual({ preset: 2, supply: 55, extract: 80 });
+});
+
+test("speed preset editor: manual slider visible when editor closed; opens editor on preset switch", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      configured: {
+        speed_mode: "preset1",
+        preset1: { supply: 30, extract: 35 },
+        preset2: { supply: 55, extract: 60 },
+      },
+    }),
+  });
+  // Initial render: preset1 active, editor closed → manual slider visible.
+  await expect(
+    page.locator('input[type="range"][data-action="manual-slider"][data-name="playroom"]')
+  ).toBeVisible();
+  await expect(page.locator(".preset-editor")).toHaveCount(0);
 });
 
 test("speed manual slider: POSTs once on change, not on input", async ({ page }) => {

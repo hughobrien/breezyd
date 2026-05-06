@@ -72,6 +72,59 @@ func TestOps_SetSpeedPreset(t *testing.T) {
 	}
 }
 
+func TestOps_SetPresetSpeed(t *testing.T) {
+	cases := []struct {
+		preset            int
+		supplyID, extID   ParamID
+		supplyPct, extPct int
+	}{
+		{1, 0x003A, 0x003B, 30, 35},
+		{2, 0x003C, 0x003D, 55, 60},
+		{3, 0x003E, 0x003F, 100, 100},
+	}
+	for _, c := range cases {
+		rc := &recordingClient{}
+		if err := SetPresetSpeed(context.Background(), rc, c.preset, c.supplyPct, c.extPct); err != nil {
+			t.Errorf("preset=%d: %v", c.preset, err)
+			continue
+		}
+		if len(rc.writes) != 1 || len(rc.writes[0]) != 2 {
+			t.Errorf("preset=%d: want one packet with two writes, got %v", c.preset, rc.writes)
+			continue
+		}
+		w := rc.writes[0]
+		if w[0].ID != c.supplyID || int(w[0].Value[0]) != c.supplyPct {
+			t.Errorf("preset=%d: supply write = (0x%04X, %d), want (0x%04X, %d)",
+				c.preset, uint16(w[0].ID), w[0].Value[0], uint16(c.supplyID), c.supplyPct)
+		}
+		if w[1].ID != c.extID || int(w[1].Value[0]) != c.extPct {
+			t.Errorf("preset=%d: extract write = (0x%04X, %d), want (0x%04X, %d)",
+				c.preset, uint16(w[1].ID), w[1].Value[0], uint16(c.extID), c.extPct)
+		}
+	}
+
+	for _, bad := range []struct {
+		preset, supply, extract int
+		why                     string
+	}{
+		{0, 50, 50, "preset below range"},
+		{4, 50, 50, "preset above range"},
+		{1, 9, 50, "supply below range"},
+		{1, 101, 50, "supply above range"},
+		{1, 50, 9, "extract below range"},
+		{1, 50, 101, "extract above range"},
+	} {
+		rc := &recordingClient{}
+		err := SetPresetSpeed(context.Background(), rc, bad.preset, bad.supply, bad.extract)
+		if !errors.Is(err, ErrInvalidArg) {
+			t.Errorf("[%s] want ErrInvalidArg, got %v", bad.why, err)
+		}
+		if len(rc.writes) != 0 {
+			t.Errorf("[%s] should not have issued writes", bad.why)
+		}
+	}
+}
+
 func TestOps_SetSpeedManual_PacketOrder(t *testing.T) {
 	c := &recordingClient{}
 	if err := SetSpeedManual(context.Background(), c, 30); err != nil {
