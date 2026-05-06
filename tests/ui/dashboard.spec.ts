@@ -906,6 +906,44 @@ test("device info: clicking summary toggles open and reveals serial/ip/fw", asyn
   await expect(info).toContainText("0.11");
 });
 
+test("sensors block: expanded by default with no alerts", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: { sensor_alerts: { humidity: false, co2: false, voc: false } },
+    }),
+  });
+  const sensors = page.locator(".card details.sensors").first();
+  await expect(sensors).toHaveCount(1);
+  await expect(sensors).toHaveAttribute("open", "");
+});
+
+test("sensors block: clicking summary collapses the block", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: { sensor_alerts: { humidity: false, co2: false, voc: false } },
+    }),
+  });
+  const sensors = page.locator(".card details.sensors").first();
+  await expect(sensors).toHaveAttribute("open", "");
+  await sensors.locator("summary").click();
+  await expect(sensors).not.toHaveAttribute("open", "");
+});
+
+test("sensors block: auto-expanded when a sensor alert is active", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      sensors: { eco2_ppm: 3500 },
+      configured: { co2_threshold_ppm: 1500 },
+      live: { sensor_alerts: { humidity: false, co2: true, voc: false } },
+    }),
+  });
+  const sensors = page.locator(".card details.sensors").first();
+  await expect(sensors).toHaveAttribute("open", "");
+});
+
 test("ENERGY block: open state survives the 5 s grid re-render", async ({ page }) => {
   // The dashboard rebuilds <div id="grid">.innerHTML on every poll, which
   // would destroy and recreate the <details> element. The energyOpen
