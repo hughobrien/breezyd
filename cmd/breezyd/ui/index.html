@@ -109,6 +109,11 @@
      widths), sits on the right of the device-name row instead of
      stretching full-width. */
   .toggle-inline { width: auto; padding: 0.2rem 0.8rem; min-width: 12ch; }
+  /* ctrl-pair: two labelled groups side-by-side in one .ctrl row.
+     Used by Timer + Heater so they share a row but keep distinct labels. */
+  .ctrl-pair { display: flex; gap: 0.75rem; align-items: flex-start; }
+  .ctrl-group-timer { flex: 1 1 auto; min-width: 0; }
+  .ctrl-group-heater { flex: 0 0 auto; }
   .alert-fire { color: #c00; }
   .value-clickable { cursor: pointer; }
   .value-clickable:hover {
@@ -450,18 +455,6 @@ function renderControls(name, snap, stale) {
     <h3>Controls</h3>
 
     <div class="ctrl">
-      <div class="toggle-row">
-        <div class="toggle-cell">
-          <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
-            aria-pressed="${heater ? "true" : "false"}">
-            heater
-          </button>
-          ${t.heater ? `<div class="toast" role="alert">${esc(t.heater)}</div>` : ""}
-        </div>
-      </div>
-    </div>
-
-    <div class="ctrl">
       <span class="ctrl-label">Mode</span>
       <div class="seg">
         ${modeBtn("auto",    "ventilation")}
@@ -472,16 +465,26 @@ function renderControls(name, snap, stale) {
       ${t.mode ? `<div class="toast" role="alert">${esc(t.mode)}</div>` : ""}
     </div>
 
-    <div class="ctrl">
-      <span class="ctrl-label">Timer</span>
-      <div class="seg">
-        ${timerBtn("night", "night")}
-        ${timerBtn("turbo", "turbo")}
+    <div class="ctrl ctrl-pair">
+      <div class="ctrl-group ctrl-group-timer">
+        <span class="ctrl-label">Timer</span>
+        <div class="seg">
+          ${timerBtn("night", "night")}
+          ${timerBtn("turbo", "turbo")}
+        </div>
+        ${specialMode !== "off" && typeof remainingSecs === "number"
+          ? `<div class="ctrl-label">${esc(humanSeconds(remainingSecs))} remaining</div>`
+          : ""}
+        ${t.timer ? `<div class="toast" role="alert">${esc(t.timer)}</div>` : ""}
       </div>
-      ${specialMode !== "off" && typeof remainingSecs === "number"
-        ? `<div class="ctrl-label">${esc(humanSeconds(remainingSecs))} remaining</div>`
-        : ""}
-      ${t.timer ? `<div class="toast" role="alert">${esc(t.timer)}</div>` : ""}
+      <div class="ctrl-group ctrl-group-heater">
+        <span class="ctrl-label">Heater</span>
+        <div class="seg">
+          <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
+            aria-pressed="${heater ? "true" : "false"}">heater</button>
+        </div>
+        ${t.heater ? `<div class="toast" role="alert">${esc(t.heater)}</div>` : ""}
+      </div>
     </div>
 
     <div class="ctrl">
