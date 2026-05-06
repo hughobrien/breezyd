@@ -772,7 +772,7 @@ func TestRecordingHandlerNoBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if got.method != "GET" {
 		t.Fatalf("method=%s", got.method)
 	}

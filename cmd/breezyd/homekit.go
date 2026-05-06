@@ -236,7 +236,7 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 			return
 		}
 		defer unlock()
-		defer raw.Close()
+		defer func() { _ = raw.Close() }()
 		ctx := context.Background()
 		if err := breezy.Power(ctx, rc, v != 0); err != nil {
 			slog.Error("homekit power write", "device", name, "err", err)
@@ -257,7 +257,7 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 			return
 		}
 		defer unlock()
-		defer raw.Close()
+		defer func() { _ = raw.Close() }()
 		ctx := context.Background()
 		if err := breezy.SetSpeedPreset(ctx, rc, 1); err != nil {
 			slog.Error("homekit preset write", "device", name, "err", err)
@@ -279,7 +279,7 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 			return
 		}
 		defer unlock()
-		defer raw.Close()
+		defer func() { _ = raw.Close() }()
 		ctx := context.Background()
 		if err := breezy.SetSpeedManual(ctx, rc, pct); err != nil {
 			slog.Error("homekit speed write", "device", name, "err", err)
@@ -304,7 +304,7 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 			return
 		}
 		defer unlock()
-		defer raw.Close()
+		defer func() { _ = raw.Close() }()
 		if err := breezy.SetHeater(context.Background(), rc, v); err != nil {
 			slog.Error("homekit heater write", "device", name, "err", err)
 		}
@@ -335,7 +335,7 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 			return
 		}
 		defer unlock()
-		defer raw.Close()
+		defer func() { _ = raw.Close() }()
 		if err := breezy.ResetFilter(context.Background(), rc); err != nil {
 			slog.Error("homekit filter-reset write", "device", name, "err", err)
 		}
@@ -354,7 +354,7 @@ func switchTimer(h *Handler, name string, a *homekit.Accessory, mode string) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	if err := breezy.SetTimer(context.Background(), rc, mode); err != nil {
 		slog.Error("homekit timer write", "device", name, "mode", mode, "err", err)
 	}
@@ -392,7 +392,7 @@ func switchAirflow(h *Handler, name string, a *homekit.Accessory, supply, extrac
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx := context.Background()
 	if err := breezy.SetMode(ctx, rc, mode); err != nil {
 		slog.Error("homekit airflow write", "device", name, "mode", mode, "err", err)

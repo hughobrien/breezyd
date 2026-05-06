@@ -27,8 +27,8 @@ func TestUI_GetIndex(t *testing.T) {
 	if len(body) == 0 {
 		t.Fatal("body is empty; go:embed likely not wired")
 	}
-	if !strings.Contains(body, "<title>breezy</title>") {
-		t.Errorf("body missing <title>breezy</title>; got prefix %q", body[:min(200, len(body))])
+	if !strings.Contains(body, "<title>breezyd</title>") {
+		t.Errorf("body missing <title>breezyd</title>; got prefix %q", body[:min(200, len(body))])
 	}
 }
 

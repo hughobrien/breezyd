@@ -71,7 +71,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	fs := flag.NewFlagSet("breezy", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() { fmt.Fprint(stderr, usage) }
+	fs.Usage = func() { _, _ = fmt.Fprint(stderr, usage) }
 	daemon := fs.String("daemon", "", "daemon URL (overrides config)")
 	versionFlag := fs.Bool("version", false, "print version information and exit")
 
@@ -81,7 +81,7 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	}
 
 	if *versionFlag {
-		fmt.Fprintf(stdout, "breezy %s (commit %s, built %s)\n", version, commit, date)
+		_, _ = fmt.Fprintf(stdout, "breezy %s (commit %s, built %s)\n", version, commit, date)
 		return 0
 	}
 
@@ -97,11 +97,11 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 		var err error
 		b, err = resolveBackend(*daemon, cfg)
 		if err != nil {
-			fmt.Fprintf(stderr, "error: %s\n", err)
+			_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
 			return 1
 		}
 	}
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 
 	// Globals.
 	switch rest[0] {
@@ -112,24 +112,24 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	case "daemon-url":
 		url := b.DaemonURLString()
 		if url == "" {
-			fmt.Fprintln(stdout, "(standalone — no daemon)")
+			_, _ = fmt.Fprintln(stdout, "(standalone — no daemon)")
 		} else {
-			fmt.Fprintln(stdout, url)
+			_, _ = fmt.Fprintln(stdout, url)
 		}
 		return 0
 	case "param":
 		return cmdParam(stdout)
 	case "version":
-		fmt.Fprintf(stdout, "breezy %s (commit %s, built %s)\n", version, commit, date)
+		_, _ = fmt.Fprintf(stdout, "breezy %s (commit %s, built %s)\n", version, commit, date)
 		return 0
 	case "help", "-h", "--help":
-		fmt.Fprint(stdout, usage)
+		_, _ = fmt.Fprint(stdout, usage)
 		return 0
 	}
 
 	// Per-device verbs: `breezy <name> <verb> [args...]`.
 	if len(rest) < 2 {
-		fmt.Fprintln(stderr, "usage: breezy <name> <verb> [args]")
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> <verb> [args]")
 		return 2
 	}
 
@@ -168,7 +168,7 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 		return cmdSet(b, name, vargs, stdout, stderr)
 	}
 
-	fmt.Fprintf(stderr, "unknown verb: %s\n", verb)
+	_, _ = fmt.Fprintf(stderr, "unknown verb: %s\n", verb)
 	return 2
 }
 

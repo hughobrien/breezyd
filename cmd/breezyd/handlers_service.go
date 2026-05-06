@@ -101,7 +101,7 @@ func (h *Handler) postFilterReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.ResetFilter(ctx, rc); err != nil {
@@ -122,7 +122,7 @@ func (h *Handler) postFaultsReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unlock()
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.ResetFaults(ctx, rc); err != nil {
