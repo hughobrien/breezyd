@@ -142,8 +142,11 @@ func (s *Scheduler) validate(entries []ScheduleEntry) error {
 		if !validAction[e.Action] {
 			return fmt.Errorf("%w: entries[%d].action %q not one of off/regeneration/ventilation/supply/extract", breezy.ErrInvalidArg, i, e.Action)
 		}
-		if e.Pct < 10 || e.Pct > 100 {
-			return fmt.Errorf("%w: entries[%d].pct must be 10-100 (got %d)", breezy.ErrInvalidArg, i, e.Pct)
+		if e.Pct > 100 {
+			return fmt.Errorf("%w: entries[%d].pct must be ≤ 100 (got %d)", breezy.ErrInvalidArg, i, e.Pct)
+		}
+		if e.Action != "off" && e.Pct < 10 {
+			return fmt.Errorf("%w: entries[%d].pct must be 10-100 for action %q (got %d)", breezy.ErrInvalidArg, i, e.Action, e.Pct)
 		}
 		if seen[e.At] {
 			return fmt.Errorf("%w: duplicate entry at %s", breezy.ErrInvalidArg, e.At)

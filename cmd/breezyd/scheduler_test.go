@@ -140,6 +140,11 @@ func TestScheduler_Validation(t *testing.T) {
 		}
 	}
 
+	// action=off allows any pct (including 0) since pct is ignored at the wire
+	if err := s.validate([]ScheduleEntry{{At: 480, Action: "off", Pct: 0}}); err != nil {
+		t.Errorf("off action with pct=0 rejected: %v", err)
+	}
+
 	too := make([]ScheduleEntry, 25)
 	for i := range too {
 		too[i] = ScheduleEntry{At: ScheduleTime(i), Action: "regeneration", Pct: 60}

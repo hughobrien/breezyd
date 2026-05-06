@@ -629,7 +629,8 @@ function validateSchedule(entries) {
     if (seen.has(e.at)) return { ok: false, tooltip: `two entries at ${e.at}` };
     seen.add(e.at);
     const pct = Number(e.pct);
-    if (!Number.isFinite(pct) || pct < 10 || pct > 100) return { ok: false, tooltip: "pct must be 10-100" };
+    if (!Number.isFinite(pct) || pct > 100) return { ok: false, tooltip: "pct must be ≤ 100" };
+    if (e.action !== "off" && pct < 10) return { ok: false, tooltip: "pct must be 10-100 for non-off actions" };
   }
   return { ok: true, tooltip: "" };
 }
