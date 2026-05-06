@@ -591,7 +591,7 @@ function renderSchedule(name, snap, stale) {
     </div>
     ${entries.length === 0 ? `<div class="ctrl-label">no entries</div>` : `
       <table class="schedule-table">
-        <thead><tr><th>at</th><th>action</th><th>pct</th><th></th></tr></thead>
+        <thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
     ${alert && sch.last_apply
@@ -605,8 +605,18 @@ function renderSchedule(name, snap, stale) {
 function renderScheduleRow(name, e, i, stale) {
   const dis = stale ? "disabled" : "";
   const isOff = e.action === "off";
-  const opts = ["off", "regeneration", "ventilation", "supply", "extract"]
-    .map(v => `<option value="${v}"${e.action === v ? " selected" : ""}>${v}</option>`).join("");
+  // Display labels match the Mode block in Controls (auto/regen/supply/exhaust);
+  // wire values stay as the canonical strings the daemon validates against.
+  const actions = [
+    { value: "ventilation",  label: "auto" },
+    { value: "regeneration", label: "regen" },
+    { value: "supply",       label: "supply" },
+    { value: "extract",      label: "exhaust" },
+    { value: "off",          label: "off" },
+  ];
+  const opts = actions.map(a =>
+    `<option value="${a.value}"${e.action === a.value ? " selected" : ""}>${a.label}</option>`
+  ).join("");
   const pctClass = isOff ? "pct-disabled" : "";
   const pctReadonly = isOff ? "readonly" : "";
   return `<tr data-row="${i}" data-name="${esc(name)}">
