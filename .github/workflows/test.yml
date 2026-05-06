@@ -67,11 +67,11 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          # Pin to v2.x because the action's 'latest' resolves to the
-          # latest v1 (v1.64.8 as of writing), which was built with go1.24
-          # and refuses to load configs that target a newer Go version.
+          # action@v7 + golangci-lint v2 are the matched pair. v6 only
+          # supports v1, whose latest release (v1.64.8) was built with
+          # go1.24 and refuses to load configs targeting a newer Go.
           version: v2.1.6
           args: --timeout=5m
 
