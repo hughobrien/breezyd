@@ -105,6 +105,10 @@
   }
   .toggle-row { display: flex; gap: 0.5rem; }
   .toggle-cell { flex: 1 1 0; min-width: 0; }
+  /* Inline variant of .toggle: ~12ch wide (monospace font, so 12 char
+     widths), sits on the right of the device-name row instead of
+     stretching full-width. */
+  .toggle-inline { width: auto; padding: 0.2rem 0.8rem; min-width: 12ch; }
   .alert-fire { color: #c00; }
   .value-clickable { cursor: pointer; }
   .value-clickable:hover {
@@ -252,14 +256,20 @@ function renderCard(name, snap) {
   const needsAttention =
     (fault && fault !== "none") || (filter && filter !== "clean");
   const infoOpen = needsAttention || deviceInfoOpen[name] === true;
+  // Power button shares the name row, sized to its content (not the
+  // full-width treatment .toggle gets in the Controls block).
+  const cardDis = (stale || inFlight[name]) ? "disabled" : "";
   return `<div class="card${stale ? " stale" : ""}">
     <div class="row">
       <h2>${esc(name)}</h2>
-      <span class="${powerCls}">● ${powerLabel}</span>
+      <button class="toggle toggle-inline" data-action="power" data-name="${esc(name)}" ${cardDis}
+        aria-pressed="${power === true ? "true" : "false"}">power</button>
     </div>
+    ${(toasts[name] || {}).power ? `<div class="toast" role="alert">${esc(toasts[name].power)}</div>` : ""}
     <div class="row">
       <span class="ts${stale ? " red" : ""}">${lastPollMs ? humanAgo(ageMs) + " ago" : "no poll"}</span>
     </div>
+
     <details class="device-info"${infoOpen ? " open" : ""}>
       <summary>Device</summary>
       ${kv("ip",               esc(snap.ip || "?"))}
@@ -441,13 +451,6 @@ function renderControls(name, snap, stale) {
 
     <div class="ctrl">
       <div class="toggle-row">
-        <div class="toggle-cell">
-          <button class="toggle" data-action="power" data-name="${esc(name)}" ${dis}
-            aria-pressed="${power ? "true" : "false"}">
-            power
-          </button>
-          ${t.power ? `<div class="toast" role="alert">${esc(t.power)}</div>` : ""}
-        </div>
         <div class="toggle-cell">
           <button class="toggle" data-action="heater" data-name="${esc(name)}" ${dis}
             aria-pressed="${heater ? "true" : "false"}">
