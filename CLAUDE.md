@@ -76,6 +76,18 @@ Per-device state lives at `<state_dir>/energy_<device>.json` and survives daemon
 
 The instantaneous calculation needs a per-model airflow + fan-power calibration table (`pkg/breezy/energy.go::modelCurves`). Adding a new device model is a one-line table edit. Devices whose UnitType isn't in the table surface an error in `service.energy.error`; the dashboard's ENERGY block shows the error string and `/metrics` drops the eight `breezyd_energy_*` gauges for that device.
 
+### Schedule system (per device, opt-in via UI)
+
+Each configured device gets a `Scheduler` goroutine (in `cmd/breezyd/scheduler.go`) that fires Power/Mode/SpeedManual writes at user-configured At-times each day. State is persisted at `<state_dir>/schedule_<device>.json` and survives restart. The schedule is event-driven, NOT state-driven: on daemon startup or schedule re-enable, the daemon does NOT immediately apply the entry-in-effect — only future transitions fire. (See `docs/superpowers/specs/2026-05-06-schedule-system-design.md` for why.)
+
+Entries have `At | Action | Pct`. Action ∈ `{off, regeneration, ventilation, supply, extract}`; off powers the unit off, the others power-on + set the airflow mode + set speed=manual at the given Pct. Times are in the daemon host's local timezone.
+
+Failed fires retry every 30 s for up to 10 min, abandoning early when the next entry's At-time arrives. `breezy.ErrAuth` is treated as a config error and does not retry. Failures surface as a force-expanded alert on the SCHEDULE block in the dashboard.
+
+Editing happens exclusively from the web UI via `GET`/`PUT /v1/devices/{name}/schedule`. There are no CLI verbs and no HomeKit exposure for the schedule itself.
+
+**DST behaviour (known v1 limitation):** times are local wall-clock, so spring-forward skips an entry that lands in the missing hour and fall-back fires an entry in the repeated hour twice. Acceptable for residential ERV control; revisit if scheduling grows day-of-week support.
+
 ### Cache vs. passthrough
 
 - `GET /v1/devices`, `GET /v1/devices/{name}`, `/metrics` → in-memory cache populated by the poller. Reads are cheap and never block on UDP.
