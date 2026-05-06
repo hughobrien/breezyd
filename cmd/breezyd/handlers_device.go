@@ -326,17 +326,21 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// postThreshold writes one of the three sensor over-threshold setpoints
-// (humidity 0x0019, co2 0x001A, voc 0x031F). Body: {"kind":"...", "value":N}.
-// Per-kind range and step validation lives in breezy.SetThreshold.
+// postThreshold writes one or both of: the per-sensor over-threshold
+// setpoint (humidity 0x0019, co2 0x001A, voc 0x031F) and the per-sensor
+// enable flag (humidity 0x000F, co2 0x0011, voc 0x0315). Body:
+// {"kind":"humidity|co2|voc", "value":N?, "enabled":bool?}. At least one
+// of value/enabled must be present. Validation lives in
+// breezy.SetThresholdConfig.
 func (h *Handler) postThreshold(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
 	var body struct {
-		Kind  string `json:"kind"`
-		Value *int   `json:"value"`
+		Kind    string `json:"kind"`
+		Value   *int   `json:"value"`
+		Enabled *bool  `json:"enabled"`
 	}
 	if !readBody(w, r, &body) {
 		return
@@ -345,8 +349,8 @@ func (h *Handler) postThreshold(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'kind' field (humidity|co2|voc)")
 		return
 	}
-	if body.Value == nil {
-		writeErr(w, "bad_request", "missing 'value' field")
+	if body.Value == nil && body.Enabled == nil {
+		writeErr(w, "bad_request", "must supply at least one of 'value' or 'enabled'")
 		return
 	}
 	rc, raw, unlock, err := h.dialRecording(name)
@@ -358,7 +362,7 @@ func (h *Handler) postThreshold(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = raw.Close() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	if err := breezy.SetThreshold(ctx, rc, body.Kind, *body.Value); err != nil {
+	if err := breezy.SetThresholdConfig(ctx, rc, body.Kind, body.Value, body.Enabled); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}

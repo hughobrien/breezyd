@@ -1,0 +1,26 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-06-sensor-auto-fan.md",
+  "tasks": [
+    {
+      "id": 5,
+      "subject": "Task 1: Backend — sensor enable in snapshot + ops + HTTP (#34 part 1)",
+      "status": "completed",
+      "description": "**Goal:** BuildStatus exposes 3 enable keys; SetThresholdConfig(value*, enabled*) writes 1-2 params atomically; SetThreshold becomes a 1-line wrapper; POST /threshold body is {kind, value?, enabled?} with at-least-one validation.\n\n**Files:** pkg/breezy/{status,ops}.go, cmd/breezyd/{handlers_device,server_test}.go, pkg/breezy/{status,ops}_test.go.\n\n**Verify:** `just check && just test-ui` → both green.\n\n```json:metadata\n{\"files\": [\"pkg/breezy/status.go\", \"pkg/breezy/ops.go\", \"cmd/breezyd/handlers_device.go\", \"pkg/breezy/status_test.go\", \"pkg/breezy/ops_test.go\", \"cmd/breezyd/server_test.go\"], \"verifyCommand\": \"just check && just test-ui\", \"acceptanceCriteria\": [\"BuildStatus surfaces 3 enable keys as bools\", \"SetThresholdConfig signature + atomic 1-2 param writes\", \"SetThreshold reduced to wrapper\", \"POST /threshold accepts optional value/enabled with at least-one validation\", \"Unknown kind / out of range / missing both rejected\", \"Existing UI + CLI tests still pass\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 2: Frontend — auto-fan checkbox + width fix (#34 part 2)",
+      "status": "completed",
+      "blockedBy": [5],
+      "description": "**Goal:** Inline threshold editor renders auto-fan checkbox; ✓ commits whichever fields changed; .thresh-input width 3rem → 4.5rem.\n\n**Files:** cmd/breezyd/ui/index.html, tests/ui/dashboard.spec.ts, tests/ui/screenshots/*.png\n\n**Verify:** `just check && just test-ui` → both green.\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/index.html\", \"tests/ui/dashboard.spec.ts\", \"tests/ui/screenshots/dashboard-1col.png\", \"tests/ui/screenshots/dashboard-3col.png\"], \"verifyCommand\": \"just check && just test-ui\", \"acceptanceCriteria\": [\"Input width bumped to 4.5rem\", \"Checkbox renders inside inline editor with correct data-attrs\", \"Checkbox state reflects configured snapshot\", \"saveThreshold sends only changed fields\", \"Empty change set closes editor without POSTing\", \"Three new Playwright tests pass\", \"Existing save test confirms no spurious enabled key\", \"Screenshots regenerated\", \"just check + test-ui green\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 3: CLI — threshold + auto-fan verbs (#34 part 3)",
+      "status": "completed",
+      "blockedBy": [5],
+      "description": "**Goal:** Two new per-device CLI verbs (threshold and auto-fan) routed through new backend.ThresholdConfig method (daemon + standalone).\n\n**Files:** cmd/breezy/{main,commands,backend,main_test}.go\n\n**Verify:** `just check && go test ./cmd/breezy -run 'TestCLI_Threshold|TestCLI_AutoFan' -v` → both green.\n\n```json:metadata\n{\"files\": [\"cmd/breezy/main.go\", \"cmd/breezy/commands.go\", \"cmd/breezy/backend.go\", \"cmd/breezy/main_test.go\"], \"verifyCommand\": \"just check && just test-ui\", \"acceptanceCriteria\": [\"Two new verbs in dispatch switch\", \"cmdThreshold/cmdAutoFan with correct usage errors\", \"backend.ThresholdConfig interface + daemon + direct impls\", \"CLI tests cover happy paths + validation + usage errors\", \"Help text mentions both verbs\", \"Daemon and standalone paths both exercised\", \"just check + test-ui green\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-06T16:30:00Z"
+}

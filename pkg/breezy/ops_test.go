@@ -309,6 +309,80 @@ func TestOps_SetThreshold(t *testing.T) {
 	}
 }
 
+func TestSetThresholdConfig_ValueOnly(t *testing.T) {
+	rec := &recordingClient{}
+	v := 65
+	if err := SetThresholdConfig(context.Background(), rec, "humidity", &v, nil); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(rec.writes) != 1 || len(rec.writes[0]) != 1 ||
+		rec.writes[0][0].ID != 0x0019 || rec.writes[0][0].Value[0] != 65 {
+		t.Errorf("writes = %+v; want one packet with one write to 0x0019 byte 65", rec.writes)
+	}
+}
+
+func TestSetThresholdConfig_EnabledOnly(t *testing.T) {
+	rec := &recordingClient{}
+	enable := false
+	if err := SetThresholdConfig(context.Background(), rec, "co2", nil, &enable); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(rec.writes) != 1 || len(rec.writes[0]) != 1 ||
+		rec.writes[0][0].ID != 0x0011 || rec.writes[0][0].Value[0] != 0 {
+		t.Errorf("writes = %+v; want one packet with one write to 0x0011 byte 0", rec.writes)
+	}
+}
+
+func TestSetThresholdConfig_Both(t *testing.T) {
+	rec := &recordingClient{}
+	v := 200
+	enable := true
+	if err := SetThresholdConfig(context.Background(), rec, "voc", &v, &enable); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	// One WriteParams call carrying both writes (atomic from device's POV).
+	if len(rec.writes) != 1 {
+		t.Fatalf("got %d packets, want 1", len(rec.writes))
+	}
+	if len(rec.writes[0]) != 2 {
+		t.Fatalf("got %d writes in packet, want 2", len(rec.writes[0]))
+	}
+	// Order is value-then-enable per implementation; just assert presence by ID.
+	idsSeen := map[ParamID]bool{}
+	for _, w := range rec.writes[0] {
+		idsSeen[w.ID] = true
+	}
+	if !idsSeen[0x031F] || !idsSeen[0x0315] {
+		t.Errorf("writes = %+v; want both 0x031F and 0x0315", rec.writes[0])
+	}
+}
+
+func TestSetThresholdConfig_Neither(t *testing.T) {
+	rec := &recordingClient{}
+	if err := SetThresholdConfig(context.Background(), rec, "humidity", nil, nil); !errors.Is(err, ErrInvalidArg) {
+		t.Errorf("err = %v, want ErrInvalidArg", err)
+	}
+	if len(rec.writes) != 0 {
+		t.Errorf("got %d writes after invalid-arg, want 0", len(rec.writes))
+	}
+}
+
+func TestSetThresholdConfig_OutOfRange(t *testing.T) {
+	rec := &recordingClient{}
+	v := 90 // humidity max is 80
+	if err := SetThresholdConfig(context.Background(), rec, "humidity", &v, nil); !errors.Is(err, ErrInvalidArg) {
+		t.Errorf("err = %v, want ErrInvalidArg", err)
+	}
+}
+
+func TestSetThresholdConfig_UnknownKind(t *testing.T) {
+	rec := &recordingClient{}
+	v := 50
+	if err := SetThresholdConfig(context.Background(), rec, "temperature", &v, nil); !errors.Is(err, ErrInvalidArg) {
+		t.Errorf("err = %v, want ErrInvalidArg", err)
+	}
+}
+
 func TestOps_ResetFilter(t *testing.T) {
 	c := &recordingClient{}
 	if err := ResetFilter(context.Background(), c); err != nil {

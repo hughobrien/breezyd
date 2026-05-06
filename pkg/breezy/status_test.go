@@ -205,6 +205,24 @@ func TestBuildStatus_JSONShape(t *testing.T) {
 	}
 }
 
+func TestBuildStatus_SensorEnabledFlags(t *testing.T) {
+	values := map[ParamID][]byte{
+		0x000F: {1}, // humidity sensor enabled
+		0x0011: {0}, // co2 sensor disabled
+		0x0315: {1}, // voc sensor enabled
+	}
+	s := BuildStatus(values, "n", "i", "ip", nil)
+	if s.Configured["humidity_sensor_enabled"] != true {
+		t.Errorf("humidity_sensor_enabled = %v, want true", s.Configured["humidity_sensor_enabled"])
+	}
+	if s.Configured["co2_sensor_enabled"] != false {
+		t.Errorf("co2_sensor_enabled = %v, want false", s.Configured["co2_sensor_enabled"])
+	}
+	if s.Configured["voc_sensor_enabled"] != true {
+		t.Errorf("voc_sensor_enabled = %v, want true", s.Configured["voc_sensor_enabled"])
+	}
+}
+
 func TestComputeInUserControl(t *testing.T) {
 	if !ComputeInUserControl(map[ParamID][]byte{0x0007: {0}}) {
 		t.Error("expected true when 0x07=0, no other signals")

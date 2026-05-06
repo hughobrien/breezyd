@@ -187,6 +187,69 @@ func cmdTimer(b backend, name string, args []string, stdout, stderr io.Writer) i
 	return 0
 }
 
+// validThresholdKinds mirrors the daemon's accepted set so a typo doesn't
+// waste a round-trip and produce a vaguer error.
+var validThresholdKinds = map[string]bool{
+	"humidity": true,
+	"co2":      true,
+	"voc":      true,
+}
+
+func cmdThreshold(b backend, name string, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 2 {
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> threshold <humidity|co2|voc> <value>")
+		return 2
+	}
+	kind := strings.ToLower(args[0])
+	if !validThresholdKinds[kind] {
+		_, _ = fmt.Fprintf(stderr, "threshold: %q is not one of: humidity, co2, voc\n", args[0])
+		return 2
+	}
+	value, err := strconv.Atoi(args[1])
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "threshold: value must be an integer, got %q\n", args[1])
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := b.ThresholdConfig(ctx, name, kind, &value, nil); err != nil {
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
+		return 1
+	}
+	_, _ = fmt.Fprintln(stdout, "ok")
+	return 0
+}
+
+func cmdAutoFan(b backend, name string, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 2 {
+		_, _ = fmt.Fprintln(stderr, "usage: breezy <name> auto-fan <humidity|co2|voc> <on|off>")
+		return 2
+	}
+	kind := strings.ToLower(args[0])
+	if !validThresholdKinds[kind] {
+		_, _ = fmt.Fprintf(stderr, "auto-fan: %q is not one of: humidity, co2, voc\n", args[0])
+		return 2
+	}
+	var enabled bool
+	switch strings.ToLower(args[1]) {
+	case "on":
+		enabled = true
+	case "off":
+		enabled = false
+	default:
+		_, _ = fmt.Fprintf(stderr, "auto-fan: state must be on or off, got %q\n", args[1])
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := b.ThresholdConfig(ctx, name, kind, nil, &enabled); err != nil {
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
+		return 1
+	}
+	_, _ = fmt.Fprintln(stdout, "ok")
+	return 0
+}
+
 func cmdResetFilter(b backend, name string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
