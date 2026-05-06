@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Daemon-side energy tracking: per-device heating-recovered, cooling-recovered, and fan-electric-consumed kWh counters, accumulated only during regeneration airflow mode. State persists to `<state_dir>/energy_<device>.json` across daemon restarts. Today counters roll over at local midnight; lifetime counters never reset.
+- New `service.energy` block on the JSON snapshot with `instant_w` (signed: positive heating, negative cooling), `consumed_w`, `heating_today_kwh` / `cooling_today_kwh` / `consumed_today_kwh`, and corresponding `_lifetime_kwh` fields. Devices whose UnitType isn't in the per-model calibration table surface a human-readable error in `service.energy.error`.
+- Eight new Prometheus gauges exposed at `/metrics`: `breezyd_energy_recovered_watts`, `breezyd_energy_consumed_watts`, plus `_today_kwh` and `_lifetime_kwh` variants for heating/cooling/consumed.
+- New ENERGY block on the dashboard (collapsed by default, `<details>` element). Shows the live wattage line plus a 3-column 2-row grid: heating / cooling / consumed × today / lifetime. Hidden when `service.energy` is missing; replaced by the error string when the device's model has no calibration.
+- New NOTICE block at the bottom of each card, absorbing the existing sensor-override and timer-active warnings (previously rendered inside the Speed control). Hidden entirely when no warning applies.
+
+### Changed
+
+- The NixOS module's `StateDirectory = "breezyd"` is now unconditional (was previously gated on `cfg.homekit.enable`). Energy state and HomeKit pairing files share the same directory under `/var/lib/breezyd/`.
+- `pkg/breezy.commandedFanPct` (unexported) renamed to `pkg/breezy.CommandedFanPct` (exported) so daemon-side code can reuse the speed-mode-aware fan-pct resolution.
+
 ## [1.8.1] - 2026-05-05
 
 ### Changed

@@ -378,6 +378,47 @@ func TestHandler_GetDevice_InUserControlFalseOnTimer(t *testing.T) {
 	}
 }
 
+func TestHandler_GetDevice_IncludesEnergy(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	dir := t.TempDir()
+	today := time.Now().Local().Format("2006-01-02")
+	tr := &EnergyTracker{
+		Device:             "playroom",
+		StateDir:           dir,
+		HeatingTodayKWh:    1.234,
+		HeatingLifetimeKWh: 234.5,
+		Today:              today,
+	}
+	if h.Pollers == nil {
+		h.Pollers = map[string]*Poller{}
+	}
+	h.Pollers["playroom"] = &Poller{Energy: tr}
+	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	service, ok := resp["service"].(map[string]any)
+	if !ok {
+		t.Fatalf("service block missing or wrong type: %v", resp)
+	}
+	energy, ok := service["energy"].(map[string]any)
+	if !ok {
+		t.Fatalf("service.energy missing or wrong type: %v", service)
+	}
+	if energy["heating_today_kwh"] != 1.234 {
+		t.Errorf("heating_today_kwh = %v, want 1.234", energy["heating_today_kwh"])
+	}
+	if energy["heating_lifetime_kwh"] != 234.5 {
+		t.Errorf("heating_lifetime_kwh = %v, want 234.5", energy["heating_lifetime_kwh"])
+	}
+}
+
 func TestHandler_GetDevice_NotFound(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/nope", nil)

@@ -252,18 +252,6 @@ test("stale indicator: old last_poll desaturates the card", async ({ page }) => 
   await expect(page.locator(".ts.red")).toBeVisible();
 });
 
-test("sensor override: warning line appears when in_user_control is false", async ({ page }) => {
-  await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      live: { in_user_control: false, sensor_alerts: { humidity: false, co2: true, voc: true } },
-    }),
-  });
-  await expect(page.locator(".warn")).toContainText("sensor override");
-  await expect(page.locator(".warn")).toContainText("co2");
-  await expect(page.locator(".warn")).toContainText("voc");
-});
-
 test("power click: POSTs the inverse of the current state", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
@@ -737,23 +725,6 @@ test("timer turbo: button pressed and countdown line rendered", async ({ page })
   await expect(card).toContainText("1h 30m remaining");
 });
 
-test("timer override: warn line attributes the override to the timer, not sensors", async ({ page }) => {
-  await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      live: {
-        special_mode: "turbo",
-        special_mode_remaining_seconds: 600,
-        in_user_control: false,
-        sensor_alerts: { humidity: false, co2: false, voc: false },
-      },
-    }),
-  });
-  const warn = page.locator(".card .warn");
-  await expect(warn).toContainText("timer active (turbo)");
-  await expect(warn).not.toContainText("sensor override");
-});
-
 test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
@@ -929,4 +900,128 @@ test("device info: clicking summary toggles open and reveals serial/ip/fw", asyn
   await expect(info).toContainText("BREEZY00000000A0");
   await expect(info).toContainText("192.168.1.148");
   await expect(info).toContainText("0.11");
+});
+
+test("ENERGY block: open state survives the 5 s grid re-render", async ({ page }) => {
+  // The dashboard rebuilds <div id="grid">.innerHTML on every poll, which
+  // would destroy and recreate the <details> element. The energyOpen
+  // state map + toggle listener keep the panel open across re-renders.
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: true, instant_w: 100, consumed_w: 10,
+                  heating_today_kwh: 0.5, cooling_today_kwh: 0,
+                  consumed_today_kwh: 0.05, heating_lifetime_kwh: 50,
+                  cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 5 },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toHaveAttribute("open", "");
+  // Force a re-render to mimic the 5 s poll cycle.
+  await page.evaluate(() => (window as any).render?.() ?? null);
+  // The fresh <details> element should have its open attr re-applied
+  // from energyOpen state.
+  await expect(page.locator(".card details.energy")).toHaveAttribute("open", "");
+});
+
+test("ENERGY block: collapsed by default, expanding shows now-line + 3-col grid", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: {
+          supported: true,
+          instant_w: 245,
+          consumed_w: 18,
+          heating_today_kwh: 1.234,
+          cooling_today_kwh: 0.456,
+          consumed_today_kwh: 0.123,
+          heating_lifetime_kwh: 234.5,
+          cooling_lifetime_kwh: 123.4,
+          consumed_lifetime_kwh: 12.3,
+        },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await expect(energy).toBeVisible();
+  await expect(energy).not.toHaveAttribute("open", "");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("245 W heating");
+  await expect(energy).toContainText("18 W consumed");
+  const cells = energy.locator(".sensor-cell");
+  await expect(cells).toHaveCount(6);
+  await expect(energy).toContainText("1.23"); // heating today
+  await expect(energy).toContainText("0.12"); // consumed today
+  await expect(energy).toContainText("12.30"); // consumed lifetime
+});
+
+test("ENERGY block: cooling sign + sums in now-line", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: true, instant_w: -180, consumed_w: 18, heating_today_kwh: 0, cooling_today_kwh: 0.5, consumed_today_kwh: 0.05, heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0 },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("180 W cooling");
+  await expect(energy).toContainText("18 W consumed");
+});
+
+test("ENERGY block: not regen → '0 W (not regen)'", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: true, instant_w: 0, consumed_w: 0, heating_today_kwh: 0, cooling_today_kwh: 0, consumed_today_kwh: 0, heating_lifetime_kwh: 0, cooling_lifetime_kwh: 0, consumed_lifetime_kwh: 0 },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("(not regen)");
+});
+
+test("ENERGY block: error replaces grid", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      service: {
+        energy: { supported: false, error: "unsupported model: Breezy 200 (type=22) — no airflow calibration" },
+      },
+    }),
+  });
+  const energy = page.locator(".card details.energy");
+  await energy.locator("summary").click();
+  await expect(energy).toContainText("unsupported model");
+});
+
+test("ENERGY block: hidden when service.energy missing", async ({ page }) => {
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => {
+      const s = baseSnapshot(n);
+      delete (s.service as any).energy;
+      return s;
+    },
+  });
+  await expect(page.locator(".card details.energy")).toHaveCount(0);
+});
+
+test("override: no text warn rendered (red sensor cells signal the override)", async ({ page }) => {
+  // The threshold cells go red via .alert-fire when sensor_alerts fires;
+  // we rely on that visual rather than a separate warn line.
+  await loadDashboard(page, {
+    devices: [{ name: "playroom" }],
+    snapshot: (n) => baseSnapshot(n, {
+      live: { in_user_control: false, sensor_alerts: { humidity: false, co2: true, voc: true } },
+    }),
+  });
+  await expect(page.locator(".card .warn")).toHaveCount(0);
 });

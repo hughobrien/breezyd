@@ -279,9 +279,10 @@ EOF
         Restart = "on-failure";
         RestartSec = "5s";
 
-        # Give systemd ownership of /var/lib/breezyd so the daemon can create
-        # subdirectories (e.g. the HomeKit state dir) at runtime.
-        StateDirectory = lib.mkIf cfg.homekit.enable "breezyd";
+        # Energy state files live under StateDirectory unconditionally; HomeKit
+        # pairing files do too when enabled. systemd creates and chowns
+        # /var/lib/breezyd/ to the service user.
+        StateDirectory = "breezyd";
 
         # Hardening — breezyd only needs outbound UDP and an HTTP listener.
         NoNewPrivileges = true;

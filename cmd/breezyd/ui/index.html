@@ -44,6 +44,9 @@
   /* .k matches the Sensors block's small grey labels so the expanded
      Device Info reads as one consistent body. */
   .k { color: #666; font-size: 0.7rem; }
+  /* Match the value font to the key font inside Device Info so both
+     sides of each row read at the same scale. */
+  .device-info .row > span { font-size: 0.7rem; }
   .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
   .block h3,
   .block summary {
@@ -73,6 +76,25 @@
   }
   .device-info[open] > summary::before { content: "▼"; }
   .device-info > summary > h2 { margin: 0; flex: 1 1 auto; }
+  /* ENERGY <details>: same chevron-on-the-left treatment as Device Info,
+     so the marker sits beside the heading instead of stacking under it.
+     Without this, the browser-default marker overlaps the <h3> content. */
+  details.energy > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 1ch;
+    cursor: pointer;
+    list-style: none;
+  }
+  details.energy > summary::-webkit-details-marker { display: none; }
+  details.energy > summary::before {
+    content: "▶";
+    font-size: 0.65em;
+    color: #888;
+    align-self: center;
+  }
+  details.energy[open] > summary::before { content: "▼"; }
+  details.energy > summary > h3 { margin: 0; }
   .warn { color: #b07000; font-size: 0.85rem; margin-top: 0.4rem; }
   .err-banner {
     background: #fee; border: 1px solid #c66; padding: 0.75rem;
@@ -156,6 +178,9 @@
   /* Breathing room above the manual slider so it doesn't crowd the
      Mode segmented control directly above it. */
   .fan-slider-row { margin-top: 0.5rem; }
+  /* Same idea for the timer countdown line — it sits directly under the
+     night/turbo seg, and without a gap the two visually fuse. */
+  .timer-remaining { margin-top: 0.4rem; }
   /* Preset editor: a tight inline panel under the preset buttons. */
   .preset-editor {
     margin-top: 0.4rem; padding: 0.4rem 0.5rem;
@@ -198,6 +223,7 @@
     gap: 0.4rem 0.5rem;
     margin-top: 0.4rem;
   }
+  .sensor-grid.energy-grid { grid-template-columns: repeat(3, 1fr); }
   .sensor-cell {
     display: flex;
     flex-direction: column;
@@ -277,6 +303,9 @@ const matchSpeeds = {};     // name -> bool
 // rule ORs with this — a user-collapsed panel re-opens on the next render
 // if a fault appears.
 const deviceInfoOpen = {}; // name -> bool
+// Same pattern for the ENERGY <details>: the 5 s grid re-render destroys
+// and recreates the element, which would reset its open state otherwise.
+const energyOpen = {};     // name -> bool
 
 // Per-kind config for the editable sensor rows. Mirrors the daemon's
 // SetThreshold validation: humidity 40-80, co2 400-2000 step 10, voc 50-250.
@@ -414,7 +443,45 @@ function renderCard(name, snap) {
     </div>
 
     ${renderControls(name, snap, stale)}
+    ${renderEnergy(name, snap)}
   </div>`;
+}
+
+function renderEnergy(name, snap) {
+  const ev = snap.service?.energy;
+  if (!ev) return "";
+  // Default closed; survives the 5 s grid re-render via energyOpen state
+  // tracked by the toggle listener at the bottom of this file.
+  const open = energyOpen[name] === true ? " open" : "";
+  const inner = ev.error
+    ? `<div class="warn">${esc(ev.error)}</div>`
+    : energyBody(ev);
+  return `<details class="block energy"${open}>
+    <summary><h3>ENERGY</h3></summary>
+    ${inner}
+  </details>`;
+}
+
+function energyBody(ev) {
+  let recovered;
+  if (ev.instant_w > 0) {
+    recovered = `${Math.round(ev.instant_w)} W heating`;
+  } else if (ev.instant_w < 0) {
+    recovered = `${Math.round(-ev.instant_w)} W cooling`;
+  } else {
+    recovered = `0 W (not regen)`;
+  }
+  const consumed = `${Math.round(ev.consumed_w ?? 0)} W consumed`;
+  const fmtKwh = (v) => `${(v ?? 0).toFixed(2)} kWh`;
+  return `<div class="row"><span>now: ${esc(recovered)} · ${esc(consumed)}</span></div>
+    <div class="sensor-grid energy-grid">
+      <div class="sensor-cell"><div class="sensor-label">heating today</div><div>${fmtKwh(ev.heating_today_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">cooling today</div><div>${fmtKwh(ev.cooling_today_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">consumed today</div><div>${fmtKwh(ev.consumed_today_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">heating lifetime</div><div>${fmtKwh(ev.heating_lifetime_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">cooling lifetime</div><div>${fmtKwh(ev.cooling_lifetime_kwh)}</div></div>
+      <div class="sensor-cell"><div class="sensor-label">consumed lifetime</div><div>${fmtKwh(ev.consumed_lifetime_kwh)}</div></div>
+    </div>`;
 }
 
 function kv(k, v) {
@@ -537,23 +604,6 @@ function filterStatus(svc) {
   return `${esc(status)} (${days}d)`;
 }
 
-function overrideLine(live) {
-  if (!live || live.in_user_control !== false) return "";
-  const alerts = live.sensor_alerts || {};
-  const reasons = ["humidity", "co2", "voc"].filter(k => alerts[k]);
-  if (reasons.length > 0) {
-    return `<div class="warn">⚠ sensor override (${reasons.join(", ")}) — fan above setting</div>`;
-  }
-  if (live.special_mode === "turbo") {
-    return `<div class="warn">⚠ timer active (turbo) — fan above setting</div>`;
-  }
-  if (live.special_mode === "night") {
-    return `<div class="warn">⚠ timer active (night) — fan slowed</div>`;
-  }
-  // Frost protection or unknown override; stay silent (out of scope).
-  return "";
-}
-
 function humanAgo(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s`;
@@ -647,7 +697,6 @@ function renderControls(name, snap, stale) {
         ? manualSliderRow(name, snap.live, manualPct, !disabled && !editorOpen)
         : ""}
       ${editorOpen ? presetEditor(name, editing, cfg, matchOn, dis) : ""}
-      ${overrideLine(snap.live)}
       ${t.speed ? `<div class="toast" role="alert">${esc(t.speed)}</div>` : ""}
     </div>
 
@@ -659,7 +708,7 @@ function renderControls(name, snap, stale) {
           ${timerBtn("turbo", "turbo")}
         </div>
         ${specialMode !== "off" && typeof remainingSecs === "number"
-          ? `<div class="ctrl-label">${esc(humanSeconds(remainingSecs))} remaining</div>`
+          ? `<div class="ctrl-label timer-remaining">${esc(humanSeconds(remainingSecs))} remaining</div>`
           : ""}
         ${t.timer ? `<div class="toast" role="alert">${esc(t.timer)}</div>` : ""}
       </div>
@@ -970,12 +1019,14 @@ async function saveThreshold(name, kind) {
 // data-attribute through, which keeps the markup minimal.
 document.addEventListener("toggle", (ev) => {
   const el = ev.target;
-  if (!el.classList?.contains("device-info")) return;
   const name = el.closest(".card")?.querySelector("h2")?.textContent;
-  if (el.open) {
-    deviceInfoOpen[name] = true;
-  } else {
-    delete deviceInfoOpen[name];
+  if (!name) return;
+  if (el.classList?.contains("device-info")) {
+    if (el.open) deviceInfoOpen[name] = true;
+    else delete deviceInfoOpen[name];
+  } else if (el.classList?.contains("energy")) {
+    if (el.open) energyOpen[name] = true;
+    else delete energyOpen[name];
   }
 }, true);
 

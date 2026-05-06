@@ -34,7 +34,12 @@ func (h *Handler) getDevice(w http.ResponseWriter, r *http.Request) {
 	if !snap.LastPoll.IsZero() {
 		lastPoll = &snap.LastPoll
 	}
-	resp := breezy.BuildStatus(snap.Values, name, cfg.ID, ip, lastPoll)
+	var ev *breezy.EnergyValues
+	if p, ok := h.Pollers[name]; ok && p != nil && p.Energy != nil {
+		v := p.Energy.Snapshot()
+		ev = &v
+	}
+	resp := breezy.BuildStatusWithEnergy(snap.Values, name, cfg.ID, ip, lastPoll, ev)
 	writeJSON(w, http.StatusOK, resp)
 }
 

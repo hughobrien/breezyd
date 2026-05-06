@@ -356,6 +356,85 @@ func TestMetricsInfoLabels(t *testing.T) {
 	}
 }
 
+func TestMetrics_SetEnergy_Supported(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+	m.SetEnergy("playroom", breezy.EnergyValues{
+		Supported:           true,
+		InstantW:            245,
+		ConsumedW:           18,
+		HeatingTodayKWh:     1.234,
+		ConsumedTodayKWh:    0.123,
+		HeatingLifetimeKWh:  234.5,
+		ConsumedLifetimeKWh: 12.3,
+	})
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]float64{
+		"breezyd_energy_recovered_watts":       245,
+		"breezyd_energy_consumed_watts":        18,
+		"breezyd_energy_heating_today_kwh":     1.234,
+		"breezyd_energy_consumed_today_kwh":    0.123,
+		"breezyd_energy_heating_lifetime_kwh":  234.5,
+		"breezyd_energy_consumed_lifetime_kwh": 12.3,
+	}
+	for _, fam := range families {
+		w, ok := want[fam.GetName()]
+		if !ok {
+			continue
+		}
+		got := fam.GetMetric()[0].GetGauge().GetValue()
+		if got != w {
+			t.Errorf("%s = %v, want %v", fam.GetName(), got, w)
+		}
+		delete(want, fam.GetName())
+	}
+	for name := range want {
+		t.Errorf("expected metric %s not emitted", name)
+	}
+}
+
+func TestMetrics_SetEnergy_UnsupportedDropsLabels(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+	// Set all 8 with non-zero values, then flip to unsupported and
+	// assert every previously-emitted series is gone.
+	m.SetEnergy("playroom", breezy.EnergyValues{
+		Supported:           true,
+		InstantW:            245,
+		ConsumedW:           18,
+		HeatingTodayKWh:     1,
+		CoolingTodayKWh:     0.5,
+		ConsumedTodayKWh:    0.1,
+		HeatingLifetimeKWh:  100,
+		CoolingLifetimeKWh:  50,
+		ConsumedLifetimeKWh: 10,
+	})
+	m.SetEnergy("playroom", breezy.EnergyValues{Error: "unsupported model: unit 22"})
+	families, _ := reg.Gather()
+	energyGauges := map[string]bool{
+		"breezyd_energy_recovered_watts":       true,
+		"breezyd_energy_consumed_watts":        true,
+		"breezyd_energy_heating_today_kwh":     true,
+		"breezyd_energy_cooling_today_kwh":     true,
+		"breezyd_energy_consumed_today_kwh":    true,
+		"breezyd_energy_heating_lifetime_kwh":  true,
+		"breezyd_energy_cooling_lifetime_kwh":  true,
+		"breezyd_energy_consumed_lifetime_kwh": true,
+	}
+	for _, fam := range families {
+		if !energyGauges[fam.GetName()] {
+			continue
+		}
+		if len(fam.GetMetric()) > 0 {
+			t.Errorf("%s: expected zero samples after unsupported update; got %d",
+				fam.GetName(), len(fam.GetMetric()))
+		}
+	}
+}
+
 // errStub is a trivial error type for the LastErr code path; we don't
 // care which classification it lands in for the metrics tests.
 type errStub string

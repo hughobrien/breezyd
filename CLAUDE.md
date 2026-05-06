@@ -68,6 +68,14 @@ Concurrent UDP request/response with checksums isn't safe to fan out from indepe
 
 When enabled, the daemon runs a brutella/hap HAP server that exposes each configured Breezy as a HomeKit accessory (AirPurifier + airflow-mode Switches + sensor services for humidity, eCO2, VOC, and four temperatures). The bridge runs in-process; writes flow through `pkg/breezy/ops` via the same `dialRecording` wrapper as the HTTP handlers, so every protocol invariant (packet ordering, fan-settle, validation) holds. PIN auto-generated on first run and persisted to `state_dir`. Pure accessory logic lives in `pkg/homekit`; daemon glue in `cmd/breezyd/homekit.go`.
 
+### Energy tracking (always on)
+
+After every successful poll, each device's `EnergyTracker` (in `cmd/breezyd/energy_tracker.go`) computes instantaneous heat-recovery W and fan-electric-draw W, accumulating heating/cooling/consumed kWh per day and lifetime. Tracking is gated to regeneration airflow_mode (the only mode where the heat exchanger is actually working) — manual, supply-only, extract-only, and ventilation modes are no-ops for the accumulator.
+
+Per-device state lives at `<state_dir>/energy_<device>.json` and survives daemon restarts. Lifetime counters carry over; today counters reset at local midnight. The state directory is `$STATE_DIRECTORY` if systemd sets it (NixOS / production) or `$XDG_STATE_HOME/breezyd` otherwise.
+
+The instantaneous calculation needs a per-model airflow + fan-power calibration table (`pkg/breezy/energy.go::modelCurves`). Adding a new device model is a one-line table edit. Devices whose UnitType isn't in the table surface an error in `service.energy.error`; the dashboard's ENERGY block shows the error string and `/metrics` drops the eight `breezyd_energy_*` gauges for that device.
+
 ### Cache vs. passthrough
 
 - `GET /v1/devices`, `GET /v1/devices/{name}`, `/metrics` → in-memory cache populated by the poller. Reads are cheap and never block on UDP.
