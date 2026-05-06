@@ -245,6 +245,37 @@
   .thresh-edit button:hover:not(:disabled) { background: #eee; border-color: #888; }
   .thresh-edit button:disabled,
   .thresh-input:disabled { opacity: 0.5; cursor: not-allowed; }
+  .thresh-edit-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+  .thresh-edit-inline .thresh-input {
+    width: 3rem;
+    padding: 0.05rem 0.2rem;
+    font-family: inherit;
+    font-size: 0.85rem;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+  }
+  .thresh-edit-inline button {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.05rem 0.3rem;
+    border: 1px solid #aaa;
+    background: #fafafa;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .thresh-edit-inline button:hover:not(:disabled) {
+    background: #eee;
+    border-color: #888;
+  }
+  .thresh-edit-inline button:disabled,
+  .thresh-edit-inline .thresh-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 </style>
 </head>
 <body>
@@ -532,47 +563,41 @@ function thresholdCell(name, kind, snap) {
   const liveStr = (live === null || live === undefined) ? "—" : `${live}${cfg.suffix}`;
   const liveCls = alerting ? "alert-fire" : "";
   const titleAttr = cfg.tooltip ? ` title="${esc(cfg.tooltip)}"` : "";
-  return `<div class="sensor-cell"${titleAttr}>
-    <div class="sensor-label">${esc(cfg.label)}</div>
-    <div class="value-clickable ${liveCls}"
-         data-action="edit-threshold" data-name="${esc(name)}" data-kind="${esc(kind)}"
-         >${esc(liveStr)}</div>
-  </div>`;
-}
-
-// Threshold editor renders below the grid when a kind is being edited
-// for this card. Empty string when nothing is being edited.
-function thresholdEditor(name, snap) {
-  const kind = editingThreshold[name];
-  if (!kind) {
-    const t = toasts[name] || {};
-    // Show any leftover error toasts even when no editor is open.
-    const toastEl = ["humidity", "co2", "voc"].map(k =>
-      t["threshold-" + k] ? `<div class="toast" role="alert">${esc(t["threshold-" + k])}</div>` : ""
-    ).join("");
-    return toastEl;
-  }
-  const cfg = THRESHOLD_KINDS[kind];
-  const thresh = snap.configured?.[cfg.thresholdKey];
-  const t = toasts[name] || {};
-  const toastKey = "threshold-" + kind;
-  const stale = (snap._fetchedAt
-    ? (Date.now() - new Date(snap.last_poll).getTime()) > STALE_THRESHOLD_MS
-    : false);
-  const dis = (inFlight[name] || stale) ? "disabled" : "";
-  const inputVal = (thresh === null || thresh === undefined) ? cfg.min : thresh;
-  return `<div class="row">
-    <span class="k">${esc(cfg.label)}</span>
-    <span class="thresh-edit">
-      <span class="thresh-edit-label">set alert ≥</span>
+  const editing = editingThreshold[name] === kind;
+  let body;
+  if (editing) {
+    const thresh = snap.configured?.[cfg.thresholdKey];
+    const stale = (snap._fetchedAt
+      ? (Date.now() - new Date(snap.last_poll).getTime()) > STALE_THRESHOLD_MS
+      : false);
+    const dis = (inFlight[name] || stale) ? "disabled" : "";
+    const inputVal = (thresh === null || thresh === undefined) ? cfg.min : thresh;
+    body = `<span class="thresh-edit-inline">
       <input type="number" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}"
              value="${inputVal}"
              data-name="${esc(name)}" data-kind="${esc(kind)}"
-             class="thresh-input" ${dis}>${esc(cfg.suffix)}
+             class="thresh-input" ${dis}>
       <button data-action="threshold-save" data-name="${esc(name)}" data-kind="${esc(kind)}" ${dis}>✓</button>
       <button data-action="threshold-cancel" data-name="${esc(name)}" data-kind="${esc(kind)}" ${dis}>✕</button>
-    </span>
-  </div>${t[toastKey] ? `<div class="toast" role="alert">${esc(t[toastKey])}</div>` : ""}`;
+    </span>`;
+  } else {
+    body = `<div class="value-clickable ${liveCls}"
+         data-action="edit-threshold" data-name="${esc(name)}" data-kind="${esc(kind)}"
+         >${esc(liveStr)}</div>`;
+  }
+  return `<div class="sensor-cell"${titleAttr}>
+    <div class="sensor-label">${esc(cfg.label)}</div>
+    ${body}
+  </div>`;
+}
+
+// With the editor now rendered inline inside thresholdCell, this helper only
+// emits any leftover threshold-<kind> error toasts below the grid.
+function thresholdEditor(name, snap) {
+  const t = toasts[name] || {};
+  return ["humidity", "co2", "voc"].map(k =>
+    t["threshold-" + k] ? `<div class="toast" role="alert">${esc(t["threshold-" + k])}</div>` : ""
+  ).join("");
 }
 
 function tempC(v) {
