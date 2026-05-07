@@ -75,6 +75,14 @@ test-ui:
 screenshot:
 	cd tests/ui && pnpm exec tsx screenshot.ts
 
+# Safety net: kill orphan breezyd / fakedevice procs left over by an
+# interrupted `just screenshot` or `just test-ui` run. The TS scripts
+# kill cleanly on success, but Ctrl-C mid-run can leave the compiled
+# child binaries (spawned by `go run`) bound to loopback ports.
+kill-test-daemons:
+	@pkill -TERM -f '/breezyd( |$)|/fakedevice( |$)' 2>/dev/null || true
+	@echo "killed any orphan breezyd / fakedevice processes"
+
 # go vet + gofmt-drift check (fails if `just fmt` would rewrite anything)
 lint:
 	go vet ./...
