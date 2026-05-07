@@ -127,7 +127,7 @@ test("Mode block: visible only in manual speed_mode", async ({ page }) => {
   await presets.asMode(DEVICE, "regeneration");
   await waitForPoll();
   const card = await loadCard(page);
-  await expect(card.locator(".ctrl", { hasText: "MODE" })).toBeVisible();
+  await expect(card.locator(".ctrl-label", { hasText: /^MODE$/ })).toBeVisible();
 
   // Now switch to preset mode — Mode block should disappear.
   await presets.asPresetSpeed(DEVICE, 1);
@@ -135,7 +135,7 @@ test("Mode block: visible only in manual speed_mode", async ({ page }) => {
   await page.reload();
   const card2 = page.locator(`[data-device="${DEVICE}"]`);
   await expect(card2).toBeVisible({ timeout: 10_000 });
-  await expect(card2.locator(".ctrl", { hasText: "MODE" })).toHaveCount(0);
+  await expect(card2.locator(".ctrl-label", { hasText: /^MODE$/ })).toHaveCount(0);
 });
 
 test("preset buttons: labels show supply/extract pcts from preset config", async ({ page }) => {
@@ -172,7 +172,7 @@ test("active special_mode hides the manual panel (Mode block + slider)", async (
   // Default snapshot has timer=turbo (0x0007=02) and manual speed_mode.
   await waitForPoll();
   const card = await loadCard(page);
-  await expect(card.locator(".ctrl", { hasText: "MODE" })).toHaveCount(0);
+  await expect(card.locator(".ctrl-label", { hasText: /^MODE$/ })).toHaveCount(0);
   await expect(card.locator(".ctrl .fan-slider-row")).toHaveCount(0);
 });
 
