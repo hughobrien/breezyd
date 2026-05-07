@@ -7,7 +7,10 @@ import (
 
 // DeviceCard renders one device card. It composes all sub-block templates.
 templ DeviceCard(v ui.DeviceView) {
-	<div class={ "card", templ.KV("stale", v.Stale) }>
+	<div class={ "card", templ.KV("stale", v.Stale) } data-device={ v.Name }>
+		if v.PostError != "" {
+			<div class="card-error" role="alert">{ v.PostError }</div>
+		}
 		<details class="device-info" if v.NeedsAttention { open }>
 			<summary>
 				<h2>{ v.Name }</h2>
