@@ -212,6 +212,44 @@ func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, name
 	_ = templates.DeviceCard(view).Render(r.Context(), w)
 }
 
+// postUIMode sets the airflow mode.
+//
+// Form: mode=ventilation | regeneration | supply | extract
+func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	mode := r.FormValue("mode")
+	switch mode {
+	case "ventilation", "regeneration", "supply", "extract":
+		// valid
+	default:
+		h.uiValidationError(w, r, name, "mode must be one of ventilation/regeneration/supply/extract")
+		return
+	}
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetMode(ctx, rc, mode); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
 // postUIPreset writes the per-preset supply/extract percentages.
 //
 // Form: preset=1|2|3, supply=10..100, extract=10..100
@@ -251,44 +289,6 @@ func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetPresetSpeed(ctx, rc, preset, supply, extract); err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	h.uiRenderCard(w, r, name)
-}
-
-// postUIMode sets the airflow mode.
-//
-// Form: mode=ventilation | regeneration | supply | extract
-func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		h.uiValidationError(w, r, name, "bad form encoding")
-		return
-	}
-	mode := r.FormValue("mode")
-	switch mode {
-	case "ventilation", "regeneration", "supply", "extract":
-		// valid
-	default:
-		h.uiValidationError(w, r, name, "mode must be one of ventilation/regeneration/supply/extract")
-		return
-	}
-
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetMode(ctx, rc, mode); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
