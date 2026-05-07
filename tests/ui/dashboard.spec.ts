@@ -62,7 +62,7 @@ test("sensors: live values appear in the card", async ({ page }) => {
   const card = await loadCard(page);
   // Expand Sensors block if collapsed.
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await expect(card).toContainText("54%");
@@ -75,7 +75,7 @@ test("fans: rpm=0 reads 'off' in the Sensors block", async ({ page }) => {
   await reset(DEVICE);
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await expect(
@@ -95,7 +95,7 @@ test("fans: both rpms zero reads 'off' in the Sensors block", async ({ page }) =
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await expect(
@@ -226,7 +226,7 @@ test("threshold: sensor row shows current value only (threshold hidden until edi
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await expect(sensors).toContainText("52%");
@@ -242,7 +242,7 @@ test("threshold: alert-fire class on the value when sensor_alerts is true", asyn
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   const eco2 = sensors.locator('[data-action="edit-threshold"][data-kind="co2"]').first();
@@ -623,7 +623,7 @@ test("threshold: clicking the value reveals an editor with current threshold", a
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await card.locator('[data-action="edit-threshold"][data-kind="humidity"]').click();
@@ -640,7 +640,7 @@ test("threshold: opening the editor renders the input inside the clicked cell", 
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await card.locator('[data-action="edit-threshold"][data-kind="humidity"]').click();
@@ -656,7 +656,7 @@ test("threshold: save PUTs new threshold and exits edit mode", async ({ page }) 
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await card.locator('[data-action="edit-threshold"][data-kind="humidity"]').click();
@@ -674,7 +674,7 @@ test("threshold: cancel reverts without PUTing", async ({ page }) => {
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await card.locator('[data-action="edit-threshold"][data-kind="humidity"]').click();
@@ -692,7 +692,7 @@ test("auto-fan: checkbox state reflects sensor_enabled config", async ({ page })
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   await card.locator('[data-action="edit-threshold"][data-kind="humidity"]').click();
@@ -710,7 +710,7 @@ test("auto-fan: disabling sensor and saving PUTs enabled=false", async ({ page }
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  if (!(await sensors.getAttribute("open"))) {
+  if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
     await sensors.locator("summary").click();
   }
   // Open editor, uncheck, save.
@@ -744,15 +744,43 @@ test("schedule: save click PUTs the edited table", async ({ page }) => {
   await expect(card.locator(".schedule-table tbody tr")).toHaveCount(1, { timeout: 3000 });
 });
 
+test("schedule: in-flight pct edit survives a poll interval (issue #43)", async ({ page }) => {
+  // [N] Open the schedule editor, focus the pct input, change the value,
+  // wait through one poll interval (5s page-default + buffer). The value
+  // and focus must still be there — polling pauses while the edit form
+  // is in the DOM.
+  await reset(DEVICE);
+  await presets.withSchedule(DEVICE, {
+    enabled: true,
+    entries: [{ at: "08:00", action: "regeneration", pct: 60 }],
+  });
+  const card = await loadCard(page);
+  await card.locator("details.schedule summary").click();
+  await card.locator("button[hx-get*='schedule/edit']").click();
+  await card.locator("form[hx-put*='schedule']").waitFor({ timeout: 3000 });
+
+  const pct = card.locator("input[name='pct']").first();
+  await pct.click();
+  await pct.fill("75");
+  await expect(pct).toBeFocused();
+
+  // 6s > one poll interval. If polling weren't paused, htmx would have
+  // re-rendered the schedule into read mode by now.
+  await page.waitForTimeout(6000);
+
+  await expect(pct).toBeFocused();
+  await expect(pct).toHaveValue("75");
+  await expect(card.locator("form[hx-put*='schedule']")).toBeVisible();
+});
+
 // ── Category C: persistence (hx-preserve) ────────────────────────────────────
 
-// hx-preserve was specified for these <details> blocks but isn't yet wired
-// in the templates. The poll interval on the page is every 5s; a 3s wait
-// here doesn't trigger a swap, so these would pass trivially without
-// actually testing preservation. Marking fixme until hx-preserve lands.
-// Tracking issue filed at follow-up.
+// User-toggled <details> open state is preserved across the 5s htmx
+// swap by a small client-side IIFE in layout.templ that listens for
+// `toggle` events and re-applies the stored state on `htmx:afterSettle`.
+// Each block carries a stable id (info-{name}, sensors-{name}, etc.).
 
-test.fixme("sensors block: open state survives polls", async ({ page }) => {
+test("sensors block: open state survives polls", async ({ page }) => {
   // [C] hx-preserve on the Sensors <details> keeps it closed if user closed it.
   await reset(DEVICE);
   await waitForPoll();
@@ -767,7 +795,7 @@ test.fixme("sensors block: open state survives polls", async ({ page }) => {
   await expect(sensors).not.toHaveAttribute("open", "");
 });
 
-test.fixme("ENERGY block: open state survives polls", async ({ page }) => {
+test("ENERGY block: open state survives polls", async ({ page }) => {
   // [C] Opening the energy <details> and waiting through polls keeps it open.
   await reset(DEVICE);
   await presets.asMode(DEVICE, "regeneration");
@@ -781,7 +809,7 @@ test.fixme("ENERGY block: open state survives polls", async ({ page }) => {
   await expect(energy).toHaveAttribute("open", "");
 });
 
-test.fixme("device info: open state survives polls", async ({ page }) => {
+test("device info: open state survives polls", async ({ page }) => {
   // [C] Manually opened device-info survives subsequent htmx swaps.
   await reset(DEVICE);
   await waitForPoll();
