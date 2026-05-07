@@ -212,6 +212,51 @@ func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, name
 	_ = templates.DeviceCard(view).Render(r.Context(), w)
 }
 
+// postUIPreset writes the per-preset supply/extract percentages.
+//
+// Form: preset=1|2|3, supply=10..100, extract=10..100
+func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	preset, err := strconv.Atoi(r.FormValue("preset"))
+	if err != nil || preset < 1 || preset > 3 {
+		h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
+		return
+	}
+	supply, err := strconv.Atoi(r.FormValue("supply"))
+	if err != nil || supply < 10 || supply > 100 {
+		h.uiValidationError(w, r, name, "supply must be 10..100")
+		return
+	}
+	extract, err := strconv.Atoi(r.FormValue("extract"))
+	if err != nil || extract < 10 || extract > 100 {
+		h.uiValidationError(w, r, name, "extract must be 10..100")
+		return
+	}
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetPresetSpeed(ctx, rc, preset, supply, extract); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
 // postUIMode sets the airflow mode.
 //
 // Form: mode=ventilation | regeneration | supply | extract
