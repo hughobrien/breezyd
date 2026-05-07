@@ -137,10 +137,10 @@ func (h *Handler) buildView(name string, snap Snapshot, state uistate.State) ui.
 	return v
 }
 
-// computeDetailsOpen returns the per-section open state for a device,
-// applying cookie state, force-open rules, and section defaults in that
-// order. Force-open always wins (NeedsAttention for info; AlertActive
-// for sensors; Schedule.Alert for schedule).
+// computeDetailsOpen returns the per-section open state for a device.
+// It seeds with section defaults, applies cookie overrides, then lets
+// force-open rules (NeedsAttention, AlertActive, Schedule.Alert)
+// unconditionally win.
 func computeDetailsOpen(name string, v ui.DeviceView, state uistate.State) map[string]bool {
 	open := map[string]bool{
 		"info":     defaultOpen("info"),

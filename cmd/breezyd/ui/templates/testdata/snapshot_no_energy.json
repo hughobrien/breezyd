@@ -62,5 +62,8 @@
     "Alert": false,
     "LastApply": null
   },
-  "PostError": ""
+  "PostError": "",
+  "DetailsOpen": {
+    "sensors": false
+  }
 }

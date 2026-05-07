@@ -315,3 +315,19 @@ func TestBuildView_CookiePresetOverrides(t *testing.T) {
 		t.Error("MatchSpeeds: got true, want false")
 	}
 }
+
+// TestBuildView_NeedsAttentionForcesInfoOpen verifies that NeedsAttention
+// forces info open even when the cookie says closed.
+func TestBuildView_NeedsAttentionForcesInfoOpen(t *testing.T) {
+	h := newUITestHandler(t, "alpha")
+	snap := testSnap("alpha")
+	// Inject fault level to trigger NeedsAttention.
+	snap.Values[0x0083] = []byte{0x01} // fault warning
+	state := uistate.State{
+		Details: map[string]bool{"info-alpha": false}, // cookie says closed
+	}
+	v := h.buildView("alpha", snap, state)
+	if !v.DetailsOpen["info"] {
+		t.Error("NeedsAttention should force info open regardless of cookie")
+	}
+}

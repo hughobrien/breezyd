@@ -4,7 +4,7 @@
     {
       "id": 1,
       "subject": "Task 1: internal/uistate package",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Cookie type + parser + encoder, with defensive parsing (malformed/oversize cookies fall through to the zero state) and unit tests.\n\n**Files:**\n- Create: `internal/uistate/state.go`\n- Create: `internal/uistate/state_test.go`\n\n**Verify:** `go test ./internal/uistate/...`\n\n```json:metadata\n{\"files\": [\"internal/uistate/state.go\", \"internal/uistate/state_test.go\"], \"verifyCommand\": \"go test ./internal/uistate/...\", \"acceptanceCriteria\": [\"Parse returns zero State on missing/malformed/oversize cookie\", \"Cookie + Parse round-trip preserves Details and Preset maps\", \"DefaultsForDevice returns Open:0 Automode:false Match:true\"]}\n```"
     },
     {
@@ -57,5 +57,5 @@
       "description": "**Goal:** Confirm full Playwright suite green; regenerate the README screenshot showing the restored editor.\n\n**Files:**\n- Modify: `tests/ui/screenshot.ts`\n- Regenerate: `tests/ui/screenshots/dashboard-3col.png`\n\n**Verify:** `just check-all`\n\n```json:metadata\n{\"files\": [\"tests/ui/screenshot.ts\", \"tests/ui/screenshots/dashboard-3col.png\"], \"verifyCommand\": \"just check-all\", \"acceptanceCriteria\": [\"check-all green\", \"screenshot shows restored editor\", \"issues closed post-merge\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-05-07T19:00:00Z"
+  "lastUpdated": "2026-05-07T19:30:00Z"
 }
