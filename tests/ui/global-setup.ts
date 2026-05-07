@@ -8,6 +8,9 @@ import { mkdtempSync, writeFileSync, mkdirSync, createWriteStream } from "node:f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+/** Path to the env file that workers read for the admin URL. */
+export const ENV_FILE = join(__dirname, "test-results", ".env.test");
+
 export const REPO_ROOT = resolve(__dirname, "..", "..");
 
 let fakedeviceProc: ChildProcess | undefined;
@@ -139,7 +142,19 @@ export default async function globalSetup() {
     throw new Error(`breezyd did not become ready at ${daemonURL}: ${e}`);
   }
 
-  // Expose addresses via env vars for tests and fixtures.
+  // Write addresses to a file so workers can read them reliably.
+  // (process.env mutations in globalSetup are not guaranteed to propagate
+  // to worker processes in all Playwright versions.)
+  writeFileSync(
+    ENV_FILE,
+    [
+      `BREEZYD_URL=${daemonURL}`,
+      `BREEZYD_ADMIN_URL=http://${adminAddr}`,
+      `BREEZYD_DEVICE_NAME=alpha`,
+    ].join("\n") + "\n",
+  );
+
+  // Also set on the main process for playwright.config.ts baseURL resolution.
   process.env.BREEZYD_URL = daemonURL;
   process.env.BREEZYD_ADMIN_URL = `http://${adminAddr}`;
   process.env.BREEZYD_DEVICE_NAME = "alpha";

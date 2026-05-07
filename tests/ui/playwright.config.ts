@@ -5,7 +5,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Always use 1 worker: tests share a single fakedevice and race if
+  // run concurrently. Parallel execution would require per-test device
+  // isolation which is not implemented.
+  workers: 1,
   reporter: [["list"]],
   globalSetup: "./global-setup.ts",
   globalTeardown: "./global-teardown.ts",
