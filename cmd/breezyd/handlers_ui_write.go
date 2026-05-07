@@ -42,6 +42,8 @@ func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name 
 }
 
 // scheduleEditFrag renders the edit variant of the schedule block as an HTML fragment.
+// A non-empty errMsg signals a validation failure and produces a 422 response;
+// otherwise the response is the implicit 200 (used for the initial GET).
 func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
 	view, ok := h.viewFor(name)
 	if !ok {
@@ -50,6 +52,9 @@ func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	if errMsg != "" {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}
 	if err := templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg).Render(r.Context(), w); err != nil {
 		slog.Error("render ScheduleBlockEdit", "err", err)
 	}
@@ -159,7 +164,6 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sch.Replace(enabled, entries); err != nil {
 		if errors.Is(err, breezy.ErrInvalidArg) {
-			w.WriteHeader(http.StatusUnprocessableEntity)
 			h.scheduleEditFrag(w, r, name, err.Error())
 			return
 		}
@@ -566,11 +570,17 @@ func (h *Handler) putUIThreshold(w http.ResponseWriter, r *http.Request) {
 		}
 		valuePtr = &v
 	}
-	// The form always sends enabled (hidden input + checkbox pattern),
-	// so treat its presence as authoritative. If absent, don't set it.
-	if es := r.FormValue("enabled"); es != "" {
-		e := es == "true"
-		enabledPtr = &e
+	// The form uses the hidden+checkbox dual-input pattern for enabled:
+	// the hidden field always submits "false"; the checkbox adds "true" when
+	// checked. Browsers send both values in DOM order, so the LAST value is
+	// the authoritative one. r.FormValue returns the FIRST value, which would
+	// always read as "false" — use r.Form["enabled"] and read the last entry.
+	if es := r.Form["enabled"]; len(es) > 0 {
+		last := es[len(es)-1]
+		if last != "" {
+			e := last == "true"
+			enabledPtr = &e
+		}
 	}
 	if valuePtr == nil && enabledPtr == nil {
 		h.uiValidationError(w, r, name, "must supply at least one of 'value' or 'enabled'")

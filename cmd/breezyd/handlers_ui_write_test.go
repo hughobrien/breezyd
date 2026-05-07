@@ -680,6 +680,39 @@ func TestUIThresholdPut_HappyBoth(t *testing.T) {
 	}
 }
 
+// TestUIThresholdPut_BrowserCheckbox reproduces the actual browser form
+// shape: the hidden+checkbox dual-input pattern submits "enabled=false"
+// from the hidden field plus "enabled=true" from the checkbox when checked.
+// r.FormValue returns the FIRST value, which is always "false" — so the
+// handler must use r.Form["enabled"] and read the LAST value to honour
+// the checkbox state.
+func TestUIThresholdPut_BrowserCheckbox(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Checkbox is checked → browser submits both values.
+	v := url.Values{
+		"kind": {"humidity"},
+	}
+	v.Add("enabled", "false") // hidden input
+	v.Add("enabled", "true")  // checkbox (checked)
+
+	resp := putUIThreshold(t, srv.URL, "alpha", v)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	// Sanity: confirm the read variant we render afterwards reflects "auto fan ON"
+	// by checking that the body contains the read variant of the humidity cell
+	// (not an error banner). The render path goes through buildView, which would
+	// pick up the WriteThrough'd enabled=true.
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-kind="humidity"`) {
+		t.Errorf("body missing humidity threshold render; got: %s", body)
+	}
+}
+
 func TestUIThresholdPut_NotFound(t *testing.T) {
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
@@ -983,10 +1016,10 @@ func TestUISchedulePut_BadForm_InvalidTime(t *testing.T) {
 		"pct":    {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	// Returns edit variant with error message.
-	if resp.StatusCode != 200 {
+	// Returns edit variant with error message at 422 status.
+	if resp.StatusCode != http.StatusUnprocessableEntity {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+		t.Fatalf("status: %d, want 422, body: %s", resp.StatusCode, body)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
@@ -1006,9 +1039,9 @@ func TestUISchedulePut_BadForm_InvalidAction(t *testing.T) {
 		"pct":    {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusUnprocessableEntity {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+		t.Fatalf("status: %d, want 422, body: %s", resp.StatusCode, body)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)

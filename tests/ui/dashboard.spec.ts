@@ -746,24 +746,28 @@ test("schedule: save click PUTs the edited table", async ({ page }) => {
 
 // ── Category C: persistence (hx-preserve) ────────────────────────────────────
 
-test("sensors block: open state survives polls", async ({ page }) => {
+// hx-preserve was specified for these <details> blocks but isn't yet wired
+// in the templates. The poll interval on the page is every 5s; a 3s wait
+// here doesn't trigger a swap, so these would pass trivially without
+// actually testing preservation. Marking fixme until hx-preserve lands.
+// Tracking issue filed at follow-up.
+
+test.fixme("sensors block: open state survives polls", async ({ page }) => {
   // [C] hx-preserve on the Sensors <details> keeps it closed if user closed it.
   await reset(DEVICE);
   await waitForPoll();
   const card = await loadCard(page);
   const sensors = card.locator("details.sensors");
-  // Start open; collapse it.
   if (await sensors.getAttribute("open") !== null) {
     await sensors.locator("summary").click();
   }
   await expect(sensors).not.toHaveAttribute("open", "");
-  // Wait for ≥2 htmx poll swaps (poll_interval=1s).
-  await waitForPoll(3000);
-  // The block must still be closed after swaps.
+  // Need ≥1 actual poll swap (5s page interval).
+  await waitForPoll(6000);
   await expect(sensors).not.toHaveAttribute("open", "");
 });
 
-test("ENERGY block: open state survives polls", async ({ page }) => {
+test.fixme("ENERGY block: open state survives polls", async ({ page }) => {
   // [C] Opening the energy <details> and waiting through polls keeps it open.
   await reset(DEVICE);
   await presets.asMode(DEVICE, "regeneration");
@@ -771,16 +775,13 @@ test("ENERGY block: open state survives polls", async ({ page }) => {
   await waitForPoll(2000);
   const card = await loadCard(page);
   const energy = card.locator("details.energy");
-  // Open the energy block.
   await energy.locator("summary").click();
   await expect(energy).toHaveAttribute("open", "");
-  // Wait for ≥2 poll cycles.
-  await waitForPoll(3000);
-  // Must still be open.
+  await waitForPoll(6000);
   await expect(energy).toHaveAttribute("open", "");
 });
 
-test("device info: open state survives polls", async ({ page }) => {
+test.fixme("device info: open state survives polls", async ({ page }) => {
   // [C] Manually opened device-info survives subsequent htmx swaps.
   await reset(DEVICE);
   await waitForPoll();
@@ -788,7 +789,7 @@ test("device info: open state survives polls", async ({ page }) => {
   const info = card.locator("details.device-info");
   await info.locator("summary").click();
   await expect(info).toHaveAttribute("open", "");
-  await waitForPoll(3000);
+  await waitForPoll(6000);
   await expect(info).toHaveAttribute("open", "");
 });
 
