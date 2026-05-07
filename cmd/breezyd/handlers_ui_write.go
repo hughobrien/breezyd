@@ -29,7 +29,7 @@ import (
 
 // scheduleReadFrag renders the read variant of the schedule block as an HTML fragment.
 func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -45,7 +45,7 @@ func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name 
 // A non-empty errMsg signals a validation failure and produces a 422 response;
 // otherwise the response is the implicit 200 (used for the initial GET).
 func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -65,7 +65,7 @@ func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name,
 // GET /ui/devices/{name}/schedule
 func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(name); !ok {
+	if _, ok := h.viewFor(r, name); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -77,7 +77,7 @@ func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 // GET /ui/devices/{name}/schedule/edit
 func (h *Handler) getUIScheduleEdit(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(name); !ok {
+	if _, ok := h.viewFor(r, name); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -190,7 +190,7 @@ func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error
 // uiRenderCard renders the DeviceCard for a successful write. Re-fetches the
 // snapshot from cache (the breezy ops will have updated it via WriteThrough).
 func (h *Handler) uiRenderCard(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -201,7 +201,7 @@ func (h *Handler) uiRenderCard(w http.ResponseWriter, r *http.Request, name stri
 
 // uiValidationError renders the DeviceCard with PostError set, status 422.
 func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, name, msg string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -506,7 +506,7 @@ func (h *Handler) getUIThresholdRead(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -528,7 +528,7 @@ func (h *Handler) getUIThresholdEdit(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -601,7 +601,7 @@ func (h *Handler) putUIThreshold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return

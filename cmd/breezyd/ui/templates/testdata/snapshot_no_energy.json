@@ -10,21 +10,29 @@
   "SpeedMode": "preset3",
   "ManualPct": 50,
   "Heater": false,
-  "Preset1": {"Supply": -1, "Extract": -1},
-  "Preset2": {"Supply": -1, "Extract": -1},
-  "Preset3": {"Supply": 80, "Extract": 80},
+  "Preset1": {
+    "Supply": -1,
+    "Extract": -1
+  },
+  "Preset2": {
+    "Supply": -1,
+    "Extract": -1
+  },
+  "Preset3": {
+    "Supply": 80,
+    "Extract": 80
+  },
   "SpecialMode": "night",
   "SpecialModeRemaining": "3h 20m",
-  "FirmwareVersion": "—",
-  "FirmwareDate": "—",
-  "FilterStatus": "—",
+  "FirmwareVersion": "\u2014",
+  "FirmwareDate": "\u2014",
+  "FilterStatus": "\u2014",
   "FilterRemaining": "",
-  "MotorLifetime": "—",
-  "RTCBattery": "—",
-  "FaultLevel": "—",
+  "MotorLifetime": "\u2014",
+  "RTCBattery": "\u2014",
+  "FaultLevel": "\u2014",
   "NeedsAttention": false,
   "Sensors": {
-    "Expanded": false,
     "AlertActive": false,
     "HumidityPct": 0,
     "CO2PPM": 0,

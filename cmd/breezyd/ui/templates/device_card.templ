@@ -44,7 +44,7 @@ templ DeviceCard(v ui.DeviceView) {
 			<div class="row"><span class="ts red">no poll</span></div>
 		}
 			@EnergyBlock(v.Name, v.Energy, false)
-			@SensorsBlock(v.Name, v.Sensors)
+			@SensorsBlock(v.Name, v.Sensors, v.DetailsOpen["sensors"])
 			@ScheduleBlock(v.Name, v.Schedule, v.Stale)
 			@controlsBlock(v)
 		</div>

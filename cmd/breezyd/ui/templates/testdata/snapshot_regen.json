@@ -10,9 +10,18 @@
   "SpeedMode": "manual",
   "ManualPct": 80,
   "Heater": false,
-  "Preset1": {"Supply": 40, "Extract": 40},
-  "Preset2": {"Supply": 60, "Extract": 60},
-  "Preset3": {"Supply": 80, "Extract": 80},
+  "Preset1": {
+    "Supply": 40,
+    "Extract": 40
+  },
+  "Preset2": {
+    "Supply": 60,
+    "Extract": 60
+  },
+  "Preset3": {
+    "Supply": 80,
+    "Extract": 80
+  },
   "SpecialMode": "off",
   "SpecialModeRemaining": "",
   "FirmwareVersion": "1.04",
@@ -24,7 +33,6 @@
   "FaultLevel": "none",
   "NeedsAttention": false,
   "Sensors": {
-    "Expanded": true,
     "AlertActive": false,
     "HumidityPct": 45,
     "CO2PPM": 650,
@@ -64,11 +72,22 @@
     "Present": true,
     "Enabled": true,
     "Entries": [
-      {"At": "07:00", "Action": "regeneration", "Pct": 60},
-      {"At": "22:00", "Action": "regeneration", "Pct": 40}
+      {
+        "At": "07:00",
+        "Action": "regeneration",
+        "Pct": 60
+      },
+      {
+        "At": "22:00",
+        "Action": "regeneration",
+        "Pct": 40
+      }
     ],
     "Alert": false,
     "LastApply": null
   },
-  "PostError": ""
+  "PostError": "",
+  "DetailsOpen": {
+    "sensors": true
+  }
 }
