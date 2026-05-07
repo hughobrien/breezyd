@@ -41,7 +41,7 @@ func ScheduleBlock(name string, s ui.ScheduleView, stale bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if s.Alert || scheduleOpen(s) {
+			if s.Alert {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " open")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -534,13 +534,6 @@ func scheduleActionOption(value, label, current string) templ.Component {
 		}
 		return nil
 	})
-}
-
-// scheduleOpen returns true when the alert is active (force-expand). In the
-// JS version, scheduleOpen[name] also captured user-intent — templates can't
-// carry per-card client state, so we drive solely from server state here.
-func scheduleOpen(s ui.ScheduleView) bool {
-	return s.Alert
 }
 
 var _ = templruntime.GeneratedTemplate

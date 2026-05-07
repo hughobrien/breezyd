@@ -5,19 +5,6 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
-// thresholdKind carries per-kind display config — mirrors THRESHOLD_KINDS in JS.
-type thresholdKind struct {
-	label        string
-	suffix       string
-	min, max     int
-	step         int
-	tooltip      string
-	alerting     bool
-	currentValue int    // live sensor reading
-	threshold    int    // configured threshold
-	autoFan      bool   // sensor auto-fan enabled
-}
-
 // SensorThresholdRead renders the clickable read-only cell for a threshold sensor.
 templ SensorThresholdRead(name, kind, label, suffix, tooltip string, value int, alerting bool) {
 	<div class="sensor-cell" if tooltip != "" { title={ tooltip } }>

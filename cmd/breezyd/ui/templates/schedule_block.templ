@@ -9,7 +9,7 @@ import (
 // When s.Present is false, renders nothing.
 templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 	if s.Present {
-		<details class="block schedule" if s.Alert || scheduleOpen(s) { open }>
+		<details class="block schedule" if s.Alert { open }>
 			<summary><h3>SCHEDULE</h3></summary>
 			<div class="schedule-toolbar">
 				<label>
@@ -99,11 +99,4 @@ templ scheduleRow(name string, e ui.ScheduleEntryView, i int, stale bool) {
 
 templ scheduleActionOption(value, label, current string) {
 	<option value={ value } if value == current { selected }>{ label }</option>
-}
-
-// scheduleOpen returns true when the alert is active (force-expand). In the
-// JS version, scheduleOpen[name] also captured user-intent — templates can't
-// carry per-card client state, so we drive solely from server state here.
-func scheduleOpen(s ui.ScheduleView) bool {
-	return s.Alert
 }
