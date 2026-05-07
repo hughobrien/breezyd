@@ -150,7 +150,7 @@ async function loadDashboard(
   });
 
   // /ui/devices/:name/:action  — htmx write endpoints; return HTML card fragment.
-  for (const action of ["power", "mode", "speed", "heater", "reset-filter", "reset-faults"]) {
+  for (const action of ["power", "mode", "speed", "heater", "timer", "reset-filter", "reset-faults"]) {
     await page.route(`${BASE_URL}/ui/devices/*/${action}`, async (route: Route) => {
       const req = route.request();
       const url = req.url();
@@ -407,9 +407,6 @@ test("power click: POSTs the inverse of the current state", async ({ page }) => 
   await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, async (route: Route) => {
     await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS });
   });
-  await page.route(`${BASE_URL}/ui/legacy.js`, async (route: Route) => {
-    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
-  });
   // /ui/devices → return the templ-rendered card HTML.
   await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
     await route.fulfill({ status: 200, contentType: "text/html", body: cardHtml });
@@ -641,9 +638,10 @@ test.fixme("preset editor: automode off + both > 0 implies regeneration", async 
   expect(modePost?.body).toEqual({ mode: "regeneration" });
 });
 
-// PR2 deferred: secondary automode POST (/mode {ventilation}) was JS orchestration in
-// legacy.js (computeAirflow + applyAirflow). The htmx preset button issues a single POST
-// /ui/devices/:name/speed {preset:N}; the automode secondary is dropped in this PR.
+// Intentionally removed in PR2: secondary automode POST (/mode {ventilation}) was JS
+// orchestration in legacy.js (computeAirflow + applyAirflow), deleted in Task 21.
+// The htmx preset button issues a single POST /ui/devices/:name/speed {preset:N}.
+// Re-add via server-side mode chain in postUISpeed if user feedback requires it.
 test.fixme("preset activation (automode on): clicks ventilation alongside the preset", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
@@ -1082,9 +1080,6 @@ test("heater click: POSTs the inverse of the current state", async ({ page }) =>
   await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, async (route: Route) => {
     await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS });
   });
-  await page.route(`${BASE_URL}/ui/legacy.js`, async (route: Route) => {
-    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
-  });
   await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
     await route.fulfill({ status: 200, contentType: "text/html", body: cardHtml });
   });
@@ -1111,16 +1106,49 @@ test("heater click: POSTs the inverse of the current state", async ({ page }) =>
   expect(post!.body).toEqual({ on: "true" });
 });
 
-test("error toast: 4xx on POST shows the daemon's error text", async ({ page }) => {
-  await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    postResponse: () => ({ status: 400, body: { error: "preset must be 1, 2, or 3", code: "bad_request" } }),
+test("error response: 422 on POST renders daemon error text in the card", async ({ page }) => {
+  // Uses the htmx path: LAYOUT_HTML + real htmx + templ-rendered card.
+  // A 422 from /ui/devices/:name/speed returns a card fragment with card-error div
+  // (hx-target-422="closest .card" on <body> targets the outer card element).
+  const cardHtml =
+    `<div class="card" data-device="playroom">` +
+    `<div class="ctrl"><div class="seg">` +
+    `<button type="button" data-action="preset" data-name="playroom" data-value="2"` +
+    ` hx-post="/ui/devices/playroom/speed" hx-vals='{"preset":2}'` +
+    ` hx-target="closest .card" hx-swap="outerHTML" hx-disabled-elt="this">55/60</button>` +
+    `</div></div></div>`;
+
+  await page.route(`${BASE_URL}/`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML });
   });
+  await page.route(`${BASE_URL}/ui/style-*.css`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/css; charset=utf-8", body: STYLE_CSS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS });
+  });
+  await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: cardHtml });
+  });
+  await page.route(`${BASE_URL}/ui/devices/playroom/speed`, async (route: Route) => {
+    // Return a 422 with a card fragment containing the error div.
+    await route.fulfill({
+      status: 422,
+      contentType: "text/html; charset=utf-8",
+      body: `<div class="card" data-device="playroom">` +
+        `<div class="card-error" role="alert">preset must be 1, 2, or 3</div>` +
+        `</div>`,
+    });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
   await page.click('button[data-action="preset"][data-name="playroom"][data-value="2"]');
-  // Preset activation now POSTs both /speed and /mode; either failed
-  // POST surfaces a toast, so we just check the page contains the
-  // daemon's error text.
-  await expect(page.locator(".toast").first()).toContainText("preset must be 1, 2, or 3");
+  await page.waitForTimeout(150);
+  await expect(page.locator(".card-error")).toContainText("preset must be 1, 2, or 3");
 });
 
 test("daemon-unreachable: bootstrap failure shows the top error banner", async ({ page }) => {
@@ -1151,9 +1179,52 @@ test("timer turbo: button pressed and countdown line rendered", async ({ page })
 });
 
 test("timer click: POSTs {mode:'night'} to /timer", async ({ page }) => {
-  const { requests } = await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
+  // Uses the htmx path: LAYOUT_HTML + real htmx + templ-rendered card.
+  // special_mode "off" → timerMode returns "night" → button posts mode=night.
+  const requests: RecordedRequest[] = [];
+
+  const cardHtml =
+    `<div class="card" data-device="playroom">` +
+    `<div class="ctrl-group ctrl-group-timer"><span class="ctrl-label">TIMER</span>` +
+    `<div class="seg">` +
+    `<button type="button" data-action="timer" data-name="playroom" data-value="night"` +
+    ` hx-post="/ui/devices/playroom/timer" hx-vals='{"mode":"night"}'` +
+    ` hx-target="closest .card" hx-swap="outerHTML" hx-disabled-elt="this"` +
+    ` aria-pressed="false">night</button>` +
+    `<button type="button" data-action="timer" data-name="playroom" data-value="turbo"` +
+    ` hx-post="/ui/devices/playroom/timer" hx-vals='{"mode":"turbo"}'` +
+    ` hx-target="closest .card" hx-swap="outerHTML" hx-disabled-elt="this"` +
+    ` aria-pressed="false">turbo</button>` +
+    `</div></div></div>`;
+
+  await page.route(`${BASE_URL}/`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML });
   });
+  await page.route(`${BASE_URL}/ui/style-*.css`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/css; charset=utf-8", body: STYLE_CSS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS });
+  });
+  await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: cardHtml });
+  });
+  await page.route(`${BASE_URL}/ui/devices/playroom/timer`, async (route: Route) => {
+    const req = route.request();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url: req.url(), method: req.method(), body });
+    await route.fulfill({
+      status: 200, contentType: "text/html; charset=utf-8",
+      body: `<div class="card" data-device="playroom"><p>ok</p></div>`,
+    });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
   await page.click('button[data-action="timer"][data-name="playroom"][data-value="night"]');
   await page.waitForTimeout(150);
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/timer"));
@@ -1179,17 +1250,52 @@ test("active special_mode hides the manual panel (Mode block + slider)", async (
 });
 
 test("timer click on active mode: POSTs {mode:'off'} to stop the timer", async ({ page }) => {
-  const { requests } = await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      live: {
-        special_mode: "night",
-        special_mode_remaining_seconds: 3600,
-        in_user_control: false,
-        sensor_alerts: { humidity: false, co2: false, voc: false },
-      },
-    }),
+  // Uses the htmx path: LAYOUT_HTML + real htmx + templ-rendered card.
+  // special_mode "night" → timerMode("night","night") returns "off" → button posts mode=off.
+  const requests: RecordedRequest[] = [];
+
+  const cardHtml =
+    `<div class="card" data-device="playroom">` +
+    `<div class="ctrl-group ctrl-group-timer"><span class="ctrl-label">TIMER</span>` +
+    `<div class="seg">` +
+    `<button type="button" data-action="timer" data-name="playroom" data-value="night"` +
+    ` hx-post="/ui/devices/playroom/timer" hx-vals='{"mode":"off"}'` +
+    ` hx-target="closest .card" hx-swap="outerHTML" hx-disabled-elt="this"` +
+    ` aria-pressed="true">night</button>` +
+    `<button type="button" data-action="timer" data-name="playroom" data-value="turbo"` +
+    ` hx-post="/ui/devices/playroom/timer" hx-vals='{"mode":"turbo"}'` +
+    ` hx-target="closest .card" hx-swap="outerHTML" hx-disabled-elt="this"` +
+    ` aria-pressed="false">turbo</button>` +
+    `</div></div></div>`;
+
+  await page.route(`${BASE_URL}/`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML });
   });
+  await page.route(`${BASE_URL}/ui/style-*.css`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/css; charset=utf-8", body: STYLE_CSS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS });
+  });
+  await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: cardHtml });
+  });
+  await page.route(`${BASE_URL}/ui/devices/playroom/timer`, async (route: Route) => {
+    const req = route.request();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url: req.url(), method: req.method(), body });
+    await route.fulfill({
+      status: 200, contentType: "text/html; charset=utf-8",
+      body: `<div class="card" data-device="playroom"><p>ok</p></div>`,
+    });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
   await page.click('button[data-action="timer"][data-name="playroom"][data-value="night"]');
   await page.waitForTimeout(150);
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/timer"));
@@ -1285,7 +1391,6 @@ test("threshold: save PUTs {kind, value, enabled} to /threshold and exits edit m
   await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
-  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
   await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
   await page.route(`${BASE_URL}/ui/devices/playroom/threshold/humidity/edit`, (route) => {
     requests.push({ url: route.request().url(), method: route.request().method(), body: null });
@@ -1374,7 +1479,6 @@ test("auto-fan: toggling checkbox PUTs {kind, value, enabled} to /threshold", as
   await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
-  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
   await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
   await page.route(`${BASE_URL}/ui/devices/playroom/threshold/humidity/edit`, (route) => {
     return route.fulfill({ status: 200, contentType: "text/html", body: sensorCellEdit });
@@ -1541,7 +1645,6 @@ test("schedule: save click PUTs the edited table", async ({ page }) => {
   await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
-  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
   await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
   await page.route(`${BASE_URL}/ui/devices/playroom/schedule/edit`, (route) =>
     route.fulfill({ status: 200, contentType: "text/html", body: scheduleEditHtml }));
@@ -1609,7 +1712,6 @@ test("auto-fan: editing both value and checkbox PUTs {kind, value, enabled} to /
   await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
   await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
-  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
   await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
   await page.route(`${BASE_URL}/ui/devices/playroom/threshold/humidity/edit`, (route) =>
     route.fulfill({ status: 200, contentType: "text/html", body: sensorCellEdit }));
@@ -2017,10 +2119,6 @@ async function loadLayout(page: Page): Promise<void> {
   // Return empty HTML for the device list — theme picker tests don't need cards.
   await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
     await route.fulfill({ status: 200, contentType: "text/html", body: "" });
-  });
-  // Return empty JS for legacy.js.
-  await page.route(`${BASE_URL}/ui/legacy.js`, async (route: Route) => {
-    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
   });
   await page.goto(BASE_URL + "/");
   // Wait for the picker to be present in the DOM.

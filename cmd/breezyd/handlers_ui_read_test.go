@@ -147,30 +147,8 @@ func TestUIReadIndex_ServesHTML(t *testing.T) {
 	if !strings.Contains(string(body), "htmx") {
 		t.Errorf("body missing htmx script reference")
 	}
-	// Layout must reference legacy.js.
-	if !strings.Contains(string(body), "legacy.js") {
-		t.Errorf("body missing legacy.js reference")
-	}
-}
-
-func TestUIReadLegacyJS(t *testing.T) {
-	h := &Handler{}
-	srv := httptest.NewServer(h.mux())
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/ui/legacy.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/javascript") {
-		t.Errorf("content-type: %q", got)
-	}
-	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
-		t.Errorf("cache-control: %q, want no-store", got)
+	// Layout must NOT reference legacy.js (deleted in Task 21).
+	if strings.Contains(string(body), "legacy.js") {
+		t.Errorf("layout unexpectedly contains legacy.js reference")
 	}
 }

@@ -337,6 +337,48 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 	h.uiRenderCard(w, r, name)
 }
 
+// postUITimer toggles a special-mode timer.
+//
+// Form: mode=off | night | turbo
+//
+// The template implements the toggle: if the requested mode matches the
+// currently-active special_mode, the button sends mode=off instead.
+// This handler does not need to inspect current state.
+func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	mode := r.FormValue("mode")
+	switch mode {
+	case "off", "night", "turbo":
+		// valid
+	default:
+		h.uiValidationError(w, r, name, "mode must be one of off/night/turbo")
+		return
+	}
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetTimer(ctx, rc, mode); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
 // postUIResetFilter resets the filter-clogged counter. No form body needed.
 func (h *Handler) postUIResetFilter(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")

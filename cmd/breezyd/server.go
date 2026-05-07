@@ -227,6 +227,7 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("POST /ui/devices/{name}/mode", h.postUIMode)
 	mux.HandleFunc("POST /ui/devices/{name}/speed", h.postUISpeed)
 	mux.HandleFunc("POST /ui/devices/{name}/heater", h.postUIHeater)
+	mux.HandleFunc("POST /ui/devices/{name}/timer", h.postUITimer)
 	mux.HandleFunc("POST /ui/devices/{name}/reset-filter", h.postUIResetFilter)
 	mux.HandleFunc("POST /ui/devices/{name}/reset-faults", h.postUIResetFaults)
 	mux.HandleFunc("GET /ui/devices/{name}/threshold/{kind}", h.getUIThresholdRead)
@@ -236,7 +237,6 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /ui/devices/{name}/schedule/edit", h.getUIScheduleEdit)
 	mux.HandleFunc("GET /ui/devices/{name}/schedule/new-row", h.getUIScheduleNewRow)
 	mux.HandleFunc("PUT /ui/devices/{name}/schedule", h.putUISchedule)
-	mux.HandleFunc("GET /ui/legacy.js", h.getLegacyJS)
 	mux.HandleFunc("GET /ui/style-"+styleHash+".css", h.getStyle)
 	mux.HandleFunc("GET /ui/vendor/{file}", h.getVendor)
 

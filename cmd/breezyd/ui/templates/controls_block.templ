@@ -109,12 +109,28 @@ templ modeBtn(v ui.DeviceView, label, value string) {
 
 templ timerBtn(v ui.DeviceView, label, value string) {
 	<button
+		type="button"
 		data-action="timer"
 		data-name={ v.Name }
 		data-value={ value }
+		hx-post={ "/ui/devices/" + v.Name + "/timer" }
+		hx-vals={ fmt.Sprintf(`{"mode":%q}`, timerMode(v.SpecialMode, value)) }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpecialMode == value) }
 	>{ label }</button>
+}
+
+// timerMode returns the mode to POST when a timer button is clicked.
+// If the device is already in the requested mode, clicking again posts "off"
+// (toggle off). Otherwise posts the requested mode.
+func timerMode(currentMode, requestedMode string) string {
+	if currentMode == requestedMode {
+		return "off"
+	}
+	return requestedMode
 }
 
 templ manualSliderRow(v ui.DeviceView) {

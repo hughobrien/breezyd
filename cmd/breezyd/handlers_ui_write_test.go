@@ -461,6 +461,67 @@ func TestUIWriteResetFaults_NotFound(t *testing.T) {
 	}
 }
 
+// ---------- postUITimer tests ----------
+
+func TestUIWriteTimer_Happy(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, mode := range []string{"off", "night", "turbo"} {
+		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/timer", url.Values{"mode": {mode}})
+		if err != nil {
+			t.Fatalf("mode=%s: %v", mode, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 200 {
+			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `data-device="alpha"`) {
+			t.Errorf("mode=%s: body missing card markup: %s", mode, string(body))
+		}
+	}
+}
+
+func TestUIWriteTimer_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/timer", url.Values{"mode": {"night"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIWriteTimer_BadForm(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Missing 'mode' field.
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/timer", url.Values{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-device="alpha"`) {
+		t.Errorf("body missing card markup")
+	}
+	if !strings.Contains(string(body), "mode must be") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
 // ---------- threshold endpoint tests ----------
 
 // putUIThreshold is a helper that issues a PUT to /ui/devices/{name}/threshold

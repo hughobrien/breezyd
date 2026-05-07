@@ -53,11 +53,18 @@ func TestLayout(t *testing.T) {
 		`data-theme-set="light"`,
 		`data-theme-set="dark"`,
 		`data-theme-set="auto"`,
-		`<script src="/ui/legacy.js"></script>`,
+	}
+	wantAbsent := []string{
+		`legacy.js`,
 	}
 	for _, w := range wantContains {
 		if !strings.Contains(got, w) {
 			t.Errorf("layout missing %q", w)
+		}
+	}
+	for _, w := range wantAbsent {
+		if strings.Contains(got, w) {
+			t.Errorf("layout unexpectedly contains %q", w)
 		}
 	}
 }
