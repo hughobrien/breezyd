@@ -42,9 +42,15 @@ templ controlsBlock(v ui.DeviceView) {
 				<span class="ctrl-label">HEATER</span>
 				<div class="seg">
 					<button
+						type="button"
 						class="toggle"
 						data-action="heater"
 						data-name={ v.Name }
+						hx-post={ "/ui/devices/" + v.Name + "/heater" }
+						hx-vals={ fmt.Sprintf(`{"on":%t}`, !v.Heater) }
+						hx-target="closest .card"
+						hx-swap="outerHTML"
+						hx-disabled-elt="this"
 						if v.Stale { disabled }
 						aria-pressed={ boolAttr(v.Heater) }
 					>heater</button>

@@ -1,6 +1,5 @@
 // legacy.js — write-side JS extracted from the original SPA index.html.
-// Handles all POST/PUT interactions: power, mode, speed (manual + presets),
-// heater, timer, threshold inline-edit, schedule editor.
+// Handles all POST/PUT interactions: timer, threshold inline-edit, schedule editor.
 //
 // The master poll, card rendering, and refreshAll machinery have been deleted
 // from this file — htmx now handles polling via hx-get="/ui/devices" every 5s.
@@ -146,10 +145,6 @@ document.addEventListener("click", async (ev) => {
       }
       break;
     }
-    case "heater":
-      await postWrite(name, "heater", "/v1/devices/" + encodeURIComponent(name) + "/heater",
-                      { on: !snap.configured?.heater_enabled });
-      break;
     case "timer": {
       const current = snap.live?.special_mode || "off";
       const next = current === value ? "off" : value;

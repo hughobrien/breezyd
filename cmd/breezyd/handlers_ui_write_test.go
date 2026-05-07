@@ -327,3 +327,136 @@ func TestUIWriteSpeed_BadForm_InvalidPreset(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 }
+
+// ---------- postUIHeater tests ----------
+
+func TestUIWriteHeater_Happy(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, on := range []string{"true", "false"} {
+		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/heater", url.Values{"on": {on}})
+		if err != nil {
+			t.Fatalf("on=%s: %v", on, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 200 {
+			t.Fatalf("on=%s: status=%d, want 200", on, resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `data-device="alpha"`) {
+			t.Errorf("on=%s: body missing card markup: %s", on, string(body))
+		}
+	}
+}
+
+func TestUIWriteHeater_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/heater", url.Values{"on": {"true"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIWriteHeater_BadForm(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Missing 'on' field.
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/heater", url.Values{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-device="alpha"`) {
+		t.Errorf("body missing card markup")
+	}
+	if !strings.Contains(string(body), "missing or invalid") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
+// ---------- postUIResetFilter tests ----------
+
+func TestUIWriteResetFilter_Happy(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/ui/devices/alpha/reset-filter", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-device="alpha"`) {
+		t.Errorf("body missing card markup: %s", string(body))
+	}
+}
+
+func TestUIWriteResetFilter_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/ui/devices/nope/reset-filter", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+// ---------- postUIResetFaults tests ----------
+
+func TestUIWriteResetFaults_Happy(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/ui/devices/alpha/reset-faults", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-device="alpha"`) {
+		t.Errorf("body missing card markup: %s", string(body))
+	}
+}
+
+func TestUIWriteResetFaults_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/ui/devices/nope/reset-faults", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}

@@ -73,6 +73,14 @@ h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 /* Match the value font to the key font inside Device Info so both
    sides of each row read at the same scale. */
 .device-info .row > span { font-size: 0.7rem; }
+/* Small action button that lives inside a device-info .row (reset filter / reset faults). */
+.btn-inline {
+  font-size: 0.65rem; padding: 0.05rem 0.4rem; margin-left: 0.4rem;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg); color: var(--fg-weak); cursor: pointer;
+}
+.btn-inline:hover:not(:disabled) { background: var(--bg-alt); color: var(--fg); }
+.btn-inline:disabled { opacity: 0.5; cursor: not-allowed; }
 .block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
 .block h3,
 .block summary {

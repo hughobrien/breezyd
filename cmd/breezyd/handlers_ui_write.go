@@ -153,6 +153,88 @@ func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
 	h.uiRenderCard(w, r, name)
 }
 
+// postUIHeater toggles the heater.
+//
+// Form: on=true | on=false
+func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	onStr := r.FormValue("on")
+	if onStr != "true" && onStr != "false" {
+		h.uiValidationError(w, r, name, "missing or invalid 'on' field (true/false)")
+		return
+	}
+	on := onStr == "true"
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetHeater(ctx, rc, on); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
+// postUIResetFilter resets the filter-clogged counter. No form body needed.
+func (h *Handler) postUIResetFilter(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.ResetFilter(ctx, rc); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
+// postUIResetFaults clears the active fault list. No form body needed.
+func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.ResetFaults(ctx, rc); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
 // postUIPower toggles a device on/off.
 //
 // Form: on=true | on=false

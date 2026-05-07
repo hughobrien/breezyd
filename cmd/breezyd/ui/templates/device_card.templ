@@ -30,10 +30,10 @@ templ DeviceCard(v ui.DeviceView) {
 			@kvRow("serial", v.Serial)
 			@kvRow("firmware version", v.FirmwareVersion)
 			@kvRow("firmware date", v.FirmwareDate)
-			@kvRow("filter", filterStatusStr(v))
+			@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
 			@kvRow("motor", v.MotorLifetime)
 			@kvRow("RTC", v.RTCBattery)
-			@kvRow("faults", v.FaultLevel)
+			@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
 		</details>
 		if v.Stale && v.LastPollAge != "" {
 			<div class="row"><span class="ts red">{ v.LastPollAge } ago</span></div>
@@ -49,6 +49,23 @@ templ DeviceCard(v ui.DeviceView) {
 
 templ kvRow(k, v string) {
 	<div class="row"><span class="k">{ k }</span><span>{ v }</span></div>
+}
+
+// kvRowWithAction renders a kvRow with a small action button that POSTs via htmx.
+templ kvRowWithAction(k, v, label, postURL string) {
+	<div class="row">
+		<span class="k">{ k }</span>
+		<span>{ v }</span>
+		<button
+			type="button"
+			class="btn-inline"
+			hx-post={ postURL }
+			hx-target="closest .card"
+			hx-swap="outerHTML"
+			hx-disabled-elt="this"
+			hx-confirm={ "Run: " + label + "?" }
+		>{ label }</button>
+	</div>
 }
 
 // boolAttr converts a bool to the aria-pressed string "true"/"false".

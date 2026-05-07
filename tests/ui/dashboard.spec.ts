@@ -150,7 +150,7 @@ async function loadDashboard(
   });
 
   // /ui/devices/:name/:action  — htmx write endpoints; return HTML card fragment.
-  for (const action of ["power", "mode", "speed"]) {
+  for (const action of ["power", "mode", "speed", "heater", "reset-filter", "reset-faults"]) {
     await page.route(`${BASE_URL}/ui/devices/*/${action}`, async (route: Route) => {
       const req = route.request();
       const url = req.url();
@@ -988,15 +988,62 @@ test("speed manual slider: POSTs once on change, not on input", async ({ page })
 });
 
 test("heater click: POSTs the inverse of the current state", async ({ page }) => {
-  const { requests } = await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, { configured: { heater_enabled: false } }),
+  // Uses the htmx path: LAYOUT_HTML + real htmx + templ-rendered card.
+  // heater=false → hx-vals sends on=true (the inverse).
+  const requests: RecordedRequest[] = [];
+
+  const cardHtml = `<div class="card" data-device="playroom">` +
+    `<div class="ctrl-group ctrl-group-heater">` +
+    `<span class="ctrl-label">HEATER</span>` +
+    `<div class="seg">` +
+    `<button type="button" class="toggle" data-action="heater" data-name="playroom"` +
+    ` hx-post="/ui/devices/playroom/heater"` +
+    ` hx-vals='{"on":true}'` +
+    ` hx-target="closest .card"` +
+    ` hx-swap="outerHTML"` +
+    ` hx-disabled-elt="this"` +
+    ` aria-pressed="false">heater</button>` +
+    `</div></div></div>`;
+
+  await page.route(`${BASE_URL}/`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML });
   });
+  await page.route(`${BASE_URL}/ui/style-*.css`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/css; charset=utf-8", body: STYLE_CSS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS });
+  });
+  await page.route(`${BASE_URL}/ui/legacy.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
+  });
+  await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: cardHtml });
+  });
+  await page.route(`${BASE_URL}/ui/devices/playroom/heater`, async (route: Route) => {
+    const req = route.request();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url: req.url(), method: req.method(), body });
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: `<div class="card" data-device="playroom"><p>heater toggled</p></div>`,
+    });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
   await page.click('button[data-action="heater"][data-name="playroom"]');
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(300);
+
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/heater"));
   expect(post).toBeTruthy();
-  expect(post!.body).toEqual({ on: true });
+  // heater=false in card → hx-vals sends on=true (the inverse).
+  expect(post!.body).toEqual({ on: "true" });
 });
 
 test("error toast: 4xx on POST shows the daemon's error text", async ({ page }) => {
