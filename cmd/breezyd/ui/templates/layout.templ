@@ -41,7 +41,28 @@ templ Layout(d LayoutData) {
 				hx-swap="innerHTML"
 			></div>
 			<script>
-				// Theme picker handlers (Task 17 fills in)
+(function() {
+  var picker = document.querySelector('.theme-picker');
+  if (!picker) return;
+  picker.addEventListener('click', function(ev) {
+    var target = ev.target.closest('[data-theme-set]');
+    if (!target) return;
+    var theme = target.getAttribute('data-theme-set');
+    if (theme === 'auto') {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.removeItem('theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+    }
+    picker.open = false;
+  });
+  document.addEventListener('click', function(ev) {
+    if (picker.open && !picker.contains(ev.target)) {
+      picker.open = false;
+    }
+  });
+})();
 			</script>
 			<script src="/ui/legacy.js"></script>
 		</body>
