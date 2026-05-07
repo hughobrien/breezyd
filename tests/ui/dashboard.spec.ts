@@ -167,6 +167,71 @@ async function loadDashboard(
     });
   }
 
+  // /ui/devices/:name/threshold/:kind/edit  — htmx GET; returns the edit variant fragment.
+  await page.route(`${BASE_URL}/ui/devices/*/threshold/*/edit`, async (route: Route) => {
+    const req = route.request();
+    const url = req.url();
+    const parts = url.split("/");
+    const name = decodeURIComponent(parts[5] ?? "unknown");
+    const kind = decodeURIComponent(parts[7] ?? "humidity");
+    const snap = snapshot(name);
+    const thresholdMap: Record<string, { label: string; min: number; max: number; step: number; thresholdKey: string; enabledKey: string }> = {
+      humidity: { label: "RH", min: 40, max: 80, step: 1, thresholdKey: "humidity_threshold_pct", enabledKey: "humidity_sensor_enabled" },
+      co2:      { label: "eCO₂", min: 400, max: 2000, step: 10, thresholdKey: "co2_threshold_ppm", enabledKey: "co2_sensor_enabled" },
+      voc:      { label: "VOC", min: 50, max: 250, step: 1, thresholdKey: "voc_threshold_index", enabledKey: "voc_sensor_enabled" },
+    };
+    const cfg = thresholdMap[kind] ?? thresholdMap.humidity;
+    const threshVal = snap.configured?.[cfg.thresholdKey] ?? 60;
+    const autoFan = snap.configured?.[cfg.enabledKey] !== false;
+    const checkedAttr = autoFan ? " checked" : "";
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: `<div class="sensor-cell"><div class="sensor-label">${cfg.label}</div>` +
+        `<form class="thresh-edit-inline" hx-put="/ui/devices/${name}/threshold" hx-target="closest .sensor-cell" hx-swap="outerHTML">` +
+        `<input type="hidden" name="kind" value="${kind}"/>` +
+        `<input type="number" name="value" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}" value="${threshVal}" data-name="${name}" data-kind="${kind}" class="thresh-input"/>` +
+        `<label class="thresh-auto-fan"><input type="hidden" name="enabled" value="false"/>` +
+        `<input type="checkbox" name="enabled" value="true" class="thresh-auto-fan-input" data-name="${name}" data-kind="${kind}"${checkedAttr}/>auto fan</label>` +
+        `<button type="submit" data-action="threshold-save" data-name="${name}" data-kind="${kind}">✓</button>` +
+        `<button type="button" data-action="threshold-cancel" data-name="${name}" data-kind="${kind}" hx-get="/ui/devices/${name}/threshold/${kind}" hx-target="closest .sensor-cell" hx-swap="outerHTML">✕</button>` +
+        `</form></div>`,
+    });
+  });
+
+  // /ui/devices/:name/threshold/:kind  — htmx GET; returns the read variant fragment (cancel path).
+  await page.route(`${BASE_URL}/ui/devices/*/threshold/*`, async (route: Route) => {
+    const req = route.request();
+    const url = req.url();
+    const parts = url.split("/");
+    const name = decodeURIComponent(parts[5] ?? "unknown");
+    const kind = decodeURIComponent(parts[7] ?? "humidity");
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: `<div class="sensor-cell"><div class="sensor-label">${kind}</div>` +
+        `<div class="value-clickable" data-action="edit-threshold" data-name="${name}" data-kind="${kind}">—</div></div>`,
+    });
+  });
+
+  // /ui/devices/:name/threshold  (PUT)  — htmx write; records request, returns read variant.
+  await page.route(`${BASE_URL}/ui/devices/*/threshold`, async (route: Route) => {
+    const req = route.request();
+    const url = req.url();
+    const method = req.method();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url, method, body });
+    const name = decodeURIComponent(url.split("/")[5] ?? "unknown");
+    const kind = (body as any).kind ?? "humidity";
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: `<div class="sensor-cell"><div class="sensor-label">${kind}</div>` +
+        `<div class="value-clickable" data-action="edit-threshold" data-name="${name}" data-kind="${kind}">—</div></div>`,
+    });
+  });
+
   // /v1/devices/:name/:action  — POST endpoints (must come before the two-segment route)
   await page.route(`${BASE_URL}/v1/devices/*/*`, async (route: Route) => {
     const req = route.request();
@@ -1145,8 +1210,7 @@ test("threshold: sensor row shows current value only (threshold hidden until edi
   await expect(sensors).not.toContainText("alert 70%");
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
-test.fixme("threshold: opening the editor renders the input inside the clicked cell", async ({ page }) => {
+test("threshold: opening the editor renders the input inside the clicked cell", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -1154,7 +1218,7 @@ test.fixme("threshold: opening the editor renders the input inside the clicked c
     }),
   });
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
-  // Input + save/cancel buttons must live inside the same .sensor-cell as the RH label.
+  // htmx swaps the edit variant into the same .sensor-cell.
   const rhCell = page.locator('.sensor-cell:has(.sensor-label:text-is("RH"))');
   await expect(rhCell.locator('.thresh-input')).toHaveValue("70");
   await expect(rhCell.locator('button[data-action="threshold-save"][data-kind="humidity"]')).toBeVisible();
@@ -1181,8 +1245,7 @@ test("threshold: alert-fire class on the value when sensor_alerts is true", asyn
   await expect(eco2).toHaveClass(/alert-fire/);
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
-test.fixme("threshold: clicking the value reveals an editor with current threshold", async ({ page }) => {
+test("threshold: clicking the value reveals an editor with current threshold", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -1197,25 +1260,65 @@ test.fixme("threshold: clicking the value reveals an editor with current thresho
   await expect(input).toHaveAttribute("max", "80");
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
-test.fixme("threshold: save POSTs {kind, value} to /threshold and exits edit mode", async ({ page }) => {
-  const { requests } = await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
+test("threshold: save PUTs {kind, value, enabled} to /threshold and exits edit mode", async ({ page }) => {
+  // Uses htmx path: LAYOUT_HTML + real htmx + templ-rendered sensor cell.
+  const requests: RecordedRequest[] = [];
+
+  // A minimal card with a humidity sensor cell using the htmx attributes.
+  const sensorCellRead = `<div class="sensor-cell">` +
+    `<div class="sensor-label">RH</div>` +
+    `<div class="value-clickable" hx-get="/ui/devices/playroom/threshold/humidity/edit" hx-target="closest .sensor-cell" hx-swap="outerHTML" data-action="edit-threshold" data-name="playroom" data-kind="humidity">60%</div>` +
+    `</div>`;
+  const sensorCellEdit = `<div class="sensor-cell">` +
+    `<div class="sensor-label">RH</div>` +
+    `<form class="thresh-edit-inline" hx-put="/ui/devices/playroom/threshold" hx-target="closest .sensor-cell" hx-swap="outerHTML">` +
+    `<input type="hidden" name="kind" value="humidity"/>` +
+    `<input type="number" name="value" min="40" max="80" step="1" value="60" data-name="playroom" data-kind="humidity" class="thresh-input"/>` +
+    `<label class="thresh-auto-fan"><input type="hidden" name="enabled" value="false"/>` +
+    `<input type="checkbox" name="enabled" value="true" class="thresh-auto-fan-input" data-name="playroom" data-kind="humidity" checked/>auto fan</label>` +
+    `<button type="submit" data-action="threshold-save" data-name="playroom" data-kind="humidity">✓</button>` +
+    `<button type="button" data-action="threshold-cancel" data-name="playroom" data-kind="humidity" hx-get="/ui/devices/playroom/threshold/humidity" hx-target="closest .sensor-cell" hx-swap="outerHTML">✕</button>` +
+    `</form></div>`;
+  const cardHtml = `<div class="card" data-device="playroom"><div class="sensor-grid">${sensorCellRead}</div></div>`;
+
+  await page.route(`${BASE_URL}/`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML }));
+  await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
+  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
+  await page.route(`${BASE_URL}/ui/devices/playroom/threshold/humidity/edit`, (route) => {
+    requests.push({ url: route.request().url(), method: route.request().method(), body: null });
+    return route.fulfill({ status: 200, contentType: "text/html", body: sensorCellEdit });
   });
+  await page.route(`${BASE_URL}/ui/devices/playroom/threshold`, async (route) => {
+    const req = route.request();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url: req.url(), method: req.method(), body });
+    await route.fulfill({ status: 200, contentType: "text/html", body: sensorCellRead });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
+
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
   const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
+  await expect(input).toBeVisible();
   await input.fill("55");
   await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
-  await page.waitForTimeout(200);
-  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/threshold"));
-  expect(post).toBeTruthy();
-  expect(post!.body).toEqual({ kind: "humidity", value: 55 });
-  expect(post!.body).not.toHaveProperty("enabled");
+  await page.waitForTimeout(300);
+
+  const put = requests.find(r => r.method === "PUT" && r.url.endsWith("/threshold"));
+  expect(put).toBeTruthy();
+  expect(put!.body.kind).toBe("humidity");
+  expect(put!.body.value).toBe("55");
+  expect(put!.body.enabled).toBeDefined();
+  // Edit cell is gone after htmx swap.
   await expect(input).toHaveCount(0);
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
-test.fixme("threshold: cancel reverts without POSTing", async ({ page }) => {
+test("threshold: cancel reverts without PUTing", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
   });
@@ -1223,13 +1326,14 @@ test.fixme("threshold: cancel reverts without POSTing", async ({ page }) => {
   const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
   await expect(input).toBeVisible();
   await page.click('button[data-action="threshold-cancel"][data-name="playroom"][data-kind="humidity"]');
+  // htmx swaps the read variant back; edit input disappears.
   await expect(input).toHaveCount(0);
-  const post = requests.find(r => r.method === "POST" && r.url.endsWith("/threshold"));
-  expect(post).toBeFalsy();
+  // No PUT should have been issued — cancel uses GET to the read variant.
+  const put = requests.find(r => r.method === "PUT" && r.url.endsWith("/threshold"));
+  expect(put).toBeFalsy();
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
-test.fixme("auto-fan: checkbox state reflects configured.<kind>_sensor_enabled", async ({ page }) => {
+test("auto-fan: checkbox state reflects configured.<kind>_sensor_enabled", async ({ page }) => {
   await loadDashboard(page, {
     devices: [{ name: "playroom" }],
     snapshot: (n) => baseSnapshot(n, {
@@ -1238,6 +1342,7 @@ test.fixme("auto-fan: checkbox state reflects configured.<kind>_sensor_enabled",
   });
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
   const cb = page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]');
+  // humidity_sensor_enabled=false → checkbox unchecked.
   await expect(cb).not.toBeChecked();
 
   // co2 default is true; opening that editor should show a checked checkbox.
@@ -1246,18 +1351,60 @@ test.fixme("auto-fan: checkbox state reflects configured.<kind>_sensor_enabled",
   await expect(cbCo2).toBeChecked();
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
-test.fixme("auto-fan: toggling-only POSTs {kind, enabled}", async ({ page }) => {
-  const { requests } = await loadDashboard(page, { devices: [{ name: "playroom" }] });
+test("auto-fan: toggling checkbox PUTs {kind, value, enabled} to /threshold", async ({ page }) => {
+  // Uses htmx path: LAYOUT_HTML + real htmx + templ-rendered sensor cell.
+  // Under htmx, the form always submits all fields (kind + value + enabled).
+  // The "toggling-only" optimization from the legacy JS path no longer applies.
+  const requests: RecordedRequest[] = [];
+
+  const sensorCellRead = `<div class="sensor-cell"><div class="sensor-label">RH</div>` +
+    `<div class="value-clickable" hx-get="/ui/devices/playroom/threshold/humidity/edit" hx-target="closest .sensor-cell" hx-swap="outerHTML" data-action="edit-threshold" data-name="playroom" data-kind="humidity">60%</div></div>`;
+  const sensorCellEdit = `<div class="sensor-cell"><div class="sensor-label">RH</div>` +
+    `<form class="thresh-edit-inline" hx-put="/ui/devices/playroom/threshold" hx-target="closest .sensor-cell" hx-swap="outerHTML">` +
+    `<input type="hidden" name="kind" value="humidity"/>` +
+    `<input type="number" name="value" min="40" max="80" step="1" value="60" data-name="playroom" data-kind="humidity" class="thresh-input"/>` +
+    `<label class="thresh-auto-fan"><input type="hidden" name="enabled" value="false"/>` +
+    `<input type="checkbox" name="enabled" value="true" class="thresh-auto-fan-input" data-name="playroom" data-kind="humidity" checked/>auto fan</label>` +
+    `<button type="submit" data-action="threshold-save" data-name="playroom" data-kind="humidity">✓</button>` +
+    `<button type="button" data-action="threshold-cancel" data-name="playroom" data-kind="humidity" hx-get="/ui/devices/playroom/threshold/humidity" hx-target="closest .sensor-cell" hx-swap="outerHTML">✕</button>` +
+    `</form></div>`;
+  const cardHtml = `<div class="card" data-device="playroom"><div class="sensor-grid">${sensorCellRead}</div></div>`;
+
+  await page.route(`${BASE_URL}/`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML }));
+  await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
+  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
+  await page.route(`${BASE_URL}/ui/devices/playroom/threshold/humidity/edit`, (route) => {
+    return route.fulfill({ status: 200, contentType: "text/html", body: sensorCellEdit });
+  });
+  await page.route(`${BASE_URL}/ui/devices/playroom/threshold`, async (route) => {
+    const req = route.request();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url: req.url(), method: req.method(), body });
+    await route.fulfill({ status: 200, contentType: "text/html", body: sensorCellRead });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
+
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
-  // Default is enabled=true; uncheck.
-  await page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]').uncheck();
+  const cb = page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]');
+  await expect(cb).toBeVisible();
+  // Uncheck the checkbox.
+  await cb.uncheck();
   await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
-  await page.waitForTimeout(200);
-  const post = requests.find((r) => r.method === "POST" && r.url.endsWith("/threshold"));
-  expect(post).toBeTruthy();
-  expect(post!.body).toEqual({ kind: "humidity", enabled: false });
-  expect(post!.body).not.toHaveProperty("value");
+  await page.waitForTimeout(300);
+
+  const put = requests.find((r) => r.method === "PUT" && r.url.endsWith("/threshold"));
+  expect(put).toBeTruthy();
+  expect(put!.body.kind).toBe("humidity");
+  // Checkbox was unchecked → hidden field wins → enabled=false.
+  expect(put!.body.enabled).toBe("false");
+  // value is always present in htmx form submission.
+  expect(put!.body.value).toBeDefined();
 });
 
 test("schedule: empty state renders collapsed block with 'no entries'", async ({ page }) => {
@@ -1375,21 +1522,62 @@ test("schedule: save click PUTs the edited table", async ({ page }) => {
   expect(put!.body.entries[0]).toMatchObject({ at: "08:00", action: "regeneration", pct: 60 });
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
-test.fixme("auto-fan: editing both value and checkbox POSTs {kind, value, enabled}", async ({ page }) => {
-  const { requests } = await loadDashboard(page, { devices: [{ name: "playroom" }] });
+test("auto-fan: editing both value and checkbox PUTs {kind, value, enabled} to /threshold", async ({ page }) => {
+  // Uses htmx path: LAYOUT_HTML + real htmx + templ-rendered sensor cell.
+  const requests: RecordedRequest[] = [];
+
+  const sensorCellRead = `<div class="sensor-cell"><div class="sensor-label">RH</div>` +
+    `<div class="value-clickable" hx-get="/ui/devices/playroom/threshold/humidity/edit" hx-target="closest .sensor-cell" hx-swap="outerHTML" data-action="edit-threshold" data-name="playroom" data-kind="humidity">60%</div></div>`;
+  const sensorCellEdit = `<div class="sensor-cell"><div class="sensor-label">RH</div>` +
+    `<form class="thresh-edit-inline" hx-put="/ui/devices/playroom/threshold" hx-target="closest .sensor-cell" hx-swap="outerHTML">` +
+    `<input type="hidden" name="kind" value="humidity"/>` +
+    `<input type="number" name="value" min="40" max="80" step="1" value="60" data-name="playroom" data-kind="humidity" class="thresh-input"/>` +
+    `<label class="thresh-auto-fan"><input type="hidden" name="enabled" value="false"/>` +
+    `<input type="checkbox" name="enabled" value="true" class="thresh-auto-fan-input" data-name="playroom" data-kind="humidity" checked/>auto fan</label>` +
+    `<button type="submit" data-action="threshold-save" data-name="playroom" data-kind="humidity">✓</button>` +
+    `<button type="button" data-action="threshold-cancel" data-name="playroom" data-kind="humidity" hx-get="/ui/devices/playroom/threshold/humidity" hx-target="closest .sensor-cell" hx-swap="outerHTML">✕</button>` +
+    `</form></div>`;
+  const cardHtml = `<div class="card" data-device="playroom"><div class="sensor-grid">${sensorCellRead}</div></div>`;
+
+  await page.route(`${BASE_URL}/`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML }));
+  await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
+  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
+  await page.route(`${BASE_URL}/ui/devices/playroom/threshold/humidity/edit`, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: sensorCellEdit }));
+  await page.route(`${BASE_URL}/ui/devices/playroom/threshold`, async (route) => {
+    const req = route.request();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url: req.url(), method: req.method(), body });
+    await route.fulfill({ status: 200, contentType: "text/html", body: sensorCellRead });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
+
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
   const input = page.locator('.thresh-input[data-name="playroom"][data-kind="humidity"]');
+  await expect(input).toBeVisible();
   await input.fill("55");
   await page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]').uncheck();
   await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
-  await page.waitForTimeout(200);
-  const post = requests.find((r) => r.method === "POST" && r.url.endsWith("/threshold"));
-  expect(post).toBeTruthy();
-  expect(post!.body).toEqual({ kind: "humidity", value: 55, enabled: false });
+  await page.waitForTimeout(300);
+
+  const put = requests.find((r) => r.method === "PUT" && r.url.endsWith("/threshold"));
+  expect(put).toBeTruthy();
+  expect(put!.body.kind).toBe("humidity");
+  expect(put!.body.value).toBe("55");
+  expect(put!.body.enabled).toBe("false");
 });
 
-// PR1 deferred: edit-variant rendering moves to htmx in PR2 (#14, Task 17/18 of plan).
+// Htmx deliberate semantic shift: the form always submits value+enabled, so the legacy
+// "skip POST if nothing changed" optimization is gone. The server-path semantics are
+// preserved (absent key = don't change), but the client no longer optimises the no-op case.
+// This test only covered the JS optimisation — the important invariant (missing key → default-on)
+// is now covered by "auto-fan: checkbox state reflects configured.<kind>_sensor_enabled".
 test.fixme("auto-fan: snapshot without _sensor_enabled treats checkbox as default-on; save without toggling skips POST", async ({ page }) => {
   const { requests } = await loadDashboard(page, {
     devices: [{ name: "playroom" }],
@@ -1402,11 +1590,11 @@ test.fixme("auto-fan: snapshot without _sensor_enabled treats checkbox as defaul
   await page.click('[data-action="edit-threshold"][data-name="playroom"][data-kind="humidity"]');
   // Renderer should show checked (default-on for missing key).
   await expect(page.locator('.thresh-auto-fan-input[data-name="playroom"][data-kind="humidity"]')).toBeChecked();
-  // Save without toggling and without changing the value.
+  // Save without toggling — under htmx the form always PUTs, so this expectation no longer holds.
   await page.click('button[data-action="threshold-save"][data-name="playroom"][data-kind="humidity"]');
   await page.waitForTimeout(200);
   const post = requests.find((r) => r.method === "POST" && r.url.endsWith("/threshold"));
-  expect(post).toBeFalsy();
+  expect(post).toBeFalsy(); // would need to change to PUT check; keeping fixme for PR3.
 });
 
 test("device info: collapsed by default", async ({ page }) => {

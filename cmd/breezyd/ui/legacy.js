@@ -16,9 +16,6 @@ const STALE_THRESHOLD_MS = 90 * 1000;
 const inFlight = {}; // name -> bool
 // Per-control toasts. Cleared on next successful poll.
 const toasts = {}; // name -> { control: msg }
-// Per-card threshold editor state. name -> "humidity" | "co2" | "voc".
-// Only one threshold can be edited per card at a time.
-const editingThreshold = {}; // name -> kind
 // Per-card open preset editor: 1 | 2 | 3 when a preset's supply/extract
 // editor is visible. Cleared on preset re-click, manual-slider use, or
 // when a different card is interacted with elsewhere.
@@ -34,20 +31,6 @@ const matchSpeeds = {};     // name -> bool
 // scheduleEdits[name] holds the in-flight edit buffer.
 const scheduleEdits = {};
 const scheduleOpen = {};
-
-// Per-kind config for the editable sensor rows.
-const THRESHOLD_KINDS = {
-  humidity: { label: "RH",   suffix: "%",   min: 40,  max: 80,   step: 1,
-              valueKey: "humidity_pct",   thresholdKey: "humidity_threshold_pct",  alertKey: "humidity",
-              enabledKey: "humidity_sensor_enabled" },
-  co2:      { label: "eCO₂", suffix: " ppm", min: 400, max: 2000, step: 10,
-              valueKey: "eco2_ppm",       thresholdKey: "co2_threshold_ppm",       alertKey: "co2",
-              enabledKey: "co2_sensor_enabled" },
-  voc:      { label: "VOC",  suffix: " idx", min: 50,  max: 250,  step: 1,
-              valueKey: "voc_index",      thresholdKey: "voc_threshold_index",     alertKey: "voc",
-              enabledKey: "voc_sensor_enabled",
-              tooltip: "VOC Index — Sensirion 0-500 scale, ~100 = baseline indoor air" },
-};
 
 // lastSnapshots caches the most recent /v1/devices/{name} JSON response
 // (keyed by name) so write handlers can read current state. Populated by
@@ -177,62 +160,9 @@ document.addEventListener("click", async (ev) => {
       if (ok) delete scheduleEdits[name];
       break;
     }
-    case "edit-threshold":
-      editingThreshold[name] = kind;
-      // Focus the freshly-rendered input so users can type immediately.
-      const input = document.querySelector(
-        `.thresh-input[data-name="${name}"][data-kind="${kind}"]`);
-      if (input) { input.focus(); input.select(); }
-      break;
-    case "threshold-save":
-      await saveThreshold(name, kind);
-      break;
-    case "threshold-cancel":
-      delete editingThreshold[name];
-      break;
   }
+  // Threshold editor is now handled by htmx (PR2 Task 16/17).
 });
-
-// Enter saves, Escape cancels while inside a threshold-edit input.
-document.addEventListener("keydown", async (ev) => {
-  const el = ev.target;
-  if (!el.classList || !el.classList.contains("thresh-input")) return;
-  if (ev.key === "Enter") {
-    ev.preventDefault();
-    await saveThreshold(el.dataset.name, el.dataset.kind);
-  } else if (ev.key === "Escape") {
-    ev.preventDefault();
-    delete editingThreshold[el.dataset.name];
-  }
-});
-
-async function saveThreshold(name, kind) {
-  const input = document.querySelector(
-    `.thresh-input[data-name="${name}"][data-kind="${kind}"]`);
-  const cb = document.querySelector(
-    `.thresh-auto-fan-input[data-name="${name}"][data-kind="${kind}"]`);
-  if (!input || !cb) return;
-  const value = parseInt(input.value, 10);
-  if (isNaN(value)) return;
-  const cfg = THRESHOLD_KINDS[kind];
-  const snap = lastSnapshots[name] || {};
-  const prevValue = snap.configured?.[cfg.thresholdKey];
-  const prevEnabled = snap.configured?.[cfg.enabledKey] !== false;
-  const enabledNow = cb.checked;
-  const body = { kind };
-  let dirty = false;
-  if (value !== prevValue) { body.value = value; dirty = true; }
-  if (enabledNow !== prevEnabled) { body.enabled = enabledNow; dirty = true; }
-  if (!dirty) {
-    delete editingThreshold[name];
-    return;
-  }
-  const ok = await postWrite(name, "threshold-" + kind,
-    "/v1/devices/" + encodeURIComponent(name) + "/threshold", body);
-  if (ok) {
-    delete editingThreshold[name];
-  }
-}
 
 // Capture-phase listener for `toggle` events on Device <details> elements.
 document.addEventListener("toggle", (ev) => {

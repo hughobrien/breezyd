@@ -460,3 +460,223 @@ func TestUIWriteResetFaults_NotFound(t *testing.T) {
 		t.Fatalf("status: %d, want 404", resp.StatusCode)
 	}
 }
+
+// ---------- threshold endpoint tests ----------
+
+// putUIThreshold is a helper that issues a PUT to /ui/devices/{name}/threshold
+// with form-encoded body.
+func putUIThreshold(t *testing.T, base, name string, vals url.Values) *http.Response {
+	t.Helper()
+	body := strings.NewReader(vals.Encode())
+	req, err := http.NewRequest(http.MethodPut, base+"/ui/devices/"+name+"/threshold", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestUIThresholdGet_Read(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, kind := range []string{"humidity", "co2", "voc"} {
+		resp, err := http.Get(srv.URL + "/ui/devices/alpha/threshold/" + kind)
+		if err != nil {
+			t.Fatalf("kind=%s: %v", kind, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 200 {
+			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `class="sensor-cell"`) {
+			t.Errorf("kind=%s: body missing sensor-cell: %s", kind, string(body))
+		}
+		if !strings.Contains(string(body), `data-action="edit-threshold"`) {
+			t.Errorf("kind=%s: body missing edit-threshold action: %s", kind, string(body))
+		}
+	}
+}
+
+func TestUIThresholdGet_Edit(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, kind := range []string{"humidity", "co2", "voc"} {
+		resp, err := http.Get(srv.URL + "/ui/devices/alpha/threshold/" + kind + "/edit")
+		if err != nil {
+			t.Fatalf("kind=%s: %v", kind, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 200 {
+			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `class="thresh-input"`) {
+			t.Errorf("kind=%s: body missing thresh-input: %s", kind, string(body))
+		}
+		if !strings.Contains(string(body), `data-action="threshold-save"`) {
+			t.Errorf("kind=%s: body missing threshold-save button: %s", kind, string(body))
+		}
+	}
+}
+
+func TestUIThresholdGet_BadKind(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, path := range []string{
+		"/ui/devices/alpha/threshold/bad",
+		"/ui/devices/alpha/threshold/bad/edit",
+	} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 404 {
+			t.Fatalf("%s: status=%d, want 404", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestUIThresholdGet_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, path := range []string{
+		"/ui/devices/nope/threshold/humidity",
+		"/ui/devices/nope/threshold/humidity/edit",
+	} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 404 {
+			t.Fatalf("%s: status=%d, want 404", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestUIThresholdPut_HappyValue(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIThreshold(t, srv.URL, "alpha", url.Values{
+		"kind":  {"humidity"},
+		"value": {"65"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	// Returns the read-variant sensor cell, not the whole card.
+	if !strings.Contains(string(body), `class="sensor-cell"`) {
+		t.Errorf("body missing sensor-cell: %s", string(body))
+	}
+}
+
+func TestUIThresholdPut_HappyEnabled(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIThreshold(t, srv.URL, "alpha", url.Values{
+		"kind":    {"co2"},
+		"enabled": {"false"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestUIThresholdPut_HappyBoth(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIThreshold(t, srv.URL, "alpha", url.Values{
+		"kind":    {"voc"},
+		"value":   {"150"},
+		"enabled": {"true"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestUIThresholdPut_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIThreshold(t, srv.URL, "nope", url.Values{
+		"kind":  {"humidity"},
+		"value": {"60"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIThresholdPut_BadForm_MissingKind(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIThreshold(t, srv.URL, "alpha", url.Values{
+		"value": {"60"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestUIThresholdPut_BadForm_InvalidKind(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIThreshold(t, srv.URL, "alpha", url.Values{
+		"kind":  {"temperature"},
+		"value": {"60"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "invalid") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
+func TestUIThresholdPut_BadForm_NeitherValueNorEnabled(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIThreshold(t, srv.URL, "alpha", url.Values{
+		"kind": {"humidity"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+}

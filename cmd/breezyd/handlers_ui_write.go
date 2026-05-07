@@ -14,9 +14,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/a-h/templ"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
@@ -269,4 +273,145 @@ func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.uiRenderCard(w, r, name)
+}
+
+// ---------- threshold inline editor ----------
+
+// renderThresholdRead returns the read-variant component for kind.
+func renderThresholdRead(v ui.DeviceView, kind string) templ.Component {
+	switch kind {
+	case "co2":
+		return templates.CO2Cell(v.Name, v.Sensors)
+	case "voc":
+		return templates.VOCCell(v.Name, v.Sensors)
+	case "humidity":
+		return templates.HumidityCell(v.Name, v.Sensors)
+	}
+	return nil
+}
+
+// renderThresholdEdit returns the edit-variant component for kind.
+func renderThresholdEdit(v ui.DeviceView, kind string) templ.Component {
+	switch kind {
+	case "humidity":
+		return templates.SensorThresholdEdit(v.Name, "humidity", "RH", 40, 80, 1,
+			v.Sensors.HumidityThreshold, v.Sensors.HumidityAutoFan, false)
+	case "co2":
+		return templates.SensorThresholdEdit(v.Name, "co2", "eCO₂", 400, 2000, 10,
+			v.Sensors.CO2Threshold, v.Sensors.CO2AutoFan, false)
+	case "voc":
+		return templates.SensorThresholdEdit(v.Name, "voc", "VOC", 50, 250, 1,
+			v.Sensors.VOCThreshold, v.Sensors.VOCAutoFan, false)
+	}
+	return nil
+}
+
+// getUIThresholdRead serves the read variant for a threshold cell.
+//
+// GET /ui/devices/{name}/threshold/{kind}
+func (h *Handler) getUIThresholdRead(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	kind := r.PathValue("kind")
+	if kind != "humidity" && kind != "co2" && kind != "voc" {
+		http.NotFound(w, r)
+		return
+	}
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := renderThresholdRead(view, kind).Render(r.Context(), w); err != nil {
+		slog.Error("render threshold read", "err", err)
+	}
+}
+
+// getUIThresholdEdit serves the edit variant for a threshold cell.
+//
+// GET /ui/devices/{name}/threshold/{kind}/edit
+func (h *Handler) getUIThresholdEdit(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	kind := r.PathValue("kind")
+	if kind != "humidity" && kind != "co2" && kind != "voc" {
+		http.NotFound(w, r)
+		return
+	}
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := renderThresholdEdit(view, kind).Render(r.Context(), w); err != nil {
+		slog.Error("render threshold edit", "err", err)
+	}
+}
+
+// putUIThreshold applies a threshold value and/or sensor-enabled flag.
+//
+// Form: kind=humidity|co2|voc, value=N (optional), enabled=true|false (always sent by the form).
+//
+// PUT /ui/devices/{name}/threshold
+func (h *Handler) putUIThreshold(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	kind := r.FormValue("kind")
+	if kind != "humidity" && kind != "co2" && kind != "voc" {
+		h.uiValidationError(w, r, name, "invalid 'kind' (humidity|co2|voc)")
+		return
+	}
+	var valuePtr *int
+	var enabledPtr *bool
+	if vs := r.FormValue("value"); vs != "" {
+		v, err := strconv.Atoi(vs)
+		if err != nil {
+			h.uiValidationError(w, r, name, "invalid 'value' (must be integer)")
+			return
+		}
+		valuePtr = &v
+	}
+	// The form always sends enabled (hidden input + checkbox pattern),
+	// so treat its presence as authoritative. If absent, don't set it.
+	if es := r.FormValue("enabled"); es != "" {
+		e := es == "true"
+		enabledPtr = &e
+	}
+	if valuePtr == nil && enabledPtr == nil {
+		h.uiValidationError(w, r, name, "must supply at least one of 'value' or 'enabled'")
+		return
+	}
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetThresholdConfig(ctx, rc, kind, valuePtr, enabledPtr); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := renderThresholdRead(view, kind).Render(r.Context(), w); err != nil {
+		slog.Error("render threshold read after put", "err", err)
+	}
 }
