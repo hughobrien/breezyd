@@ -96,6 +96,11 @@ func TestUIReadDeviceCard_Happy(t *testing.T) {
 	if !strings.Contains(string(body), "alpha") {
 		t.Errorf("body missing device name %q", "alpha")
 	}
+	// Serial must be populated from the device registry (regression: was always empty).
+	// newUITestHandler assigns ID = "TESTID00000000" + name[:2], so "alpha" -> "TESTID00000000al".
+	if !strings.Contains(string(body), "TESTID00000000al") {
+		t.Errorf("body missing serial; got: %s", string(body))
+	}
 }
 
 func TestUIReadDeviceCard_NotFound(t *testing.T) {

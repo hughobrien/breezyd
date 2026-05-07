@@ -69,6 +69,13 @@ func (h *Handler) viewFor(name string) (ui.DeviceView, bool) {
 func (h *Handler) buildView(name string, snap Snapshot) ui.DeviceView {
 	v := snapshotToView(name, snap)
 
+	// Populate Serial from the device registry (Snapshot carries no device ID).
+	if h.Devices != nil {
+		if cfg, ok := h.Devices.Get(name); ok {
+			v.Serial = cfg.ID
+		}
+	}
+
 	// Augment with energy data from the per-device EnergyTracker.
 	if h.Pollers != nil {
 		if p, ok := h.Pollers[name]; ok && p != nil && p.Energy != nil {
