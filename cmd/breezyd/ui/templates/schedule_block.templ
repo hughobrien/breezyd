@@ -1,0 +1,109 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+)
+
+// ScheduleBlock renders the collapsible SCHEDULE <details> block.
+// When s.Present is false, renders nothing.
+templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
+	if s.Present {
+		<details class="block schedule" if s.Alert || scheduleOpen(s) { open }>
+			<summary><h3>SCHEDULE</h3></summary>
+			<div class="schedule-toolbar">
+				<label>
+					<input
+						type="checkbox"
+						data-action="schedule-enabled"
+						data-name={ name }
+						if s.Enabled { checked }
+						if stale { disabled }
+					/>
+					enabled
+				</label>
+				<span class="grow"></span>
+				<button data-action="schedule-add" data-name={ name } if stale { disabled }>+ add entry</button>
+				<button data-action="schedule-save" data-name={ name } if stale { disabled }>save</button>
+			</div>
+			if len(s.Entries) == 0 {
+				<div class="ctrl-label">no entries</div>
+			} else {
+				<table class="schedule-table">
+					<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
+					<tbody>
+						for i, e := range s.Entries {
+							@scheduleRow(name, e, i, stale)
+						}
+					</tbody>
+				</table>
+			}
+			if s.Alert && s.LastApply != nil {
+				<div class="warn">
+					{ fmt.Sprintf("⚠ last apply %s failed: %s", s.LastApply.At, s.LastApply.Err) }
+					if s.LastApply.Retries > 0 {
+						<br/>
+						{ fmt.Sprintf("retried %d times", s.LastApply.Retries) }
+					}
+				</div>
+			}
+		</details>
+	}
+}
+
+templ scheduleRow(name string, e ui.ScheduleEntryView, i int, stale bool) {
+	<tr data-row={ fmt.Sprintf("%d", i) } data-name={ name }>
+		<td>
+			<input
+				type="text"
+				inputmode="numeric"
+				maxlength="5"
+				pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$"
+				class="at"
+				placeholder="HH:MM"
+				data-action="schedule-at"
+				data-row={ fmt.Sprintf("%d", i) }
+				data-name={ name }
+				value={ e.At }
+				if stale { disabled }
+			/>
+		</td>
+		<td>
+			<select data-action="schedule-action" data-row={ fmt.Sprintf("%d", i) } data-name={ name } if stale { disabled }>
+				@scheduleActionOption("ventilation", "auto", e.Action)
+				@scheduleActionOption("regeneration", "regen", e.Action)
+				@scheduleActionOption("supply", "supply", e.Action)
+				@scheduleActionOption("extract", "exhaust", e.Action)
+				@scheduleActionOption("off", "off", e.Action)
+			</select>
+		</td>
+		<td>
+			<input
+				type="number"
+				min="10"
+				max="100"
+				data-action="schedule-pct"
+				data-row={ fmt.Sprintf("%d", i) }
+				data-name={ name }
+				class={ templ.KV("pct-disabled", e.Action == "off") }
+				value={ fmt.Sprintf("%d", e.Pct) }
+				if e.Action == "off" { readonly }
+				if stale { disabled }
+			/>
+		</td>
+		<td>
+			<button class="del" data-action="schedule-del" data-row={ fmt.Sprintf("%d", i) } data-name={ name } if stale { disabled }>×</button>
+		</td>
+	</tr>
+}
+
+templ scheduleActionOption(value, label, current string) {
+	<option value={ value } if value == current { selected }>{ label }</option>
+}
+
+// scheduleOpen returns true when the alert is active (force-expand). In the
+// JS version, scheduleOpen[name] also captured user-intent — templates can't
+// carry per-card client state, so we drive solely from server state here.
+func scheduleOpen(s ui.ScheduleView) bool {
+	return s.Alert
+}
