@@ -15,9 +15,13 @@ templ DeviceCard(v ui.DeviceView) {
 			<summary>
 				<h2>{ v.Name }</h2>
 				<button
+					type="button"
 					class="toggle toggle-inline"
-					data-action="power"
-					data-name={ v.Name }
+					hx-post={ "/ui/devices/" + v.Name + "/power" }
+					hx-vals={ fmt.Sprintf(`{"on": %t}`, !v.Power) }
+					hx-target="closest .card"
+					hx-swap="outerHTML"
+					hx-disabled-elt="this"
 					if v.Stale { disabled }
 					aria-pressed={ boolAttr(v.Power) }
 				>power</button>

@@ -17,6 +17,15 @@ const INDEX_HTML = readFileSync(
   "utf8",
 ).replaceAll("STYLEHASH", styleHash);
 
+const HTMX_JS = readFileSync(
+  resolve(__dirname, "..", "..", "cmd", "breezyd", "ui", "vendor", "htmx-2.0.4.min.js"),
+  "utf8",
+);
+const HTMX_RT_JS = readFileSync(
+  resolve(__dirname, "..", "..", "cmd", "breezyd", "ui", "vendor", "htmx-response-targets-2.0.4.min.js"),
+  "utf8",
+);
+
 // Layout HTML rendered by the templ Layout template. Generated once at module
 // load time via the render-layout helper binary so tests stay in sync with the
 // actual template without duplicating the HTML here.
@@ -137,6 +146,23 @@ async function loadDashboard(
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ devices: devList }),
+    });
+  });
+
+  // /ui/devices/:name/power  — htmx power toggle; returns HTML card fragment.
+  await page.route(`${BASE_URL}/ui/devices/*/power`, async (route: Route) => {
+    const req = route.request();
+    const url = req.url();
+    const method = req.method();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url, method, body });
+    // Return a minimal card HTML so htmx can swap it in.
+    const name = decodeURIComponent(url.split("/")[5] ?? "unknown");
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: `<div class="card" data-device="${name}"><p>ok</p></div>`,
     });
   });
 
@@ -286,15 +312,64 @@ test("stale indicator: old last_poll desaturates the card", async ({ page }) => 
 });
 
 test("power click: POSTs the inverse of the current state", async ({ page }) => {
-  const { requests } = await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, { configured: { power: true } }),
+  // This test uses the htmx path: LAYOUT_HTML + real htmx + templ-rendered cards.
+  // The power button in the templ-rendered card has hx-post; htmx fires the POST.
+  const requests: RecordedRequest[] = [];
+
+  // Minimal templ-rendered card with power=true → hx-vals sends on=false (the inverse).
+  const cardHtml = `<div class="card" data-device="playroom">` +
+    `<details class="device-info"><summary><h2>playroom</h2>` +
+    `<button type="button" class="toggle toggle-inline"` +
+    ` hx-post="/ui/devices/playroom/power"` +
+    ` hx-vals='{"on": false}'` +
+    ` hx-target="closest .card"` +
+    ` hx-swap="outerHTML"` +
+    ` hx-disabled-elt="this"` +
+    ` aria-pressed="true">power</button>` +
+    `</summary></details></div>`;
+
+  await page.route(`${BASE_URL}/`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML });
   });
-  await page.click('button[data-action="power"][data-name="playroom"]');
-  await page.waitForTimeout(150);
+  await page.route(`${BASE_URL}/ui/style-*.css`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/css; charset=utf-8", body: STYLE_CSS });
+  });
+  // Serve real htmx so swap behavior works.
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS });
+  });
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS });
+  });
+  await page.route(`${BASE_URL}/ui/legacy.js`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
+  });
+  // /ui/devices → return the templ-rendered card HTML.
+  await page.route(`${BASE_URL}/ui/devices`, async (route: Route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: cardHtml });
+  });
+  // /ui/devices/playroom/power → record and return updated card HTML.
+  await page.route(`${BASE_URL}/ui/devices/playroom/power`, async (route: Route) => {
+    const req = route.request();
+    const raw = req.postData() ?? "";
+    const body = Object.fromEntries(new URLSearchParams(raw));
+    requests.push({ url: req.url(), method: req.method(), body });
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      body: `<div class="card" data-device="playroom"><p>toggled</p></div>`,
+    });
+  });
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").first().waitFor({ timeout: 5000 });
+  await page.click('button[hx-post*="/power"]');
+  await page.waitForTimeout(300);
+
   const post = requests.find(r => r.method === "POST" && r.url.endsWith("/power"));
   expect(post).toBeTruthy();
-  expect(post!.body).toEqual({ on: false });
+  // power=true in card → hx-vals sends on=false (the inverse).
+  expect(post!.body).toEqual({ on: "false" });
 });
 
 test("mode click in manual: carries the higher fan pct as new manual_pct", async ({ page }) => {

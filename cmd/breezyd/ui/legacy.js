@@ -119,10 +119,6 @@ document.addEventListener("click", async (ev) => {
   const snap = lastSnapshots[name] || { configured: {}, live: {}, sensors: {}, service: {} };
 
   switch (action) {
-    case "power":
-      await postWrite(name, "power", "/v1/devices/" + encodeURIComponent(name) + "/power",
-                      { on: !snap.configured?.power });
-      break;
     case "mode": {
       delete editingPreset[name];
       const prevSpeedMode = snap.configured?.speed_mode;
