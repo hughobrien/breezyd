@@ -76,7 +76,7 @@ func Layout(d LayoutData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"></script></head><body hx-ext=\"response-targets\" hx-target-401=\"#global-error-banner\" hx-target-404=\"#global-error-banner\" hx-target-5xx=\"#global-error-banner\" hx-target-422=\"closest .device-card\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"></script></head><body hx-ext=\"response-targets\" hx-target-401=\"#global-error-banner\" hx-target-404=\"#global-error-banner\" hx-target-5xx=\"#global-error-banner\" hx-target-422=\"closest .card\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

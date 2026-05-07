@@ -47,7 +47,7 @@ func TestLayout(t *testing.T) {
 		`/ui/vendor/htmx-2.0.4.min.js`,
 		`/ui/vendor/htmx-response-targets-2.0.4.min.js`,
 		`hx-ext="response-targets"`,
-		`hx-target-422="closest .device-card"`,
+		`hx-target-422="closest .card"`,
 		`every 5s`,
 		`<summary><h1>breezy</h1></summary>`,
 		`data-theme-set="light"`,
