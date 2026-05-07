@@ -69,36 +69,52 @@ templ Layout(d LayoutData) {
   });
 })();
 
-// Preserve user-toggled <details> open/closed state across htmx swaps.
-// Server still decides initial open (NeedsAttention forces device-info,
-// Sensors defaults to expanded, etc.). Once the user explicitly toggles
-// a details with a stable id, we remember their choice for the session
-// and re-apply it after each htmx settle so the 5s poll doesn't reset
-// it. Tracks #49.
+// breezy-ui cookie helpers. Source of truth for dashboard UI state
+// (which <details> are open, which preset editor is visible, automode
+// + match-speeds toggles). The server reads this cookie on every render
+// and emits the right markup directly — no JS reapply pass, no flicker.
 //
-// We listen for clicks on <summary> rather than the `toggle` event on
-// <details>: toggle doesn't bubble, and it also fires when we apply the
-// stored state in afterSettle, which would create write-after-write
-// races. The summary-click path is initiated only by the user.
-(function() {
-  var userToggled = new Map();
-  document.body.addEventListener('click', function(ev) {
-    var summary = ev.target instanceof Element ? ev.target.closest('summary') : null;
-    if (!summary) return;
-    var d = summary.parentElement;
-    if (!(d instanceof HTMLDetailsElement) || !d.id) return;
-    // Click toggles the details: if it's open now, the user is closing.
-    userToggled.set(d.id, !d.open);
+// The cookie is JSON, URL-encoded, path=/, samesite=lax, max-age=1y.
+// See internal/uistate for the schema.
+function readUIState() {
+  var raw = document.cookie.split('; ')
+    .find(function(c) { return c.indexOf('breezy-ui=') === 0; });
+  if (!raw) return {};
+  try {
+    return JSON.parse(decodeURIComponent(raw.slice('breezy-ui='.length)));
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeUIState(state) {
+  document.cookie = 'breezy-ui=' +
+    encodeURIComponent(JSON.stringify(state)) +
+    '; path=/; max-age=31536000; samesite=lax';
+}
+
+function setUIState(mut) {
+  var s = readUIState();
+  if (!s.details) s.details = {};
+  if (!s.preset) s.preset = {};
+  mut(s);
+  writeUIState(s);
+}
+
+// <summary> click → toggle details[id] in the cookie. Listening on the
+// click (not the toggle event) lets us record state synchronously
+// before any htmx request fires. The browser's native <details> click
+// will flip el.open AFTER our handler runs, so el.open here is the
+// PRE-toggle state — invert it to record the new state.
+document.body.addEventListener('click', function(ev) {
+  var summary = ev.target instanceof Element ? ev.target.closest('summary') : null;
+  if (!summary) return;
+  var d = summary.parentElement;
+  if (!(d instanceof HTMLDetailsElement) || !d.id) return;
+  setUIState(function(s) {
+    s.details[d.id] = !d.open;
   });
-  document.body.addEventListener('htmx:afterSettle', function() {
-    userToggled.forEach(function(open, id) {
-      var el = document.getElementById(id);
-      if (el && el.open !== open) {
-        el.open = open;
-      }
-    });
-  });
-})();
+});
 			</script>
 		</body>
 	</html>

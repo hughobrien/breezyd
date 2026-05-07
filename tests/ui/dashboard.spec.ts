@@ -773,15 +773,17 @@ test("schedule: in-flight pct edit survives a poll interval (issue #43)", async 
   await expect(card.locator("form[hx-put*='schedule']")).toBeVisible();
 });
 
-// ── Category C: persistence (hx-preserve) ────────────────────────────────────
+// ── Category C: persistence (cookie-driven server render) ────────────────────
 
-// User-toggled <details> open state is preserved across the 5s htmx
-// swap by a small client-side IIFE in layout.templ that listens for
-// `toggle` events and re-applies the stored state on `htmx:afterSettle`.
+// User-toggled <details> open state is preserved across the 5s htmx swap
+// because the summary-click handler writes the new state to the breezy-ui
+// cookie, and the server reads that cookie on every render to emit the
+// correct `open` attribute directly. No JS reapply pass, no flicker.
 // Each block carries a stable id (info-{name}, sensors-{name}, etc.).
 
-test("sensors block: open state survives polls", async ({ page }) => {
-  // [C] hx-preserve on the Sensors <details> keeps it closed if user closed it.
+test("sensors block: open state survives polls (no flicker)", async ({ page }) => {
+  // [C] Closing the Sensors <details> persists via cookie; the server emits
+  // it without `open` on subsequent polls — no transient flicker.
   await reset(DEVICE);
   await waitForPoll();
   const card = await loadCard(page);
@@ -790,13 +792,27 @@ test("sensors block: open state survives polls", async ({ page }) => {
     await sensors.locator("summary").click();
   }
   await expect(sensors).not.toHaveAttribute("open", "");
-  // Need ≥1 actual poll swap (5s page interval).
-  await waitForPoll(6000);
+  // Watch for any moment where the `open` attribute is incorrectly applied
+  // during the swap window, then wait through ≥1 full poll cycle.
+  const everOpened = await page.evaluate(async () => {
+    const el = document.querySelector("details.sensors") as HTMLDetailsElement | null;
+    if (!el) return true;
+    let opened = false;
+    const obs = new MutationObserver(() => {
+      if (el.hasAttribute("open")) opened = true;
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ["open"] });
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    obs.disconnect();
+    return opened;
+  });
+  expect(everOpened).toBe(false);
   await expect(sensors).not.toHaveAttribute("open", "");
 });
 
-test("ENERGY block: open state survives polls", async ({ page }) => {
-  // [C] Opening the energy <details> and waiting through polls keeps it open.
+test("ENERGY block: open state survives polls (no flicker)", async ({ page }) => {
+  // [C] Opening the energy <details> persists via cookie; the server emits
+  // it with `open` on subsequent polls — no transient closure flicker.
   await reset(DEVICE);
   await presets.asMode(DEVICE, "regeneration");
   await presets.withTimer(DEVICE, "off");
@@ -805,19 +821,48 @@ test("ENERGY block: open state survives polls", async ({ page }) => {
   const energy = card.locator("details.energy");
   await energy.locator("summary").click();
   await expect(energy).toHaveAttribute("open", "");
-  await waitForPoll(6000);
+  // Watch for any moment where the `open` attribute is incorrectly dropped
+  // during the swap window, then wait through ≥1 full poll cycle.
+  const everClosed = await page.evaluate(async () => {
+    const el = document.querySelector("details.energy") as HTMLDetailsElement | null;
+    if (!el) return true;
+    let closed = false;
+    const obs = new MutationObserver(() => {
+      if (!el.hasAttribute("open")) closed = true;
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ["open"] });
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    obs.disconnect();
+    return closed;
+  });
+  expect(everClosed).toBe(false);
   await expect(energy).toHaveAttribute("open", "");
 });
 
-test("device info: open state survives polls", async ({ page }) => {
-  // [C] Manually opened device-info survives subsequent htmx swaps.
+test("device info: open state survives polls (no flicker)", async ({ page }) => {
+  // [C] Manually opened device-info persists via cookie; the server emits
+  // it with `open` on subsequent polls — no transient closure flicker.
   await reset(DEVICE);
   await waitForPoll();
   const card = await loadCard(page);
   const info = card.locator("details.device-info");
   await info.locator("summary").click();
   await expect(info).toHaveAttribute("open", "");
-  await waitForPoll(6000);
+  // Watch for any moment where the `open` attribute is incorrectly dropped
+  // during the swap window, then wait through ≥1 full poll cycle.
+  const everClosed = await page.evaluate(async () => {
+    const el = document.querySelector("details.device-info") as HTMLDetailsElement | null;
+    if (!el) return true;
+    let closed = false;
+    const obs = new MutationObserver(() => {
+      if (!el.hasAttribute("open")) closed = true;
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ["open"] });
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    obs.disconnect();
+    return closed;
+  });
+  expect(everClosed).toBe(false);
   await expect(info).toHaveAttribute("open", "");
 });
 
