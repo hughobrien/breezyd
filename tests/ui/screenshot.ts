@@ -60,6 +60,18 @@ async function waitForHTTP(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`timeout waiting for ${url}: ${lastErr}`);
 }
 
+/**
+ * SIGTERM the process and wait for it to exit. Without the await, Node
+ * exits before `go run` forwards SIGTERM to its child binary, leaving an
+ * orphan breezyd / fakedevice running on the loopback port until manual
+ * cleanup. Mirrors tests/ui/global-teardown.ts::killAndWait.
+ */
+function killAndWait(p: ChildProcess): Promise<void> {
+  if (p.exitCode !== null || p.signalCode !== null) return Promise.resolve();
+  p.kill("SIGTERM");
+  return new Promise((res) => p.once("exit", () => res()));
+}
+
 /** Bind to :0 briefly to discover a free TCP port. */
 function freePort(): Promise<number> {
   return new Promise((res, rej) => {
@@ -149,8 +161,10 @@ async function main() {
     await captureViewport(daemonURL, 1400, 900, resolve(OUT_DIR, "dashboard-3col.png"));
     await captureViewport(daemonURL, 480, 900, resolve(OUT_DIR, "dashboard-1col.png"));
   } finally {
-    bd.kill();
-    fdProcs.forEach((p) => p.kill());
+    // Kill breezyd first so it stops talking UDP to the fakedevices, then
+    // fan out the fakedevice kills in parallel. Awaits prevent orphans.
+    await killAndWait(bd);
+    await Promise.all(fdProcs.map(killAndWait));
   }
 }
 
