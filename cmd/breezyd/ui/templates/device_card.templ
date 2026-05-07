@@ -14,7 +14,7 @@ templ DeviceCard(v ui.DeviceView) {
 			if v.PostError != "" {
 				<div class="card-error" role="alert">{ v.PostError }</div>
 			}
-			<details class="device-info" if v.NeedsAttention { open }>
+			<details id={ "info-" + v.Name } class="device-info" if v.NeedsAttention { open }>
 				<summary>
 					<h2>{ v.Name }</h2>
 					<button
@@ -43,7 +43,7 @@ templ DeviceCard(v ui.DeviceView) {
 		} else if v.Stale {
 			<div class="row"><span class="ts red">no poll</span></div>
 		}
-			@EnergyBlock(v.Energy, false)
+			@EnergyBlock(v.Name, v.Energy, false)
 			@SensorsBlock(v.Name, v.Sensors)
 			@ScheduleBlock(v.Name, v.Schedule, v.Stale)
 			@controlsBlock(v)
