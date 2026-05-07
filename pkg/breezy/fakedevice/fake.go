@@ -22,18 +22,23 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // Server is an in-process UDP fake of a Breezy ERV.
 type Server struct {
-	deviceID string
-	password string
+	deviceID     string
+	password     string
+	snapshotPath string
 
-	mu     sync.Mutex
-	values map[breezy.ParamID][]byte // per-param value bytes (LE)
-	closed bool
+	mu               sync.Mutex
+	values           map[breezy.ParamID][]byte // per-param value bytes (LE)
+	closed           bool
+	forceAuthFailure bool          // if set, every request returns FUNC=0x07
+	silentMode       bool          // if set, every request is dropped (simulates UDP timeout)
+	replyDelay       time.Duration // artificial delay before each reply
 
 	conn *net.UDPConn
 	done chan struct{}
@@ -73,11 +78,12 @@ func NewServer(snapshotPath, deviceID, password string) (*Server, error) {
 	}
 
 	s := &Server{
-		deviceID: deviceID,
-		password: password,
-		values:   values,
-		conn:     conn,
-		done:     make(chan struct{}),
+		deviceID:     deviceID,
+		password:     password,
+		snapshotPath: snapshotPath,
+		values:       values,
+		conn:         conn,
+		done:         make(chan struct{}),
 	}
 	go s.serve()
 	return s, nil
@@ -137,6 +143,58 @@ func (s *Server) Value(id breezy.ParamID) (string, bool) {
 	return hex.EncodeToString(v), true
 }
 
+// SetParamValue overwrites a param's bytes. Used by tests (and by the
+// build-tagged admin server) to drive the device into specific states.
+func (s *Server) SetParamValue(id breezy.ParamID, value []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]byte, len(value))
+	copy(cp, value)
+	s.values[id] = cp
+}
+
+// SetAuthFailureMode toggles whether the server returns ErrAuth on every
+// request. False = normal operation. Used by tests to exercise the auth
+// error path.
+func (s *Server) SetAuthFailureMode(force bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceAuthFailure = force
+}
+
+// SetSilentMode toggles whether the server drops requests instead of
+// replying. Used by tests to exercise UDP timeout handling.
+func (s *Server) SetSilentMode(silent bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.silentMode = silent
+}
+
+// SetReplyDelay adds an artificial delay before each reply. Used by tests
+// to exercise the fan-settle window or general slow-device scenarios.
+func (s *Server) SetReplyDelay(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.replyDelay = d
+}
+
+// Reset returns the server to a clean state: clears auth-failure / silent /
+// reply-delay flags, and re-applies the snapshot file's values. Used by
+// tests between cases.
+func (s *Server) Reset() error {
+	values, err := loadSnapshot(s.snapshotPath)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.values = values
+	s.forceAuthFailure = false
+	s.silentMode = false
+	s.replyDelay = 0
+	return nil
+}
+
 // Close shuts down the listener. Multiple Close calls are safe.
 func (s *Server) Close() error {
 	s.mu.Lock()
@@ -183,8 +241,32 @@ func (s *Server) serve() {
 // The packet's deviceID field on the response stays "DEFAULT_DEVICEID" so the
 // client's codec accepts it; the *real* ID lives in the data block.
 func (s *Server) handle(req []byte, peer *net.UDPAddr) {
+	s.mu.Lock()
+	delay := s.replyDelay
+	silent := s.silentMode
+	authFail := s.forceAuthFailure
+	s.mu.Unlock()
+
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	if silent {
+		return
+	}
+
 	if id, ok := extractRequestDeviceID(req); ok && id == breezy.DefaultDeviceID {
 		s.handleDiscovery(req, peer)
+		return
+	}
+
+	// forceAuthFailure: extract client password so we can echo it back in
+	// the FUNC=0x07 response the same way the real device does.
+	if authFail {
+		clientPwd, ok := extractRequestPassword(req)
+		if !ok {
+			return
+		}
+		s.sendAuthFailure(peer, clientPwd)
 		return
 	}
 
