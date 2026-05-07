@@ -29,6 +29,39 @@ func loadView(t *testing.T, name string) ui.DeviceView {
 	return v
 }
 
+func TestLayout(t *testing.T) {
+	var sb strings.Builder
+	d := LayoutData{StyleHash: "abc123def0", HTMXVersion: "2.0.4"}
+	if err := Layout(d).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	// FOUC script must appear before the stylesheet link
+	scriptIdx := strings.Index(got, "localStorage.getItem")
+	linkIdx := strings.Index(got, `<link rel="stylesheet"`)
+	if scriptIdx < 0 || linkIdx < 0 || scriptIdx > linkIdx {
+		t.Fatalf("FOUC script not before stylesheet link\n%s", got)
+	}
+	wantContains := []string{
+		`/ui/style-abc123def0.css`,
+		`/ui/vendor/htmx-2.0.4.min.js`,
+		`/ui/vendor/htmx-response-targets-2.0.4.min.js`,
+		`hx-ext="response-targets"`,
+		`hx-target-422="closest .device-card"`,
+		`every 5s`,
+		`<summary><h1>breezy</h1></summary>`,
+		`data-theme-set="light"`,
+		`data-theme-set="dark"`,
+		`data-theme-set="auto"`,
+		`<script src="/ui/legacy.js"></script>`,
+	}
+	for _, w := range wantContains {
+		if !strings.Contains(got, w) {
+			t.Errorf("layout missing %q", w)
+		}
+	}
+}
+
 func TestDeviceCardGolden(t *testing.T) {
 	cases := []string{
 		"snapshot_regen", "snapshot_manual", "snapshot_settling",

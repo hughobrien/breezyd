@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package templates
+
+// LayoutData carries runtime-computed values injected into the page shell.
+type LayoutData struct {
+	StyleHash   string // hex hash suffix of the versioned CSS file
+	HTMXVersion string // e.g. "2.0.4"
+}
+
+templ Layout(d LayoutData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>breezy</title>
+			<script>
+				var t = localStorage.getItem("theme");
+				if (t === "light" || t === "dark") {
+					document.documentElement.setAttribute("data-theme", t);
+				}
+			</script>
+			<link rel="stylesheet" href={ "/ui/style-" + d.StyleHash + ".css" }/>
+			<script src={ "/ui/vendor/htmx-" + d.HTMXVersion + ".min.js" }></script>
+			<script src={ "/ui/vendor/htmx-response-targets-" + d.HTMXVersion + ".min.js" }></script>
+		</head>
+		<body
+			hx-ext="response-targets"
+			hx-target-401="#global-error-banner"
+			hx-target-404="#global-error-banner"
+			hx-target-5xx="#global-error-banner"
+			hx-target-422="closest .device-card"
+		>
+			@ThemePicker()
+			<div id="global-error-banner" aria-live="polite"></div>
+			<div
+				id="device-list"
+				hx-get="/ui/devices"
+				hx-trigger="load, every 5s[document.visibilityState === 'visible']"
+				hx-swap="innerHTML"
+			></div>
+			<script>
+				// Theme picker handlers (Task 17 fills in)
+			</script>
+			<script src="/ui/legacy.js"></script>
+		</body>
+	</html>
+}
