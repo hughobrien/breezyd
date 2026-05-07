@@ -44,7 +44,7 @@ type PresetState struct {
 
 	// Match is the editor's match-speeds-checkbox state. Default true,
 	// stored explicitly so the cookie survives a flag flip in code.
-	Match bool `json:"match,omitempty"`
+	Match bool `json:"match"`
 }
 
 // DefaultsForDevice returns the documented per-device defaults for a

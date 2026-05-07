@@ -48,6 +48,23 @@ func TestParse_RoundTrip(t *testing.T) {
 	if got.Preset["bedroom"].Match != true {
 		t.Errorf("preset.bedroom.Match: got %v, want true", got.Preset["bedroom"].Match)
 	}
+
+	// Round-trip should also preserve Match=false explicitly.
+	want2 := State{
+		Preset: map[string]PresetState{
+			"office": {Open: 1, Automode: true, Match: false},
+		},
+	}
+	c2 := Cookie(want2)
+	r2 := httptest.NewRequest("GET", "/", nil)
+	r2.AddCookie(c2)
+	got2 := Parse(r2)
+	if got2.Preset["office"].Match != false {
+		t.Errorf("preset.office.Match: got %v, want false (explicit)", got2.Preset["office"].Match)
+	}
+	if got2.Preset["office"].Automode != true {
+		t.Errorf("preset.office.Automode: got %v, want true", got2.Preset["office"].Automode)
+	}
 }
 
 func TestParse_MalformedJSON(t *testing.T) {
