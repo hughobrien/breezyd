@@ -5,24 +5,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build, test, lint
 
 ```sh
-just build           # go build -> ./breezyd ./breezy
+just generate        # templ codegen (writes *_templ.go; required before build)
+just build           # generate + go build -> ./breezyd ./breezy
 just test            # go test ./...               (fast, no race)
 just test-race       # go test -race ./...         (cgo+clang; the CI command)
 just test-race-flake # go test -race -count=5 ./...(heisen-race shaker)
 just test-msan       # go test -msan ./...         (cgo+clang; uninit-memory reads)
 just test-asan       # go test -asan ./...         (cgo+clang; OOB / UAF)
 just test-staticcheck# golangci-lint run ./...     (errcheck is the strict bit)
-just test-ui         # Playwright e2e (needs test-ui-install once)
+just test-templ-drift# verify generated *_templ.go files are up-to-date
+just test-fakedevice-admin # go test -tags fakedevice_admin (build-tagged admin surface)
+just test-ui         # Playwright e2e against real breezyd+fakedevice (needs test-ui-install once)
 just lint            # go vet + gofmt-drift check
-just check           # lint + fast tests           (pre-commit gate)
-just check-all       # lint + test + test-race + test-ui (pre-push gate)
-just ci              # everything CI runs on every PR: check-all + staticcheck + asan + msan
+just check           # lint + fast tests + templ-drift (pre-commit gate)
+just check-all       # lint + test + test-race + test-ui + templ-drift (pre-push gate)
+just ci              # everything CI runs on every PR: check-all + staticcheck + asan + msan + templ-drift + fakedevice-admin
 just check-deep      # ci + race-flake             (~5 min; pre-tag gate)
 just tidy            # go mod tidy
 just clean           # remove binaries, test cache, Playwright artifacts
 just fmt             # gofmt -w .
 just nix-check       # parse-check nix/module.nix
 ```
+
+`templ` is required to build. `nix develop` provides it automatically. Outside Nix: `go install github.com/a-h/templ/cmd/templ@v0.3.x`. Running `just build` calls `templ generate` first; if `templ` is not on `$PATH` the build fails immediately.
 
 `just test-race` (and `-msan` / `-asan` / `test-race-flake`) bake in `CGO_ENABLED=1 CC=clang` because the default `gcc` on this host lacks the TSan / MSan / ASan runtimes.
 
@@ -54,10 +59,10 @@ Nix flake builds work too: `nix build`, `nix develop`, `nix run .#breezy -- ls`.
 Three artefacts from one Go module (`github.com/hughobrien/breezyd`):
 
 1. **`pkg/breezy`** — importable protocol library. Speaks the Vents Twinfresh FDFD/02 framed protocol over UDP/4000.
-2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`. Also serves an embedded single-page dashboard from `cmd/breezyd/ui/index.html` (HTML + inlined CSS/JS) at `GET /{$}` — the `{$}` anchor is load-bearing: a plain `GET /` pattern would catch every unmatched URL and silently turn API typos into HTML responses. The handler lives in `cmd/breezyd/ui.go` and is one `go:embed` plus 12 lines of `http.HandlerFunc`.
+2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`. Also serves a server-rendered dashboard using `templ` + htmx. Two HTTP namespaces: `/v1/...` (JSON, used by the CLI and external consumers) and `/ui/...` (HTML fragments, used by the dashboard). The page shell (`cmd/breezyd/ui/templates/layout.templ`) is served at `GET /{$}` — the `{$}` anchor is load-bearing: a plain `GET /` pattern would catch every unmatched URL and silently turn API typos into HTML responses. htmx (vendored at `cmd/breezyd/ui/vendor/htmx-2.0.4.min.js`) drives polling and write interactions; CSS is extracted to `cmd/breezyd/ui/style.css` and served at a content-hashed URL `/ui/style-<hash>.css`. Dark mode is supported via `prefers-color-scheme` (auto) and a manual theme picker on the title bar that persists to localStorage. The templ-friendly view type is `cmd/breezyd/ui/view.go::DeviceView`; conversion from a raw `Snapshot` lives in `cmd/breezyd/ui_view.go::snapshotToView`, augmented by `handlers_ui_read.go::buildView` (which adds Energy and Schedule fields).
 3. **`cmd/breezy`** — CLI. Defaults to standalone mode (UDP directly to each configured device via `pkg/breezy/ops`). Opts into daemon mode when `--daemon URL` is passed or `[daemon].listen` is set in config. `breezy discover` always broadcasts on the LAN directly, independent of mode. `Discover()` enumerates every up, non-loopback IPv4 interface and sends to its directed-broadcast address in addition to a static fallback list — relevant when a host isn't on `192.168.0/1.0/24`.
 
-`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration Go test runs against it. `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that tests the embedded dashboard's HTTP-call contract via `page.route()` mocking — no real daemon involved. `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
+`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration Go test runs against it. `cmd/fakedevice` is a standalone build-tagged (`fakedevice_admin`) helper binary that exposes an admin control plane over HTTP so Playwright tests can drive it (change snapshot fields, trigger error states, etc.) without real hardware. `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that spawns a real `breezyd` process (pointed at `cmd/fakedevice`) and drives the actual dashboard — 82 tests total (66 active + 16 fixme). `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
 
 ### Standalone mode (default)
 

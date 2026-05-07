@@ -169,13 +169,13 @@ type Handler struct {
 	// results into characteristic values. Nil until StartHomekit runs.
 	homekitAccessories map[string]*homekit.Accessory
 
-	// mux is built lazily by routes() and cached. muxOnce guards the
+	// cachedMux is built lazily by mux() and cached. muxOnce guards the
 	// initialisation against a data race on the first concurrent burst
 	// of requests — net/http serves each request from its own goroutine,
 	// so without sync.Once two requests arriving before the cache is
-	// populated would each call routes() and race on the assignment.
-	mux     *http.ServeMux
-	muxOnce sync.Once
+	// populated would each call mux() and race on the assignment.
+	cachedMux *http.ServeMux
+	muxOnce   sync.Once
 }
 
 // errEnvelope is the JSON shape every error response shares. Error is the
@@ -188,13 +188,13 @@ type errEnvelope struct {
 
 // ServeHTTP dispatches the request through the lazily-built ServeMux.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.muxOnce.Do(func() { h.mux = h.routes() })
-	h.mux.ServeHTTP(w, r)
+	h.muxOnce.Do(func() { h.cachedMux = h.mux() })
+	h.cachedMux.ServeHTTP(w, r)
 }
 
-// routes wires the URL pattern → handler mapping. We use Go 1.22 enhanced
+// mux wires the URL pattern → handler mapping. We use Go 1.22 enhanced
 // patterns so each {name} / {id} is captured directly via r.PathValue.
-func (h *Handler) routes() *http.ServeMux {
+func (h *Handler) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /{$}", h.getIndex)
@@ -220,6 +220,25 @@ func (h *Handler) routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /v1/devices/{name}/schedule", h.getSchedule)
 	mux.HandleFunc("PUT /v1/devices/{name}/schedule", h.putSchedule)
+
+	mux.HandleFunc("GET /ui/devices", h.getUIDeviceList)
+	mux.HandleFunc("GET /ui/devices/{name}/card", h.getUIDeviceCard)
+	mux.HandleFunc("POST /ui/devices/{name}/power", h.postUIPower)
+	mux.HandleFunc("POST /ui/devices/{name}/mode", h.postUIMode)
+	mux.HandleFunc("POST /ui/devices/{name}/speed", h.postUISpeed)
+	mux.HandleFunc("POST /ui/devices/{name}/heater", h.postUIHeater)
+	mux.HandleFunc("POST /ui/devices/{name}/timer", h.postUITimer)
+	mux.HandleFunc("POST /ui/devices/{name}/reset-filter", h.postUIResetFilter)
+	mux.HandleFunc("POST /ui/devices/{name}/reset-faults", h.postUIResetFaults)
+	mux.HandleFunc("GET /ui/devices/{name}/threshold/{kind}", h.getUIThresholdRead)
+	mux.HandleFunc("GET /ui/devices/{name}/threshold/{kind}/edit", h.getUIThresholdEdit)
+	mux.HandleFunc("PUT /ui/devices/{name}/threshold", h.putUIThreshold)
+	mux.HandleFunc("GET /ui/devices/{name}/schedule", h.getUIScheduleRead)
+	mux.HandleFunc("GET /ui/devices/{name}/schedule/edit", h.getUIScheduleEdit)
+	mux.HandleFunc("GET /ui/devices/{name}/schedule/new-row", h.getUIScheduleNewRow)
+	mux.HandleFunc("PUT /ui/devices/{name}/schedule", h.putUISchedule)
+	mux.HandleFunc("GET /ui/style-"+styleHash+".css", h.getStyle)
+	mux.HandleFunc("GET /ui/vendor/{file}", h.getVendor)
 
 	return mux
 }

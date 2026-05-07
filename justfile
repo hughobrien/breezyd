@@ -2,8 +2,17 @@
 default:
 	@just --list
 
+# Run templ codegen (writes *_templ.go next to *.templ sources).
+generate:
+	templ generate
+
+# Fail if generated templ files differ from sources (drift check).
+test-templ-drift:
+	templ generate
+	git diff --quiet -- 'cmd/breezyd/ui/templates/*_templ.go' || (echo "templ drift: run 'just generate' and commit"; exit 1)
+
 # build both binaries
-build:
+build: generate
 	go build -o ./breezyd ./cmd/breezyd
 	go build -o ./breezy ./cmd/breezy
 
@@ -31,11 +40,15 @@ test-asan:
 test-staticcheck:
 	golangci-lint run --timeout=5m ./...
 
+# Build/test fakedevice with the admin control surface (test-only, build-tagged).
+test-fakedevice-admin:
+	go test -tags fakedevice_admin ./pkg/breezy/fakedevice/...
+
 # match what CI runs on every PR: vet + race + lint + asan + msan + UI.
 # Slower than check-all (~3 min sequential locally; CI runs the same set in
 # parallel jobs). Use this when you want to reproduce a CI failure locally
 # without waiting for the next push.
-ci: lint test test-race test-staticcheck test-asan test-msan test-ui
+ci: lint test test-race test-staticcheck test-asan test-msan test-ui test-templ-drift test-fakedevice-admin
 
 # heavy gate: ci + race-flake. Slow (~5 min); run before tagging a release
 # or after risky concurrency / cgo / unsafe code.
@@ -71,10 +84,10 @@ fmt:
 	gofmt -w .
 
 # quick pre-commit gate: vet + fast tests
-check: lint test
+check: lint test test-templ-drift
 
 # full pre-push gate: vet + gofmt + tests + race + Playwright (needs test-ui-install)
-check-all: lint test test-race test-ui
+check-all: lint test test-race test-ui test-templ-drift
 
 # parse-check nix/module.nix (fast; `nix build` is the heavy variant)
 nix-check:

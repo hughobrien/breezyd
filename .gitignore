@@ -1,6 +1,7 @@
 # Binaries
 /breezy
 /breezyd
+/render-layout
 *.test
 *.out
 
@@ -25,3 +26,4 @@ __pycache__/
 tests/ui/node_modules/
 tests/ui/test-results/
 tests/ui/playwright-report/
+

@@ -1,11 +1,20 @@
 import { chromium } from "@playwright/test";
 import { readFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+
+const STYLE_CSS = readFileSync(
+  resolve(__dirname, "..", "..", "cmd", "breezyd", "ui", "style.css"),
+  "utf8",
+);
+// MUST match cmd/breezyd/ui_assets.go: sha256(style.css) → hex → first 10 chars.
+// Drift = 404 on the stylesheet.
+const styleHash = createHash("sha256").update(STYLE_CSS).digest("hex").slice(0, 10);
 
 const INDEX_HTML = readFileSync(
   resolve(__dirname, "..", "..", "cmd", "breezyd", "ui", "index.html"),
   "utf8",
-);
+).replaceAll("STYLEHASH", styleHash);
 const OUT_DIR = resolve(__dirname, "screenshots");
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -119,6 +128,13 @@ async function captureViewport(width: number, height: number, outFile: string) {
       status: 200,
       contentType: "text/html; charset=utf-8",
       body: INDEX_HTML,
+    });
+  });
+  await page.route("**/ui/style-*.css", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/css; charset=utf-8",
+      body: STYLE_CSS,
     });
   });
   await page.route("**/v1/devices", async (route) => {

@@ -3,8 +3,10 @@
 package main
 
 import (
+	"encoding/json"
 	"math"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -391,14 +393,22 @@ func TestEnergyTracker_Tick_RolloverPersists(t *testing.T) {
 	notRegen[0x00B7] = []byte{0} // ventilation
 	tr.Tick(notRegen, t1)
 
-	// Reload from disk: today_date must be the new date; today counters zero.
-	tr2 := &EnergyTracker{Device: "rollover-persist", StateDir: dir}
-	tr2.Load()
-	if tr2.Today != "2026-05-06" {
-		t.Errorf("persisted Today = %q, want 2026-05-06", tr2.Today)
+	// Read the persisted file directly (rather than via Load(), which uses
+	// wall-clock time.Now() to derive "today" and would mask the rollover
+	// save by overwriting the loaded Today with the current wall date).
+	data, err := os.ReadFile(filepath.Join(dir, "energy_rollover-persist.json"))
+	if err != nil {
+		t.Fatalf("read persisted state: %v", err)
 	}
-	if tr2.HeatingTodayKWh != 0 {
-		t.Errorf("persisted HeatingTodayKWh = %v, want 0 after rollover", tr2.HeatingTodayKWh)
+	var p persistedEnergy
+	if err := json.Unmarshal(data, &p); err != nil {
+		t.Fatalf("unmarshal persisted state: %v", err)
+	}
+	if p.TodayDate != "2026-05-06" {
+		t.Errorf("persisted TodayDate = %q, want 2026-05-06", p.TodayDate)
+	}
+	if p.HeatingTodayKWh != 0 {
+		t.Errorf("persisted HeatingTodayKWh = %v, want 0 after rollover", p.HeatingTodayKWh)
 	}
 }
 

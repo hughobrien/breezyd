@@ -1,0 +1,105 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+)
+
+// SensorThresholdRead renders the clickable read-only cell for a threshold sensor.
+templ SensorThresholdRead(name, kind, label, suffix, tooltip string, value int, alerting bool) {
+	<div class="sensor-cell" if tooltip != "" { title={ tooltip } }>
+		<div class="sensor-label">{ label }</div>
+		<div
+			class={ "value-clickable", templ.KV("alert-fire", alerting) }
+			hx-get={ "/ui/devices/" + name + "/threshold/" + kind + "/edit" }
+			hx-target="closest .sensor-cell"
+			hx-swap="outerHTML"
+			data-action="edit-threshold"
+			data-name={ name }
+			data-kind={ kind }
+		>{ fmt.Sprintf("%d%s", value, suffix) }</div>
+	</div>
+}
+
+// SensorThresholdEdit renders the inline editor variant for a threshold sensor.
+templ SensorThresholdEdit(name, kind, label string, min, max, step, threshold int, autoFan, disabled bool) {
+	<div class="sensor-cell">
+		<div class="sensor-label">{ label }</div>
+		<form
+			class="thresh-edit-inline"
+			hx-put={ "/ui/devices/" + name + "/threshold" }
+			hx-target="closest .sensor-cell"
+			hx-swap="outerHTML"
+			hx-disabled-elt="find button, find input"
+		>
+			<input type="hidden" name="kind" value={ kind }/>
+			<input
+				type="number"
+				name="value"
+				min={ fmt.Sprintf("%d", min) }
+				max={ fmt.Sprintf("%d", max) }
+				step={ fmt.Sprintf("%d", step) }
+				value={ fmt.Sprintf("%d", threshold) }
+				data-name={ name }
+				data-kind={ kind }
+				class="thresh-input"
+				if disabled { disabled }
+			/>
+			<label class="thresh-auto-fan">
+				<input type="hidden" name="enabled" value="false"/>
+				<input
+					type="checkbox"
+					name="enabled"
+					value="true"
+					class="thresh-auto-fan-input"
+					data-name={ name }
+					data-kind={ kind }
+					if autoFan { checked }
+					if disabled { disabled }
+				/>
+				auto fan
+			</label>
+			<button type="submit" data-action="threshold-save" data-name={ name } data-kind={ kind } if disabled { disabled }>✓</button>
+			<button
+				type="button"
+				data-action="threshold-cancel"
+				data-name={ name }
+				data-kind={ kind }
+				hx-get={ "/ui/devices/" + name + "/threshold/" + kind }
+				hx-target="closest .sensor-cell"
+				hx-swap="outerHTML"
+				if disabled { disabled }
+			>✕</button>
+		</form>
+	</div>
+}
+
+// CO2Cell renders the eCO₂ threshold cell (read-only view for templates).
+templ CO2Cell(name string, s ui.SensorsView) {
+	@SensorThresholdRead(name, "co2", "eCO₂", " ppm", "", s.CO2PPM, s.CO2Alert)
+}
+
+// VOCCell renders the VOC threshold cell (read-only view for templates).
+templ VOCCell(name string, s ui.SensorsView) {
+	@SensorThresholdRead(name, "voc", "VOC", " idx", "VOC Index — Sensirion 0-500 scale, ~100 = baseline indoor air", s.VOCPPM, s.VOCAlert)
+}
+
+// HumidityCell renders the RH threshold cell (read-only view for templates).
+templ HumidityCell(name string, s ui.SensorsView) {
+	@SensorThresholdRead(name, "humidity", "RH", "%", "", s.HumidityPct, s.HumidityAlert)
+}
+
+// co2Cell is retained for package-internal use by sensors_block.templ.
+templ co2Cell(name string, s ui.SensorsView) {
+	@CO2Cell(name, s)
+}
+
+// vocCell is retained for package-internal use by sensors_block.templ.
+templ vocCell(name string, s ui.SensorsView) {
+	@VOCCell(name, s)
+}
+
+// humidityCell is retained for package-internal use by sensors_block.templ.
+templ humidityCell(name string, s ui.SensorsView) {
+	@HumidityCell(name, s)
+}

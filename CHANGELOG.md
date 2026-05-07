@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server-rendered dashboard via htmx and `templ`. Two HTTP namespaces: `/v1/...` (JSON, unchanged — CLI uses this) and `/ui/...` (HTML fragments, the dashboard uses this). All device cards are rendered server-side by Go templates; htmx drives polling (every 5 s) and write interactions.
+- Dark mode: auto via `prefers-color-scheme`, manual override via theme picker on the title. Choice persists to localStorage.
+- CSS extracted from `index.html` to a content-hashed `/ui/style-<hash>.css` for proper caching. CSS custom properties used for theming throughout.
+- Build-tagged `fakedevice_admin` admin control surface: an HTTP plane attached to `pkg/breezy/fakedevice` that lets tests mutate the fake device's state without real hardware.
+- New helper binary `cmd/fakedevice` (built with `-tags fakedevice_admin`): standalone fakedevice process used by Playwright tests.
+
+### Changed
+
+- Dashboard writes are no longer optimistic — UI updates after the server confirms (typically 50–150 ms on LAN). Errors surface as inline banners on the card.
+- Playwright suite runs against a real `breezyd` process spawned from `cmd/fakedevice` rather than `page.route()` mocks. 82 tests total (66 active + 16 fixme).
+- `just build` now depends on `just generate` (templ codegen). The `templ` CLI is a required build prerequisite: provided by `nix develop`, or `go install github.com/a-h/templ/cmd/templ@v0.3.x` outside Nix.
+- `just check` and `just ci` include `just test-templ-drift` (verifies generated `*_templ.go` files match sources) and `just test-fakedevice-admin` (builds with the admin build tag).
+
+### Removed
+
+- `cmd/breezyd/ui/legacy.js` (the JS-rendered SPA's event handlers). The only JS remaining in the dashboard is a small inline FOUC-prevention + theme-picker block in the page shell.
+- Preset automode chaining in the dashboard (the legacy JS computed an `airflow_mode` from supply/extract values and POSTed a mode change). Reconciliation now happens via the next 5 s poll.
+- Live-drag slider feedback (`.val` text update during drag). Slider value is updated after the htmx PUT + swap.
+
 - Daemon-driven per-device 24-hour cyclic schedule. Each device's card has a new collapsible SCHEDULE block with an `At | Action | Pct` table editor; entries fire writes (Power → SetMode → SetSpeedManual, or Power(false) for "off") at each At-time. State persists to `<state_dir>/schedule_<device>.json`. On transient write failure the daemon retries every 30 s for up to 10 min (abandoned earlier when superseded by the next entry); `breezy.ErrAuth` is treated as a config error and not retried. The dashboard auto-expands the SCHEDULE block with a `⚠` line when the most recent fire failed.
 - New `GET`/`PUT /v1/devices/{name}/schedule` endpoints. PUT replaces the schedule wholesale (≤24 entries, action ∈ off/regeneration/ventilation/supply/extract, pct 10–100, no duplicate At-times); validation failures return 400 `bad_request`. Edits clear any in-flight retry and the previous fire's alert banner.
 - New `service.schedule` block on `GET /v1/devices/{name}` with `enabled`, `entries`, the derived `alert` flag, and (when present) `last_apply` for UI rendering.

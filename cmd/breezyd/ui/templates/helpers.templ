@@ -1,0 +1,8 @@
+package templates
+
+import "github.com/hughobrien/breezyd/cmd/breezyd/ui"
+
+// SpeedLabel renders the user-facing label for a speed percentage.
+templ SpeedLabel(pct int) {
+	<span class="speed-label">{ ui.HumanPct(pct) }</span>
+}

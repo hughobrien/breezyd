@@ -1,0 +1,183 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+)
+
+templ controlsBlock(v ui.DeviceView) {
+	<div class="controls">
+		<h3>Controls</h3>
+		<div class="ctrl">
+			<span class="ctrl-label">SPEED</span>
+			<div class="seg">
+				@presetBtn(v, 1)
+				@presetBtn(v, 2)
+				@presetBtn(v, 3)
+				@manualBtn(v)
+			</div>
+			if v.SpeedMode == "manual" && v.SpecialMode == "off" {
+				<span class="ctrl-label">MODE</span>
+				<div class="seg">
+					@modeBtn(v, "auto", "ventilation")
+					@modeBtn(v, "regen", "regeneration")
+					@modeBtn(v, "supply", "supply")
+					@modeBtn(v, "exhaust", "extract")
+				</div>
+				@manualSliderRow(v)
+			}
+		</div>
+		<div class="ctrl ctrl-pair">
+			<div class="ctrl-group ctrl-group-timer">
+				<span class="ctrl-label">TIMER</span>
+				<div class="seg">
+					@timerBtn(v, "night", "night")
+					@timerBtn(v, "turbo", "turbo")
+				</div>
+				if v.SpecialMode != "off" && v.SpecialModeRemaining != "" {
+					<div class="ctrl-label timer-remaining">{ v.SpecialModeRemaining } remaining</div>
+				}
+			</div>
+			<div class="ctrl-group ctrl-group-heater">
+				<span class="ctrl-label">HEATER</span>
+				<div class="seg">
+					<button
+						type="button"
+						class="toggle"
+						data-action="heater"
+						data-name={ v.Name }
+						hx-post={ "/ui/devices/" + v.Name + "/heater" }
+						hx-vals={ fmt.Sprintf(`{"on":%t}`, !v.Heater) }
+						hx-target="closest .card"
+						hx-swap="outerHTML"
+						hx-disabled-elt="this"
+						if v.Stale { disabled }
+						aria-pressed={ boolAttr(v.Heater) }
+					>heater</button>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ presetBtn(v ui.DeviceView, n int) {
+	<button
+		type="button"
+		data-action="preset"
+		data-name={ v.Name }
+		data-value={ fmt.Sprintf("%d", n) }
+		hx-post={ "/ui/devices/" + v.Name + "/speed" }
+		hx-vals={ fmt.Sprintf(`{"preset":%d}`, n) }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
+		if v.Stale { disabled }
+		aria-pressed={ boolAttr(v.SpeedMode == fmt.Sprintf("preset%d", n)) }
+	>{ presetLabel(v, n) }</button>
+}
+
+templ manualBtn(v ui.DeviceView) {
+	<button
+		type="button"
+		data-action="manual-speed"
+		data-name={ v.Name }
+		hx-post={ "/ui/devices/" + v.Name + "/speed" }
+		hx-vals={ fmt.Sprintf(`{"manual":%d}`, manualBtnPct(v)) }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
+		if v.Stale { disabled }
+		aria-pressed={ boolAttr(v.SpeedMode == "manual") }
+	>manual</button>
+}
+
+templ modeBtn(v ui.DeviceView, label, value string) {
+	<button
+		type="button"
+		data-action="mode"
+		data-name={ v.Name }
+		data-value={ value }
+		hx-post={ "/ui/devices/" + v.Name + "/mode" }
+		hx-vals={ `{"mode":"` + value + `"}` }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
+		if v.Stale { disabled }
+		aria-pressed={ boolAttr(v.AirflowMode == value) }
+	>{ label }</button>
+}
+
+templ timerBtn(v ui.DeviceView, label, value string) {
+	<button
+		type="button"
+		data-action="timer"
+		data-name={ v.Name }
+		data-value={ value }
+		hx-post={ "/ui/devices/" + v.Name + "/timer" }
+		hx-vals={ fmt.Sprintf(`{"mode":%q}`, timerMode(v.SpecialMode, value)) }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
+		if v.Stale { disabled }
+		aria-pressed={ boolAttr(v.SpecialMode == value) }
+	>{ label }</button>
+}
+
+// timerMode returns the mode to POST when a timer button is clicked.
+// If the device is already in the requested mode, clicking again posts "off"
+// (toggle off). Otherwise posts the requested mode.
+func timerMode(currentMode, requestedMode string) string {
+	if currentMode == requestedMode {
+		return "off"
+	}
+	return requestedMode
+}
+
+templ manualSliderRow(v ui.DeviceView) {
+	<div class="slider-row fan-slider-row">
+		<span class="fan-side"></span>
+		<input
+			type="range"
+			name="manual"
+			min="10"
+			max="100"
+			step="1"
+			value={ fmt.Sprintf("%d", v.ManualPct) }
+			data-action="manual-slider"
+			data-name={ v.Name }
+			data-side="manual"
+			hx-post={ "/ui/devices/" + v.Name + "/speed" }
+			hx-trigger="change delay:200ms"
+			hx-target="closest .card"
+			hx-swap="outerHTML"
+			hx-disabled-elt="this"
+		/>
+		<span class="val">{ fmt.Sprintf("%d%%", v.ManualPct) }</span>
+	</div>
+}
+
+// manualBtnPct returns the pct to send when the manual button is clicked.
+// Mirrors the legacy.js fallback: use cached manual_pct when ≥10, otherwise 50.
+func manualBtnPct(v ui.DeviceView) int {
+	if v.ManualPct >= 10 {
+		return v.ManualPct
+	}
+	return 50
+}
+
+// presetLabel returns "supply/extract" for a preset, matching the JS label.
+func presetLabel(v ui.DeviceView, n int) string {
+	var p ui.PresetView
+	switch n {
+	case 1:
+		p = v.Preset1
+	case 2:
+		p = v.Preset2
+	case 3:
+		p = v.Preset3
+	}
+	if p.Supply < 0 || p.Extract < 0 {
+		return "—/—"
+	}
+	return fmt.Sprintf("%d/%d", p.Supply, p.Extract)
+}
