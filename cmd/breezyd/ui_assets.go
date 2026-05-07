@@ -21,9 +21,6 @@ import (
 // The Layout template references /ui/vendor/htmx-<version>.min.js.
 const htmxVersion = "2.0.4"
 
-//go:embed ui/index.html
-var indexHTML []byte
-
 //go:embed ui/legacy.js
 var legacyJS []byte
 

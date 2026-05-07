@@ -1527,18 +1527,21 @@ git commit -m "ui: serve /ui/devices fragments + extract legacy write JS to lega
 
 ---
 
-### Task 10: Delete `index.html`
+### Task 10: Stop embedding `index.html` (full deletion deferred to PR3)
 
-**Goal:** `index.html` is dead — Layout serves the page shell, `legacy.js` (extracted in Task 9) holds the remaining write JS, and reads come from `/ui/devices`. Delete the file and its embed directive.
+**Goal:** The daemon no longer embeds or serves `index.html` — Layout has fully replaced it. The file stays on disk as a Playwright fixture until PR3 rewrites the test suite against a real daemon and the file can finally be deleted.
 
 **Files:**
-- Delete: `cmd/breezyd/ui/index.html`
 - Modify: `cmd/breezyd/ui_assets.go` — remove `//go:embed ui/index.html` and the `indexHTML` variable
+- Modify: `cmd/breezyd/ui/index.html` — add a header comment marking it test-fixture-only
+
+**Why deferred deletion:** `tests/ui/dashboard.spec.ts` uses `readFileSync` of `index.html` as a `page.route()` mock body for ~58 tests that exercise the JS-rendered SPA's behaviors via `legacy.js`. Moving those tests to use `LAYOUT_HTML` (rendered via `cmd/render-layout`) requires also mocking `/ui/devices` to return rendered card fragments — which is essentially the PR3 test rewrite (real daemon vs. canned mocks). Doing it now duplicates effort.
 
 **Acceptance Criteria:**
-- [ ] `cmd/breezyd/ui/index.html` does not exist
-- [ ] Dashboard loads, shows all device cards, polls every 5s, and writes still work via `legacy.js` talking to `/v1/`
-- [ ] `just test-ui` passes
+- [ ] `//go:embed ui/index.html` and the `indexHTML` variable are gone from `ui_assets.go`
+- [ ] `cmd/breezyd/ui/index.html` still exists, with a header comment marking it as a test fixture
+- [ ] `just test-ui` passes (the file is still readable from disk by tests)
+- [ ] `nm breezyd | grep -i indexhtml` returns nothing (the binary no longer carries the file)
 
 **Verify:**
 ```sh
