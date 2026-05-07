@@ -119,53 +119,6 @@ document.addEventListener("click", async (ev) => {
   const snap = lastSnapshots[name] || { configured: {}, live: {}, sensors: {}, service: {} };
 
   switch (action) {
-    case "mode": {
-      delete editingPreset[name];
-      const prevSpeedMode = snap.configured?.speed_mode;
-      const supplyPct = snap.live?.fan_supply_pct;
-      const extractPct = snap.live?.fan_extract_pct;
-      const a = typeof supplyPct === "number" ? supplyPct : -1;
-      const b = typeof extractPct === "number" ? extractPct : -1;
-      const preservePct = Math.max(a, b);
-      await postWrite(name, "mode", "/v1/devices/" + encodeURIComponent(name) + "/mode",
-                      { mode: value });
-      if (prevSpeedMode === "manual" && preservePct >= 10) {
-        await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
-                        { manual: preservePct });
-      }
-      const supplyRuns = value === "ventilation" || value === "regeneration" || value === "supply";
-      const extractRuns = value === "ventilation" || value === "regeneration" || value === "extract";
-      let supplyTargetPct, extractTargetPct;
-      if (prevSpeedMode === "manual") {
-        const m = preservePct >= 10 ? preservePct : (snap.configured?.manual_pct ?? 0);
-        supplyTargetPct = m;
-        extractTargetPct = m;
-      } else if (typeof prevSpeedMode === "string" && prevSpeedMode.startsWith("preset")) {
-        const cur = snap.configured?.[prevSpeedMode] ?? {};
-        supplyTargetPct = typeof cur.supply === "number" ? cur.supply : 0;
-        extractTargetPct = typeof cur.extract === "number" ? cur.extract : 0;
-      } else {
-        supplyTargetPct = 0;
-        extractTargetPct = 0;
-      }
-      setOptimisticLive(name, {
-        fan_supply_pct: supplyRuns ? supplyTargetPct : 0,
-        fan_extract_pct: extractRuns ? extractTargetPct : 0,
-        fan_supply_rpm: supplyRuns ? null : 0,
-        fan_extract_rpm: extractRuns ? null : 0,
-      });
-      if (lastSnapshots[name]) {
-        lastSnapshots[name] = applyOptimisticLive(name, lastSnapshots[name]);
-      }
-      break;
-    }
-    case "manual-speed": {
-      delete editingPreset[name];
-      const pct = typeof snap.configured?.manual_pct === "number" ? snap.configured.manual_pct : 50;
-      await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
-                      { manual: pct });
-      break;
-    }
     case "preset": {
       const n = parseInt(value, 10);
       const speedMode = snap.configured?.speed_mode || "";
@@ -338,18 +291,10 @@ document.addEventListener("input", (ev) => {
   if (valSpan) valSpan.textContent = `${el.value}%`;
 });
 
-// Change handler for manual-slider and preset-editor sliders.
+// Change handler for preset-editor sliders.
 document.addEventListener("change", async (ev) => {
   const el = ev.target;
   const name = el.dataset.name;
-
-  if (el.matches('input[type="range"][data-action="manual-slider"]')) {
-    delete editingPreset[name];
-    const pct = Math.max(10, parseInt(el.value, 10));
-    await postWrite(name, "speed", "/v1/devices/" + encodeURIComponent(name) + "/speed",
-                    { manual: pct });
-    return;
-  }
 
   if (el.matches('input[type="range"][data-action="preset-supply-slider"], input[type="range"][data-action="preset-extract-slider"]')) {
     const preset = parseInt(el.dataset.preset, 10);

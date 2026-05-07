@@ -56,9 +56,15 @@ templ controlsBlock(v ui.DeviceView) {
 
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
+		type="button"
 		data-action="preset"
 		data-name={ v.Name }
 		data-value={ fmt.Sprintf("%d", n) }
+		hx-post={ "/ui/devices/" + v.Name + "/speed" }
+		hx-vals={ fmt.Sprintf(`{"preset":%d}`, n) }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == fmt.Sprintf("preset%d", n)) }
 	>{ presetLabel(v, n) }</button>
@@ -66,8 +72,14 @@ templ presetBtn(v ui.DeviceView, n int) {
 
 templ manualBtn(v ui.DeviceView) {
 	<button
+		type="button"
 		data-action="manual-speed"
 		data-name={ v.Name }
+		hx-post={ "/ui/devices/" + v.Name + "/speed" }
+		hx-vals={ fmt.Sprintf(`{"manual":%d}`, manualBtnPct(v)) }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == "manual") }
 	>manual</button>
@@ -75,9 +87,15 @@ templ manualBtn(v ui.DeviceView) {
 
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
+		type="button"
 		data-action="mode"
 		data-name={ v.Name }
 		data-value={ value }
+		hx-post={ "/ui/devices/" + v.Name + "/mode" }
+		hx-vals={ `{"mode":"` + value + `"}` }
+		hx-target="closest .card"
+		hx-swap="outerHTML"
+		hx-disabled-elt="this"
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.AirflowMode == value) }
 	>{ label }</button>
@@ -98,6 +116,7 @@ templ manualSliderRow(v ui.DeviceView) {
 		<span class="fan-side"></span>
 		<input
 			type="range"
+			name="manual"
 			min="10"
 			max="100"
 			step="1"
@@ -105,9 +124,23 @@ templ manualSliderRow(v ui.DeviceView) {
 			data-action="manual-slider"
 			data-name={ v.Name }
 			data-side="manual"
+			hx-post={ "/ui/devices/" + v.Name + "/speed" }
+			hx-trigger="change delay:200ms"
+			hx-target="closest .card"
+			hx-swap="outerHTML"
+			hx-disabled-elt="this"
 		/>
 		<span class="val">{ fmt.Sprintf("%d%%", v.ManualPct) }</span>
 	</div>
+}
+
+// manualBtnPct returns the pct to send when the manual button is clicked.
+// Mirrors the legacy.js fallback: use cached manual_pct when ≥10, otherwise 50.
+func manualBtnPct(v ui.DeviceView) int {
+	if v.ManualPct >= 10 {
+		return v.ManualPct
+	}
+	return 50
 }
 
 // presetLabel returns "supply/extract" for a preset, matching the JS label.

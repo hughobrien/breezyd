@@ -224,6 +224,8 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /ui/devices", h.getUIDeviceList)
 	mux.HandleFunc("GET /ui/devices/{name}/card", h.getUIDeviceCard)
 	mux.HandleFunc("POST /ui/devices/{name}/power", h.postUIPower)
+	mux.HandleFunc("POST /ui/devices/{name}/mode", h.postUIMode)
+	mux.HandleFunc("POST /ui/devices/{name}/speed", h.postUISpeed)
 	mux.HandleFunc("GET /ui/legacy.js", h.getLegacyJS)
 	mux.HandleFunc("GET /ui/style-"+styleHash+".css", h.getStyle)
 	mux.HandleFunc("GET /ui/vendor/{file}", h.getVendor)

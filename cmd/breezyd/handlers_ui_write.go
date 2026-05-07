@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -57,6 +58,99 @@ func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, name
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	_ = templates.DeviceCard(view).Render(r.Context(), w)
+}
+
+// postUIMode sets the airflow mode.
+//
+// Form: mode=ventilation | regeneration | supply | extract
+func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	mode := r.FormValue("mode")
+	switch mode {
+	case "ventilation", "regeneration", "supply", "extract":
+		// valid
+	default:
+		h.uiValidationError(w, r, name, "mode must be one of ventilation/regeneration/supply/extract")
+		return
+	}
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetMode(ctx, rc, mode); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
+// postUISpeed sets the fan speed (manual percentage or preset).
+//
+// Form: manual=N (10..100) XOR preset=N (1..3)
+func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	manualStr := r.FormValue("manual")
+	presetStr := r.FormValue("preset")
+	hasManual := manualStr != ""
+	hasPreset := presetStr != ""
+	if hasManual == hasPreset {
+		h.uiValidationError(w, r, name, "set exactly one of 'preset' (1-3) or 'manual' (10-100)")
+		return
+	}
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var opErr error
+	if hasPreset {
+		n := 0
+		if _, err := fmt.Sscanf(presetStr, "%d", &n); err != nil || n < 1 || n > 3 {
+			h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
+			return
+		}
+		opErr = breezy.SetSpeedPreset(ctx, rc, n)
+	} else {
+		n := 0
+		if _, err := fmt.Sscanf(manualStr, "%d", &n); err != nil || n < 10 || n > 100 {
+			h.uiValidationError(w, r, name, "manual must be 10..100")
+			return
+		}
+		opErr = breezy.SetSpeedManual(ctx, rc, n)
+	}
+	if opErr != nil {
+		h.uiWriteError(w, r, opErr)
+		return
+	}
+	h.uiRenderCard(w, r, name)
 }
 
 // postUIPower toggles a device on/off.

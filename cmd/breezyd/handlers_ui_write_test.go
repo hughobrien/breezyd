@@ -147,3 +147,183 @@ func TestUIWritePower_AuthError(t *testing.T) {
 		t.Errorf("body missing auth error: %s", string(body))
 	}
 }
+
+// ---------- postUIMode tests ----------
+
+func TestUIWriteMode_Happy(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, mode := range []string{"ventilation", "regeneration", "supply", "extract"} {
+		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/mode", url.Values{"mode": {mode}})
+		if err != nil {
+			t.Fatalf("mode=%s: %v", mode, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 200 {
+			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `data-device="alpha"`) {
+			t.Errorf("mode=%s: body missing card markup: %s", mode, string(body))
+		}
+	}
+}
+
+func TestUIWriteMode_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/mode", url.Values{"mode": {"regeneration"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIWriteMode_BadForm(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Invalid mode value.
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/mode", url.Values{"mode": {"auto"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-device="alpha"`) {
+		t.Errorf("body missing card markup")
+	}
+	if !strings.Contains(string(body), "ventilation/regeneration/supply/extract") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
+// ---------- postUISpeed tests ----------
+
+func TestUIWriteSpeed_HappyManual(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"manual": {"50"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-device="alpha"`) {
+		t.Errorf("body missing card markup: %s", string(body))
+	}
+}
+
+func TestUIWriteSpeed_HappyPreset(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	for _, preset := range []string{"1", "2", "3"} {
+		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"preset": {preset}})
+		if err != nil {
+			t.Fatalf("preset=%s: %v", preset, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != 200 {
+			t.Fatalf("preset=%s: status=%d, want 200", preset, resp.StatusCode)
+		}
+	}
+}
+
+func TestUIWriteSpeed_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/speed", url.Values{"manual": {"50"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIWriteSpeed_BadForm_NeitherField(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "exactly one") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
+func TestUIWriteSpeed_BadForm_BothFields(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"manual": {"50"}, "preset": {"2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestUIWriteSpeed_BadForm_InvalidManual(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Out of range (5 < 10).
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"manual": {"5"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestUIWriteSpeed_BadForm_InvalidPreset(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Out of range (4 > 3).
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"preset": {"4"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+}
