@@ -27,7 +27,7 @@ against the same device.
   <img src="tests/ui/screenshots/homekit-accessories.png" width="45%" alt="Each Breezy as a separate AirPurifier accessory in the Apple Home rooms list" />
 </p>
 
-The bundled web UI is one HTML file served from the daemon at `GET /`; auto-refreshes every 5 s, controls power/mode/speed/heater/timer plus per-device 24-hour schedules. See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
+The bundled web dashboard is served from the daemon at `GET /`; it is server-rendered with `templ` + htmx and auto-refreshes every 5 s. It covers power/mode/speed/heater/timer plus per-device 24-hour schedules and supports dark mode (auto via `prefers-color-scheme`, manual via a theme picker). See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
 
 ## At a glance
 
@@ -61,9 +61,10 @@ What's covered:
   reset, RTC set.
 - Per-device snapshots and Prometheus metrics.
 - `breezy discover` for first-time bootstrap.
-- Single-page web dashboard at `GET /` on the daemon, served from the
-  same binary; auto-refreshes every 5 s; covers sensors, fans, service
-  info, and the four high-level controls (power / mode / speed / heater).
+- Server-rendered web dashboard at `GET /` on the daemon (templ + htmx),
+  served from the same binary; auto-refreshes every 5 s; covers sensors,
+  fans, service info, and the four high-level controls (power / mode /
+  speed / heater). Dark mode supported (auto + manual override).
 - Daemon-driven per-device schedules: edit a small `At | Action | Pct` table from the dashboard's collapsible SCHEDULE block; the daemon fires writes on schedule with bounded retry on failure and an alert banner on persistent failure.
 - Optional HomeKit bridge: each Breezy appears in the Apple Home app
   with power, fan speed, supply/extract switches, and the full sensor
@@ -566,8 +567,7 @@ If you turn on `[homekit]` in the config, also:
 
 ## Web UI
 
-The daemon serves a single-page dashboard at the root path of its HTTP
-listener:
+The daemon serves a server-rendered dashboard (templ + htmx) at the root path of its HTTP listener:
 
 ```
 http://127.0.0.1:9876/
@@ -581,7 +581,9 @@ battery, faults), firmware version, plus controls for power, airflow
 mode, fan speed (preset 1-3 or a manual % slider), heater, and the
 night/turbo special-mode timer. Sensor values display in red when the
 firmware's over-threshold flag is set. The page auto-refreshes every
-5 s; cards desaturate when their last poll is more than 90 s old.
+5 s; cards desaturate when their last poll is more than 90 s old. Dark
+mode follows `prefers-color-scheme` automatically; click the theme icon
+next to the title to override.
 
 The default `[daemon].listen` is `127.0.0.1:9876`, which means the
 dashboard is reachable only from the host running `breezyd`. To use it
@@ -856,13 +858,20 @@ Working on breezyd itself? Start here.
 
 ### Build from source
 
-Requires Go 1.22+ (developed on 1.26). No other system dependencies for the
-binaries themselves; the race-detector recipe (`just test-race`) needs a
-working C toolchain.
+Requires Go 1.22+ (developed on 1.26) and the `templ` CLI. No other system
+dependencies for the binaries themselves; the race-detector recipe
+(`just test-race`) needs a working C toolchain.
+
+`nix develop` provides all prerequisites including `templ`. Outside Nix:
 
 ```sh
-just build       # produces ./breezyd and ./breezy
-just check       # vet + fast tests (pre-commit gate)
+go install github.com/a-h/templ/cmd/templ@v0.3.x
+```
+
+```sh
+just generate    # run templ codegen (needed once after checkout or .templ edits)
+just build       # generate + produces ./breezyd and ./breezy
+just check       # vet + fast tests + templ-drift (pre-commit gate)
 just test-race   # full race-detector run (the CI command)
 ```
 
@@ -881,7 +890,9 @@ breezyd/
 │   ├── discover.go            # LAN broadcast
 │   └── fakedevice/            # in-process protocol-speaking fake for tests
 ├── cmd/breezyd/               # the daemon (HTTP + Prometheus + poller)
+│   └── ui/                    # templ templates, htmx vendor, style.css, view.go
 ├── cmd/breezy/                # the CLI (standalone UDP by default; daemon mode opt-in)
+├── cmd/fakedevice/            # build-tagged fakedevice binary with admin HTTP (for Playwright)
 ├── internal/config/           # TOML config loader, shared by both
 ├── tools/                     # Phase 0 Python probes (one-off, kept for reference)
 └── docs/superpowers/specs/    # design doc, parameter map, vendor PDF manual
@@ -897,12 +908,13 @@ just check                      # lint + fast tests (pre-commit gate)
 just check-all                  # check + test-race + Playwright UI suite
 ```
 
-UI tests are end-to-end Playwright specs under `tests/ui/` that mock the
-daemon's `/v1/...` endpoints via `page.route()` — no real `breezyd` needed:
+UI tests are end-to-end Playwright specs under `tests/ui/` that spawn a real
+`breezyd` process pointed at `cmd/fakedevice` (a build-tagged UDP fake with an
+HTTP admin control plane):
 
 ```sh
 just test-ui-install            # one-time: pnpm install + chromium download
-just test-ui                    # 11 specs, ~3 s
+just test-ui                    # 82 tests (66 active + 16 fixme), ~20 s
 just screenshot                 # re-render tests/ui/screenshots/*.png
 ```
 

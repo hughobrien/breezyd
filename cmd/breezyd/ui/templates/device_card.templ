@@ -1,0 +1,85 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+)
+
+// DeviceCard renders one device card. It composes all sub-block templates.
+templ DeviceCard(v ui.DeviceView) {
+	<div class={ "card", templ.KV("stale", v.Stale) } data-device={ v.Name }>
+		if v.PostError != "" {
+			<div class="card-error" role="alert">{ v.PostError }</div>
+		}
+		<details class="device-info" if v.NeedsAttention { open }>
+			<summary>
+				<h2>{ v.Name }</h2>
+				<button
+					type="button"
+					class="toggle toggle-inline"
+					hx-post={ "/ui/devices/" + v.Name + "/power" }
+					hx-vals={ fmt.Sprintf(`{"on": %t}`, !v.Power) }
+					hx-target="closest .card"
+					hx-swap="outerHTML"
+					hx-disabled-elt="this"
+					if v.Stale { disabled }
+					aria-pressed={ boolAttr(v.Power) }
+				>power</button>
+			</summary>
+			@kvRow("ip", v.IP)
+			@kvRow("serial", v.Serial)
+			@kvRow("firmware version", v.FirmwareVersion)
+			@kvRow("firmware date", v.FirmwareDate)
+			@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
+			@kvRow("motor", v.MotorLifetime)
+			@kvRow("RTC", v.RTCBattery)
+			@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
+		</details>
+		if v.Stale && v.LastPollAge != "" {
+			<div class="row"><span class="ts red">{ v.LastPollAge } ago</span></div>
+		} else if v.Stale {
+			<div class="row"><span class="ts red">no poll</span></div>
+		}
+		@EnergyBlock(v.Energy, false)
+		@SensorsBlock(v.Name, v.Sensors)
+		@ScheduleBlock(v.Name, v.Schedule, v.Stale)
+		@controlsBlock(v)
+	</div>
+}
+
+templ kvRow(k, v string) {
+	<div class="row"><span class="k">{ k }</span><span>{ v }</span></div>
+}
+
+// kvRowWithAction renders a kvRow with a small action button that POSTs via htmx.
+templ kvRowWithAction(k, v, label, postURL string) {
+	<div class="row">
+		<span class="k">{ k }</span>
+		<span>{ v }</span>
+		<button
+			type="button"
+			class="btn-inline"
+			hx-post={ postURL }
+			hx-target="closest .card"
+			hx-swap="outerHTML"
+			hx-disabled-elt="this"
+			hx-confirm={ "Run: " + label + "?" }
+		>{ label }</button>
+	</div>
+}
+
+// boolAttr converts a bool to the aria-pressed string "true"/"false".
+func boolAttr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+// filterStatusStr formats the filter status string (status + remaining days).
+func filterStatusStr(v ui.DeviceView) string {
+	if v.FilterRemaining != "" {
+		return fmt.Sprintf("%s (%s)", v.FilterStatus, v.FilterRemaining)
+	}
+	return v.FilterStatus
+}

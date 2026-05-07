@@ -1,0 +1,10 @@
+package templates
+
+import "github.com/hughobrien/breezyd/cmd/breezyd/ui"
+
+// DeviceList renders the full grid of device cards.
+templ DeviceList(views []ui.DeviceView) {
+	for _, v := range views {
+		@DeviceCard(v)
+	}
+}

@@ -1,0 +1,184 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+)
+
+// ScheduleBlock renders the collapsible SCHEDULE <details> block (read variant).
+// When s.Present is false, renders nothing.
+templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
+	if s.Present {
+		<details class="block schedule" if s.Alert { open }>
+			<summary><h3>SCHEDULE</h3></summary>
+			<div class="schedule-toolbar">
+				<label>
+					<input
+						type="checkbox"
+						if s.Enabled { checked }
+						if stale { disabled }
+						disabled
+					/>
+					enabled
+				</label>
+				<span class="grow"></span>
+				<button
+					hx-get={ "/ui/devices/" + name + "/schedule/edit" }
+					hx-target="closest .schedule"
+					hx-swap="outerHTML"
+					if stale { disabled }
+				>edit schedule</button>
+			</div>
+			if len(s.Entries) == 0 {
+				<div class="ctrl-label">no entries</div>
+			} else {
+				<table class="schedule-table">
+					<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
+					<tbody>
+						for _, e := range s.Entries {
+							@scheduleReadRow(e)
+						}
+					</tbody>
+				</table>
+			}
+			if s.Alert && s.LastApply != nil {
+				<div class="warn">
+					{ fmt.Sprintf("⚠ last apply %s failed: %s", s.LastApply.At, s.LastApply.Err) }
+					if s.LastApply.Retries > 0 {
+						<br/>
+						{ fmt.Sprintf("retried %d times", s.LastApply.Retries) }
+					}
+				</div>
+			}
+		</details>
+	}
+}
+
+// scheduleReadRow is a read-only row for the read variant.
+templ scheduleReadRow(e ui.ScheduleEntryView) {
+	<tr>
+		<td>{ e.At }</td>
+		<td>{ scheduleActionLabel(e.Action) }</td>
+		<td class={ templ.KV("pct-disabled", e.Action == "off") }>
+			if e.Action != "off" {
+				{ fmt.Sprintf("%d%%", e.Pct) }
+			} else {
+				—
+			}
+		</td>
+		<td></td>
+	</tr>
+}
+
+// ScheduleBlockEdit renders the edit variant of the SCHEDULE block.
+templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg string) {
+	<details class="block schedule" open>
+		<summary><h3>SCHEDULE</h3></summary>
+		<form
+			hx-put={ "/ui/devices/" + name + "/schedule" }
+			hx-target="closest .schedule"
+			hx-swap="outerHTML"
+		>
+			<div class="schedule-toolbar">
+				<label>
+					<input
+						type="checkbox"
+						name="enabled"
+						value="true"
+						if s.Enabled { checked }
+					/>
+					enabled
+				</label>
+				<span class="grow"></span>
+				<button
+					type="button"
+					hx-get={ "/ui/devices/" + name + "/schedule/new-row" }
+					hx-target=".schedule-edit-tbody"
+					hx-swap="beforeend"
+				>+ add row</button>
+				<button
+					type="button"
+					hx-get={ "/ui/devices/" + name + "/schedule" }
+					hx-target="closest .schedule"
+					hx-swap="outerHTML"
+				>cancel</button>
+				<button type="submit">save</button>
+			</div>
+			if errMsg != "" {
+				<div class="warn">{ errMsg }</div>
+			}
+			<table class="schedule-table">
+				<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
+				<tbody class="schedule-edit-tbody">
+					for _, e := range s.Entries {
+						@ScheduleEditRow(e)
+					}
+				</tbody>
+			</table>
+		</form>
+	</details>
+}
+
+// ScheduleEditRow renders one editable row in the edit variant.
+// Exported so getUIScheduleNewRow can render it standalone.
+templ ScheduleEditRow(e ui.ScheduleEntryView) {
+	<tr>
+		<td>
+			<input
+				type="time"
+				name="at"
+				value={ e.At }
+				required
+			/>
+		</td>
+		<td>
+			<select name="action">
+				@scheduleActionOption("ventilation", "auto", e.Action)
+				@scheduleActionOption("regeneration", "regen", e.Action)
+				@scheduleActionOption("supply", "supply", e.Action)
+				@scheduleActionOption("extract", "exhaust", e.Action)
+				@scheduleActionOption("off", "off", e.Action)
+			</select>
+		</td>
+		<td>
+			<input
+				type="number"
+				name="pct"
+				min="10"
+				max="100"
+				value={ fmt.Sprintf("%d", e.Pct) }
+				class={ templ.KV("pct-disabled", e.Action == "off") }
+				if e.Action == "off" { readonly }
+			/>
+		</td>
+		<td>
+			<button
+				type="button"
+				class="del"
+				hx-on:click="this.closest('tr').remove()"
+			>×</button>
+		</td>
+	</tr>
+}
+
+templ scheduleActionOption(value, label, current string) {
+	<option value={ value } if value == current { selected }>{ label }</option>
+}
+
+// scheduleActionLabel maps action values to display labels.
+func scheduleActionLabel(action string) string {
+	switch action {
+	case "ventilation":
+		return "auto"
+	case "regeneration":
+		return "regen"
+	case "supply":
+		return "supply"
+	case "extract":
+		return "exhaust"
+	case "off":
+		return "off"
+	default:
+		return action
+	}
+}

@@ -1,0 +1,436 @@
+:root {
+  --bg:               #f6f6f6;
+  --bg-card:          #fff;
+  --bg-button:        #fafafa;
+  --bg-elevated:      #f5f5f5;
+  --bg-hover:         #eee;
+  --bg-error:         #fee;
+  --fg:               #111;
+  --fg-weak:         #666;
+  --fg-faint:        #888;
+  --fg-strong:     #444;
+  --fg-medium:         #555;
+  --fg-heading:       #333;
+  --border:           #eee;
+  --border-card:      #ccc;
+  --border-elevated:  #ddd;
+  --border-input:     #aaa;
+  --border-hover:     #888;
+  --border-error:     #c66;
+  --error:            #c00;
+  --error-text:       #800;
+  --warn:             #b07000;
+  --success:          #383;
+  --accent:           #276;
+  --accent-text:      #fff;
+  --accent-border:    #154;
+  --heater-active:    #b22;
+  --heater-border:    #800;
+  --focus:            #36c;
+  --shadow:           rgba(0, 0, 0, 0.25);
+  --slider-snap-zone: rgba(220, 60, 60, 0.35);
+}
+
+* { box-sizing: border-box; }
+body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  margin: 0; padding: 1rem;
+  color: var(--fg); background: var(--bg);
+}
+header { margin-bottom: 1rem; }
+h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+/* Cards capped at 360px (~20% narrower than the previous full-fr layout)
+   so wide viewports leave generous breathing space rather than stretching
+   each card to filling-the-screen width. minmax(0, …) lets columns shrink
+   gracefully on intermediate widths before the 900px single-column flip. */
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 360px)); gap: 1rem; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.card {
+  background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 6px;
+  padding: 1rem;
+  transition: opacity 0.3s;
+}
+/* Stale card (no poll for >90 s): half-transparent AND fully desaturated.
+   Greyscale kills the green power dot, red alerts, heater red, etc., so
+   colour signals can't mislead while the underlying data is potentially
+   out of date. The .ts.red timestamp still tells the user why. */
+.card.stale { opacity: 0.5; filter: grayscale(1); }
+.card h2 {
+  margin: 0; font-size: 1rem; font-weight: 600;
+  /* Long device names shouldn't push the on/off indicator off-card. */
+  max-width: 65%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card .ip { color: var(--fg-weak); font-size: 0.85rem; }
+.ts { font-size: 0.85rem; color: var(--fg-weak); }
+.ts.red { color: var(--error); }
+.power-on { color: var(--success); }
+.power-off { color: var(--error); }
+.row { display: flex; justify-content: space-between; padding: 0.1rem 0; align-items: baseline; }
+/* .k matches the Sensors block's small grey labels so the expanded
+   Device Info reads as one consistent body. */
+.k { color: var(--fg-weak); font-size: 0.7rem; }
+/* Match the value font to the key font inside Device Info so both
+   sides of each row read at the same scale. */
+.device-info .row > span { font-size: 0.7rem; }
+/* Small action button that lives inside a device-info .row (reset filter / reset faults). */
+.btn-inline {
+  font-size: 0.65rem; padding: 0.05rem 0.4rem; margin-left: 0.4rem;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg); color: var(--fg-weak); cursor: pointer;
+}
+.btn-inline:hover:not(:disabled) { background: var(--bg-alt); color: var(--fg); }
+.btn-inline:disabled { opacity: 0.5; cursor: not-allowed; }
+.block { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.block h3,
+.block summary {
+  margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
+  color: var(--fg-heading); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.block summary { cursor: pointer; }
+.block summary::marker { font-size: 0.7em; color: var(--fg-faint); }
+/* Device <details> uses the device name (<h2>) as the summary so
+   clicking the name expands the panel. Layout is a flex row so the
+   name sits on the left and the inline Power button on the right. */
+.device-info > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 1ch;
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 0.25rem;
+}
+.device-info > summary > .toggle-inline { margin-left: auto; }
+.device-info > summary::-webkit-details-marker { display: none; }
+.device-info > summary::before {
+  content: "▶";
+  font-size: 0.65em;
+  color: var(--fg-faint);
+  align-self: center;
+}
+.device-info[open] > summary::before { content: "▼"; }
+.device-info > summary > h2 { margin: 0; flex: 1 1 auto; }
+/* ENERGY and Sensors <details>: same chevron-on-the-left treatment as
+   Device Info, so the marker sits beside the heading instead of stacking
+   under it. Without this, the browser-default marker overlaps the <h3>
+   content. Sensors is expanded by default; alert-active force-expansion
+   is computed in JS, see renderCard. */
+details.energy > summary,
+details.block.sensors > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 1ch;
+  cursor: pointer;
+  list-style: none;
+}
+details.energy > summary::-webkit-details-marker,
+details.block.sensors > summary::-webkit-details-marker { display: none; }
+details.energy > summary::before,
+details.block.sensors > summary::before {
+  content: "▶";
+  font-size: 0.65em;
+  color: var(--fg-faint);
+  align-self: center;
+}
+details.energy[open] > summary::before,
+details.block.sensors[open] > summary::before { content: "▼"; }
+details.energy > summary > h3,
+details.block.sensors > summary > h3 { margin: 0; }
+details.block.schedule > summary {
+  display: flex; align-items: baseline; gap: 1ch; cursor: pointer;
+  list-style: none;
+}
+details.block.schedule > summary::-webkit-details-marker { display: none; }
+details.block.schedule > summary::before {
+  content: "▶"; font-size: 0.65em; color: var(--fg-faint); align-self: center;
+}
+details.block.schedule[open] > summary::before { content: "▼"; }
+details.block.schedule > summary > h3 { margin: 0; }
+.schedule-toolbar {
+  display: flex; gap: 0.5rem; align-items: center;
+  margin: 0.4rem 0; font-size: 0.8rem;
+}
+.schedule-toolbar .grow { flex: 1 1 auto; }
+.schedule-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.schedule-table th, .schedule-table td {
+  padding: 0.2rem 0.3rem; text-align: left; border-bottom: 1px solid var(--border);
+}
+.schedule-table th { color: var(--fg-weak); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
+.schedule-table input[type="text"],
+.schedule-table select,
+.schedule-table input[type="number"] {
+  font-family: inherit; font-size: 0.8rem; padding: 0.1rem 0.2rem;
+}
+.schedule-table input.at { width: 7ch; text-align: center; }
+.schedule-table input.pct-disabled { background: var(--bg-hover); color: var(--fg-faint); }
+.schedule-table tr.row-error td { background: var(--bg-error); }
+.schedule-table button.del { font-size: 0.85rem; padding: 0 0.4rem; }
+.warn { color: var(--warn); font-size: 0.85rem; margin-top: 0.4rem; }
+.err-banner {
+  background: var(--bg-error); border: 1px solid var(--border-error); padding: 0.75rem;
+  border-radius: 6px; margin-bottom: 1rem; color: var(--error-text);
+}
+.fw { font-size: 0.75rem; color: var(--fg-faint); margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.controls { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.controls h3 {
+  margin: 0 0 0.25rem; font-size: 0.75rem; font-weight: 600;
+  color: var(--fg-heading); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.ctrl { margin: 0.4rem 0; }
+.ctrl-label { color: var(--fg-weak); font-size: 0.75rem; margin-bottom: 0.15rem; display: block; }
+.seg { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.seg button, .toggle {
+  font-family: inherit; font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-input); background: var(--bg-button);
+  border-radius: 4px; cursor: pointer;
+}
+.seg button { flex: 1 1 auto; }
+.toggle    { padding: 0.3rem 0.6rem; width: 100%; }
+/* Hover affordance — split by active state. Non-active buttons get a
+   subtle background fade; active buttons (aria-pressed="true") keep
+   their colour and instead gain a small drop shadow. Without this
+   split the .toggle:hover rule's background:#eee outranked the
+   aria-pressed coloured background and active buttons went grey. */
+.seg button:hover:not(:disabled):not([aria-pressed="true"]),
+.toggle:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: var(--bg-hover); border-color: var(--border-hover);
+}
+.seg button[aria-pressed="true"]:hover:not(:disabled),
+.toggle[aria-pressed="true"]:hover:not(:disabled) {
+  box-shadow: 0 1px 3px var(--shadow);
+}
+.seg button:focus-visible,
+.toggle:focus-visible        { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* #276 (vs the lighter #4a7) clears WCAG AA contrast against white. */
+.seg button[aria-pressed="true"],
+.toggle[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent-border); }
+/* The Heater toggle reads as "active heat" — use red instead of the
+   default green so it's visually distinct from the Power toggle. */
+.toggle[data-action="heater"][aria-pressed="true"] {
+  background: var(--heater-active); border-color: var(--heater-border);
+}
+.seg button:disabled,
+.toggle:disabled             { opacity: 0.5; cursor: not-allowed; }
+.slider-row { display: flex; gap: 0.5rem; align-items: center; }
+.slider-row input[type=range] { flex: 1; }
+/* Symmetric spacer on the left so the slider track sits centered in the
+   row instead of being pushed left by the right-side .val readout. */
+.slider-row .val-spacer,
+.slider-row .val { min-width: 3rem; }
+.slider-row .val { text-align: right; font-variant-numeric: tabular-nums; }
+/* Left-side label used by the preset editor's two sliders so users can
+   tell supply from exhaust at a glance, and by the fan-slider-row for
+   the live rpm readout. 4.5rem fits "5340rpm" without clipping. */
+.slider-row .val-label {
+  min-width: 4.5rem; color: var(--fg-weak); font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+/* Fan-side identifier ("supply" / "exhaust") at the very left of the
+   fan-slider-row. 7ch fits the longer word ("exhaust") so the rpm
+   column lines up across both rows. */
+.slider-row .fan-side {
+  min-width: 7ch; color: var(--fg-weak); font-size: 0.75rem;
+}
+.slider-row input[type=range]:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Editor sliders: tint the 0-10% portion of the track red as a visual
+   cue that this range snaps to 0 (off). The native track gets a
+   translucent red overlay; sliders elsewhere keep their default look. */
+.slider-row input[type=range][data-action="preset-supply-slider"],
+.slider-row input[type=range][data-action="preset-extract-slider"] {
+  background: linear-gradient(to right,
+    var(--slider-snap-zone) 0%,
+    var(--slider-snap-zone) 10%,
+    transparent 10%,
+    transparent 100%);
+  border-radius: 3px;
+}
+/* Breathing room above the manual slider so it doesn't crowd the
+   Mode segmented control directly above it. */
+.fan-slider-row { margin-top: 0.5rem; }
+/* Same idea for the timer countdown line — it sits directly under the
+   night/turbo seg, and without a gap the two visually fuse. */
+.timer-remaining { margin-top: 0.4rem; }
+/* Preset editor: a tight inline panel under the preset buttons. */
+.preset-editor {
+  margin-top: 0.4rem; padding: 0.4rem 0.5rem;
+  background: var(--bg-elevated); border: 1px solid var(--border-elevated); border-radius: 4px;
+  display: flex; flex-direction: column; gap: 0.3rem;
+}
+.preset-editor .match-speeds {
+  font-size: 0.75rem; color: var(--fg-strong); display: inline-flex;
+  align-items: center; gap: 0.3rem;
+}
+.toast {
+  background: var(--bg-error); border: 1px solid var(--border-error); color: var(--error-text);
+  padding: 0.3rem 0.4rem; border-radius: 4px; font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+.toggle-row { display: flex; gap: 0.5rem; }
+.toggle-cell { flex: 1 1 0; min-width: 0; }
+/* Inline variant of .toggle: ~12ch wide (monospace font, so 12 char
+   widths), sits on the right of the device-name row instead of
+   stretching full-width. */
+.toggle-inline { width: auto; padding: 0.2rem 0.8rem; min-width: 12ch; }
+/* ctrl-pair: two labelled groups side-by-side in one .ctrl row.
+   Used by Timer + Heater so they share a row but keep distinct labels. */
+.ctrl-pair { display: flex; gap: 0.75rem; align-items: flex-start; }
+.ctrl-group-timer { flex: 1 1 auto; min-width: 0; }
+.ctrl-group-heater { flex: 0 0 auto; }
+.alert-fire { color: var(--error); }
+.value-clickable { cursor: pointer; }
+.value-clickable:hover {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+/* 2-column grid for the unified Sensors block (eCO₂/VOC, RH/recovery,
+   supply/exhaust temps, post-HRV temps, deltas, fan rpms). Each cell
+   is a small label above its value. */
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.4rem 0.5rem;
+  margin-top: 0.4rem;
+}
+.sensor-grid.energy-grid { grid-template-columns: repeat(3, 1fr); }
+.sensor-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sensor-label { color: var(--fg-weak); font-size: 0.7rem; }
+.thresh-edit { display: inline-flex; align-items: center; gap: 0.25rem; }
+.thresh-input {
+  width: 4.5rem; padding: 0.1rem 0.25rem;
+  font-family: inherit; font-size: 0.85rem;
+  border: 1px solid var(--border-input); border-radius: 3px;
+}
+.thresh-edit button {
+  font-family: inherit; font-size: 0.85rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border-input); background: var(--bg-button);
+  border-radius: 3px; cursor: pointer;
+}
+.thresh-edit button:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-hover); }
+.thresh-edit button:disabled,
+.thresh-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.thresh-edit-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.thresh-edit-inline .thresh-input {
+  width: 4.5rem;
+  padding: 0.05rem 0.2rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid var(--border-input);
+  border-radius: 3px;
+}
+.thresh-auto-fan {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--fg-medium);
+  cursor: pointer;
+  user-select: none;
+}
+.thresh-auto-fan-input { margin: 0; }
+.thresh-auto-fan-input:disabled { cursor: not-allowed; }
+.thresh-edit-inline button {
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border-input);
+  background: var(--bg-button);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.thresh-edit-inline button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+.thresh-edit-inline button:disabled,
+.thresh-edit-inline .thresh-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Dark mode ──────────────────────────────────────────────────────────────
+   Two identical blocks:
+     1. @media block  — follows OS preference, loses to data-theme="light"
+     2. :root[data-theme="dark"] — explicit override, wins over everything
+   They are intentionally duplicated (no :where() tricks) so both blocks
+   stay auditable side-by-side.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:               #0d0d10;
+    --bg-card:          #1a1a1f;
+    --bg-button:        #22222a;
+    --bg-elevated:      #28282f;
+    --bg-hover:         #33333a;
+    --bg-error:         #3a1a1c;
+    --fg:               #e8e8ea;
+    --fg-weak:          #888892;
+    --fg-faint:         #666670;
+    --fg-strong:        #d0d0d4;
+    --fg-medium:        #a0a0a6;
+    --fg-heading:       #f0f0f2;
+    --border:           #2a2a30;
+    --border-card:      #3a3a40;
+    --border-elevated:  #333338;
+    --border-input:     #4a4a52;
+    --border-hover:     #5a5a64;
+    --border-error:     #aa4444;
+    --error:            #ef4444;
+    --error-text:       #ff8080;
+    --warn:             #f59e0b;
+    --success:          #10b981;
+    --accent:           #4a9b8a;
+    --accent-text:      #0d0d10;
+    --accent-border:    #2d7060;
+    --heater-active:    #dc3030;
+    --heater-border:    #992020;
+    --focus:            #5589ee;
+    --shadow:           rgba(0, 0, 0, 0.55);
+    --slider-snap-zone: rgba(255, 80, 80, 0.40);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:               #0d0d10;
+  --bg-card:          #1a1a1f;
+  --bg-button:        #22222a;
+  --bg-elevated:      #28282f;
+  --bg-hover:         #33333a;
+  --bg-error:         #3a1a1c;
+  --fg:               #e8e8ea;
+  --fg-weak:          #888892;
+  --fg-faint:         #666670;
+  --fg-strong:        #d0d0d4;
+  --fg-medium:        #a0a0a6;
+  --fg-heading:       #f0f0f2;
+  --border:           #2a2a30;
+  --border-card:      #3a3a40;
+  --border-elevated:  #333338;
+  --border-input:     #4a4a52;
+  --border-hover:     #5a5a64;
+  --border-error:     #aa4444;
+  --error:            #ef4444;
+  --error-text:       #ff8080;
+  --warn:             #f59e0b;
+  --success:          #10b981;
+  --accent:           #4a9b8a;
+  --accent-text:      #0d0d10;
+  --accent-border:    #2d7060;
+  --heater-active:    #dc3030;
+  --heater-border:    #992020;
+  --focus:            #5589ee;
+  --shadow:           rgba(0, 0, 0, 0.55);
+  --slider-snap-zone: rgba(255, 80, 80, 0.40);
+}

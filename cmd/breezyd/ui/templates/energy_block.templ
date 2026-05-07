@@ -1,0 +1,78 @@
+package templates
+
+import (
+	"fmt"
+	"math"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+)
+
+// EnergyBlock renders the collapsible ENERGY <details> block.
+// When ev is nil, renders nothing.
+templ EnergyBlock(ev *ui.EnergyView, open bool) {
+	if ev != nil {
+		<details class="block energy" if open { open }>
+			<summary><h3>ENERGY</h3></summary>
+			if ev.Error != "" {
+				<div class="warn">{ ev.Error }</div>
+			} else {
+				@energyGrid(ev)
+			}
+		</details>
+	}
+}
+
+templ energyGrid(ev *ui.EnergyView) {
+	<div class="sensor-grid energy-grid">
+		@energyCell("regen power", fmtRegenPower(ev.InstantW))
+		@energyCell("regen cost", fmtW(ev.ConsumedW))
+		@energyCell("COP", fmtCOP(ev.InstantW, ev.ConsumedW))
+		@energyCell("COP today", fmtCOP(ev.HeatingTodayKWh+ev.CoolingTodayKWh, ev.ConsumedTodayKWh))
+		@energyCell("COP month", fmtCOP(ev.HeatingMonthKWh+ev.CoolingMonthKWh, ev.ConsumedMonthKWh))
+		@energyCell("COP lifetime", fmtCOP(ev.HeatingLifetimeKWh+ev.CoolingLifetimeKWh, ev.ConsumedLifetimeKWh))
+		@energyCell("heating today", fmtKWh(ev.HeatingTodayKWh))
+		@energyCell("heating month", fmtKWh(ev.HeatingMonthKWh))
+		@energyCell("heating lifetime", fmtKWh(ev.HeatingLifetimeKWh))
+		@energyCell("cooling today", fmtKWh(ev.CoolingTodayKWh))
+		@energyCell("cooling month", fmtKWh(ev.CoolingMonthKWh))
+		@energyCell("cooling lifetime", fmtKWh(ev.CoolingLifetimeKWh))
+		@energyCell("consumed today", fmtKWh(ev.ConsumedTodayKWh))
+		@energyCell("consumed month", fmtKWh(ev.ConsumedMonthKWh))
+		@energyCell("consumed lifetime", fmtKWh(ev.ConsumedLifetimeKWh))
+	</div>
+}
+
+templ energyCell(label, value string) {
+	<div class="sensor-cell">
+		<div class="sensor-label">{ label }</div>
+		<div>{ value }</div>
+	</div>
+}
+
+func fmtKWh(v float64) string {
+	return fmt.Sprintf("%.2f kWh", v)
+}
+
+func fmtW(v float64) string {
+	return fmt.Sprintf("%d W", int(math.Round(v)))
+}
+
+func fmtRegenPower(w float64) string {
+	if w > 0 {
+		return fmt.Sprintf("%d W heating", int(math.Round(w)))
+	}
+	if w < 0 {
+		return fmt.Sprintf("%d W cooling", int(math.Round(-w)))
+	}
+	return "0 W"
+}
+
+func fmtCOP(num, den float64) string {
+	if den <= 0 {
+		return "—"
+	}
+	r := math.Abs(num) / den
+	if math.IsInf(r, 0) || math.IsNaN(r) {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f", r)
+}
