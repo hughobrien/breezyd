@@ -5,7 +5,7 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
-// ScheduleBlock renders the collapsible SCHEDULE <details> block.
+// ScheduleBlock renders the collapsible SCHEDULE <details> block (read variant).
 // When s.Present is false, renders nothing.
 templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 	if s.Present {
@@ -15,16 +15,19 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 				<label>
 					<input
 						type="checkbox"
-						data-action="schedule-enabled"
-						data-name={ name }
 						if s.Enabled { checked }
 						if stale { disabled }
+						disabled
 					/>
 					enabled
 				</label>
 				<span class="grow"></span>
-				<button data-action="schedule-add" data-name={ name } if stale { disabled }>+ add entry</button>
-				<button data-action="schedule-save" data-name={ name } if stale { disabled }>save</button>
+				<button
+					hx-get={ "/ui/devices/" + name + "/schedule/edit" }
+					hx-target="closest .schedule"
+					hx-swap="outerHTML"
+					if stale { disabled }
+				>edit schedule</button>
 			</div>
 			if len(s.Entries) == 0 {
 				<div class="ctrl-label">no entries</div>
@@ -32,8 +35,8 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 				<table class="schedule-table">
 					<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
 					<tbody>
-						for i, e := range s.Entries {
-							@scheduleRow(name, e, i, stale)
+						for _, e := range s.Entries {
+							@scheduleReadRow(e)
 						}
 					</tbody>
 				</table>
@@ -51,25 +54,85 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 	}
 }
 
-templ scheduleRow(name string, e ui.ScheduleEntryView, i int, stale bool) {
-	<tr data-row={ fmt.Sprintf("%d", i) } data-name={ name }>
+// scheduleReadRow is a read-only row for the read variant.
+templ scheduleReadRow(e ui.ScheduleEntryView) {
+	<tr>
+		<td>{ e.At }</td>
+		<td>{ scheduleActionLabel(e.Action) }</td>
+		<td class={ templ.KV("pct-disabled", e.Action == "off") }>
+			if e.Action != "off" {
+				{ fmt.Sprintf("%d%%", e.Pct) }
+			} else {
+				—
+			}
+		</td>
+		<td></td>
+	</tr>
+}
+
+// ScheduleBlockEdit renders the edit variant of the SCHEDULE block.
+templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg string) {
+	<details class="block schedule" open>
+		<summary><h3>SCHEDULE</h3></summary>
+		<form
+			hx-put={ "/ui/devices/" + name + "/schedule" }
+			hx-target="closest .schedule"
+			hx-swap="outerHTML"
+		>
+			<div class="schedule-toolbar">
+				<label>
+					<input
+						type="checkbox"
+						name="enabled"
+						value="true"
+						if s.Enabled { checked }
+					/>
+					enabled
+				</label>
+				<span class="grow"></span>
+				<button
+					type="button"
+					hx-get={ "/ui/devices/" + name + "/schedule/new-row" }
+					hx-target=".schedule-edit-tbody"
+					hx-swap="beforeend"
+				>+ add row</button>
+				<button
+					type="button"
+					hx-get={ "/ui/devices/" + name + "/schedule" }
+					hx-target="closest .schedule"
+					hx-swap="outerHTML"
+				>cancel</button>
+				<button type="submit">save</button>
+			</div>
+			if errMsg != "" {
+				<div class="warn">{ errMsg }</div>
+			}
+			<table class="schedule-table">
+				<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
+				<tbody class="schedule-edit-tbody">
+					for _, e := range s.Entries {
+						@ScheduleEditRow(e)
+					}
+				</tbody>
+			</table>
+		</form>
+	</details>
+}
+
+// ScheduleEditRow renders one editable row in the edit variant.
+// Exported so getUIScheduleNewRow can render it standalone.
+templ ScheduleEditRow(e ui.ScheduleEntryView) {
+	<tr>
 		<td>
 			<input
-				type="text"
-				inputmode="numeric"
-				maxlength="5"
-				pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$"
-				class="at"
-				placeholder="HH:MM"
-				data-action="schedule-at"
-				data-row={ fmt.Sprintf("%d", i) }
-				data-name={ name }
+				type="time"
+				name="at"
 				value={ e.At }
-				if stale { disabled }
+				required
 			/>
 		</td>
 		<td>
-			<select data-action="schedule-action" data-row={ fmt.Sprintf("%d", i) } data-name={ name } if stale { disabled }>
+			<select name="action">
 				@scheduleActionOption("ventilation", "auto", e.Action)
 				@scheduleActionOption("regeneration", "regen", e.Action)
 				@scheduleActionOption("supply", "supply", e.Action)
@@ -80,23 +143,42 @@ templ scheduleRow(name string, e ui.ScheduleEntryView, i int, stale bool) {
 		<td>
 			<input
 				type="number"
+				name="pct"
 				min="10"
 				max="100"
-				data-action="schedule-pct"
-				data-row={ fmt.Sprintf("%d", i) }
-				data-name={ name }
-				class={ templ.KV("pct-disabled", e.Action == "off") }
 				value={ fmt.Sprintf("%d", e.Pct) }
+				class={ templ.KV("pct-disabled", e.Action == "off") }
 				if e.Action == "off" { readonly }
-				if stale { disabled }
 			/>
 		</td>
 		<td>
-			<button class="del" data-action="schedule-del" data-row={ fmt.Sprintf("%d", i) } data-name={ name } if stale { disabled }>×</button>
+			<button
+				type="button"
+				class="del"
+				hx-on:click="this.closest('tr').remove()"
+			>×</button>
 		</td>
 	</tr>
 }
 
 templ scheduleActionOption(value, label, current string) {
 	<option value={ value } if value == current { selected }>{ label }</option>
+}
+
+// scheduleActionLabel maps action values to display labels.
+func scheduleActionLabel(action string) string {
+	switch action {
+	case "ventilation":
+		return "auto"
+	case "regeneration":
+		return "regen"
+	case "supply":
+		return "supply"
+	case "extract":
+		return "exhaust"
+	case "off":
+		return "off"
+	default:
+		return action
+	}
 }

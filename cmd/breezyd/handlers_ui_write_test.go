@@ -680,3 +680,302 @@ func TestUIThresholdPut_BadForm_NeitherValueNorEnabled(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 }
+
+// ---------- schedule endpoint tests ----------
+
+// newUIScheduleTestHandler extends newUIWriteTestHandler with a per-device
+// Scheduler so the schedule UI endpoints have a working Scheduler.Snapshot()
+// and Scheduler.Replace().
+func newUIScheduleTestHandler(t *testing.T) *Handler {
+	t.Helper()
+	h := newUIWriteTestHandler(t)
+	stateDir := t.TempDir()
+	sch := &Scheduler{Device: "alpha", StateDir: stateDir}
+	sch.Load()
+	h.Schedulers = map[string]*Scheduler{"alpha": sch}
+	return h
+}
+
+// putUISchedule issues a PUT to /ui/devices/{name}/schedule with form-encoded body.
+func putUIScheduleForm(t *testing.T, base, name string, vals url.Values) *http.Response {
+	t.Helper()
+	body := strings.NewReader(vals.Encode())
+	req, err := http.NewRequest(http.MethodPut, base+"/ui/devices/"+name+"/schedule", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestUIScheduleGet_Read(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	if !strings.Contains(bs, `class="block schedule"`) {
+		t.Errorf("body missing schedule block: %s", bs)
+	}
+	if !strings.Contains(bs, `no entries`) {
+		t.Errorf("body missing 'no entries' text: %s", bs)
+	}
+}
+
+func TestUIScheduleGet_Read_NotFound(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIScheduleGet_Edit(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	// Pre-load an entry so we can verify it renders in edit form.
+	sch := h.Schedulers["alpha"]
+	at, _ := ParseScheduleTime("08:00")
+	_ = sch.Replace(true, []ScheduleEntry{{At: at, Action: "regeneration", Pct: 60}})
+
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	if !strings.Contains(bs, `hx-put="/ui/devices/alpha/schedule"`) {
+		t.Errorf("body missing form hx-put: %s", bs)
+	}
+	if !strings.Contains(bs, `name="at"`) {
+		t.Errorf("body missing at input: %s", bs)
+	}
+	if !strings.Contains(bs, `name="action"`) {
+		t.Errorf("body missing action select: %s", bs)
+	}
+}
+
+func TestUIScheduleGet_Edit_NotFound(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule/edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIScheduleGet_NewRow(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/new-row")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	if !strings.Contains(bs, `<tr>`) {
+		t.Errorf("body missing <tr>: %s", bs)
+	}
+	if !strings.Contains(bs, `name="at"`) {
+		t.Errorf("body missing at input: %s", bs)
+	}
+	if !strings.Contains(bs, `name="action"`) {
+		t.Errorf("body missing action select: %s", bs)
+	}
+	if !strings.Contains(bs, `name="pct"`) {
+		t.Errorf("body missing pct input: %s", bs)
+	}
+}
+
+func TestUIScheduleGet_NewRow_NotFound(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule/new-row")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUISchedulePut_Happy(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIScheduleForm(t, srv.URL, "alpha", url.Values{
+		"enabled": {"true"},
+		"at":      {"08:00", "22:00"},
+		"action":  {"regeneration", "off"},
+		"pct":     {"60", "10"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	// Returns read variant — should show schedule block with rows.
+	if !strings.Contains(bs, `class="block schedule"`) {
+		t.Errorf("body missing schedule block: %s", bs)
+	}
+	// Verify the scheduler was actually updated.
+	snap := h.Schedulers["alpha"].Snapshot()
+	if !snap.Enabled {
+		t.Errorf("scheduler not enabled after PUT")
+	}
+	if len(snap.Entries) != 2 {
+		t.Errorf("entry count: got %d, want 2", len(snap.Entries))
+	}
+}
+
+func TestUISchedulePut_Empty(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	// Pre-load entries so we can verify they get cleared.
+	sch := h.Schedulers["alpha"]
+	at, _ := ParseScheduleTime("08:00")
+	_ = sch.Replace(true, []ScheduleEntry{{At: at, Action: "regeneration", Pct: 60}})
+
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// PUT with no rows (no at/action/pct fields) → empty schedule.
+	resp := putUIScheduleForm(t, srv.URL, "alpha", url.Values{
+		"enabled": {"true"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	}
+	snap := h.Schedulers["alpha"].Snapshot()
+	if len(snap.Entries) != 0 {
+		t.Errorf("entry count after empty PUT: got %d, want 0", len(snap.Entries))
+	}
+}
+
+func TestUISchedulePut_NotFound(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIScheduleForm(t, srv.URL, "nope", url.Values{
+		"enabled": {"true"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUISchedulePut_BadForm_InvalidTime(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIScheduleForm(t, srv.URL, "alpha", url.Values{
+		"at":     {"25:00"},
+		"action": {"regeneration"},
+		"pct":    {"60"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	// Returns edit variant with error message.
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	if !strings.Contains(bs, "invalid") {
+		t.Errorf("body missing error message: %s", bs)
+	}
+}
+
+func TestUISchedulePut_BadForm_InvalidAction(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIScheduleForm(t, srv.URL, "alpha", url.Values{
+		"at":     {"08:00"},
+		"action": {"turbo"},
+		"pct":    {"60"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	if !strings.Contains(bs, "invalid action") {
+		t.Errorf("body missing invalid action error: %s", bs)
+	}
+}
+
+func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Duplicate at-times → Scheduler.Replace returns ErrInvalidArg.
+	resp := putUIScheduleForm(t, srv.URL, "alpha", url.Values{
+		"at":     {"08:00", "08:00"},
+		"action": {"regeneration", "off"},
+		"pct":    {"60", "10"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: %d, want 422, body: %s", resp.StatusCode, body)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	// Edit variant rendered with error message.
+	if !strings.Contains(bs, `hx-put="/ui/devices/alpha/schedule"`) {
+		t.Errorf("body missing edit form: %s", bs)
+	}
+}

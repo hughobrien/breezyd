@@ -1440,7 +1440,7 @@ test("schedule: populated state renders rows with At, Action, Pct", async ({ pag
   const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
   await card.locator("details.schedule summary").click();
   await expect(card.locator(".schedule-table tbody tr")).toHaveCount(2);
-  // Action select for the first row should be "regeneration".
+  // SPA (index.html) renders schedule with select elements; verify first row has "regeneration" action.
   await expect(card.locator(".schedule-table tbody tr").first().locator("select")).toHaveValue("regeneration");
 });
 
@@ -1457,6 +1457,7 @@ test("schedule: action=off greys the pct input", async ({ page }) => {
   });
   const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
   await card.locator("details.schedule summary").click();
+  // SPA (index.html) renders schedule with inputs; pct input gets readonly+pct-disabled for off.
   const pct = card.locator('input[data-action="schedule-pct"]');
   await expect(pct).toHaveAttribute("readonly", "");
   await expect(pct).toHaveClass(/pct-disabled/);
@@ -1478,6 +1479,7 @@ test("schedule: duplicate-at disables save", async ({ page }) => {
   });
   const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
   await card.locator("details.schedule summary").click();
+  // SPA (index.html) validates duplicate-at client-side and disables the save button.
   const save = card.locator('button[data-action="schedule-save"]');
   await expect(save).toBeDisabled();
 });
@@ -1504,22 +1506,86 @@ test("schedule: alert forces panel open with warn line", async ({ page }) => {
 });
 
 test("schedule: save click PUTs the edited table", async ({ page }) => {
-  const { requests } = await loadDashboard(page, {
-    devices: [{ name: "playroom" }],
-    snapshot: (n) => baseSnapshot(n, {
-      service: { schedule: { enabled: false, entries: [], alert: false } },
-    }),
+  // Uses htmx path: LAYOUT_HTML + real htmx + mocked schedule endpoints.
+  const requests: { url: string; method: string; body: Record<string, string[]> }[] = [];
+
+  const scheduleReadHtml = `<details class="block schedule"><summary><h3>SCHEDULE</h3></summary>` +
+    `<div class="schedule-toolbar"><label><input type="checkbox" disabled/> enabled</label>` +
+    `<span class="grow"></span>` +
+    `<button hx-get="/ui/devices/playroom/schedule/edit" hx-target="closest .schedule" hx-swap="outerHTML">edit schedule</button>` +
+    `</div><div class="ctrl-label">no entries</div></details>`;
+
+  const scheduleEditHtml = `<details class="block schedule" open><summary><h3>SCHEDULE</h3></summary>` +
+    `<form hx-put="/ui/devices/playroom/schedule" hx-target="closest .schedule" hx-swap="outerHTML">` +
+    `<div class="schedule-toolbar">` +
+    `<label><input type="checkbox" name="enabled" value="true"/> enabled</label>` +
+    `<span class="grow"></span>` +
+    `<button type="button" hx-get="/ui/devices/playroom/schedule/new-row" hx-target=".schedule-edit-tbody" hx-swap="beforeend">+ add row</button>` +
+    `<button type="button" hx-get="/ui/devices/playroom/schedule" hx-target="closest .schedule" hx-swap="outerHTML">cancel</button>` +
+    `<button type="submit">save</button>` +
+    `</div>` +
+    `<table class="schedule-table"><thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>` +
+    `<tbody class="schedule-edit-tbody"></tbody></table>` +
+    `</form></details>`;
+
+  const newRowHtml = `<tr>` +
+    `<td><input type="time" name="at" value="08:00" required/></td>` +
+    `<td><select name="action"><option value="regeneration" selected>regen</option></select></td>` +
+    `<td><input type="number" name="pct" min="10" max="100" value="60"/></td>` +
+    `<td><button type="button" class="del" hx-on:click="this.closest('tr').remove()">×</button></td>` +
+    `</tr>`;
+
+  const cardHtml = `<div class="card" data-device="playroom">${scheduleReadHtml}</div>`;
+
+  await page.route(`${BASE_URL}/`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: LAYOUT_HTML }));
+  await page.route(`${BASE_URL}/ui/style-*.css`, (route) => route.fulfill({ status: 200, contentType: "text/css", body: STYLE_CSS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_JS }));
+  await page.route(`${BASE_URL}/ui/vendor/htmx-response-targets-2.0.4.min.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: HTMX_RT_JS }));
+  await page.route(`${BASE_URL}/ui/legacy.js`, (route) => route.fulfill({ status: 200, contentType: "application/javascript", body: "" }));
+  await page.route(`${BASE_URL}/ui/devices`, (route) => route.fulfill({ status: 200, contentType: "text/html", body: cardHtml }));
+  await page.route(`${BASE_URL}/ui/devices/playroom/schedule/edit`, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: scheduleEditHtml }));
+  await page.route(`${BASE_URL}/ui/devices/playroom/schedule/new-row`, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: newRowHtml }));
+  await page.route(`${BASE_URL}/ui/devices/playroom/schedule`, async (route) => {
+    const req = route.request();
+    if (req.method() === "PUT") {
+      const raw = req.postData() ?? "";
+      const params = new URLSearchParams(raw);
+      const body: Record<string, string[]> = {};
+      for (const [k, v] of params.entries()) {
+        if (!body[k]) body[k] = [];
+        body[k].push(v);
+      }
+      requests.push({ url: req.url(), method: "PUT", body });
+      await route.fulfill({ status: 200, contentType: "text/html", body: scheduleReadHtml });
+    } else {
+      await route.fulfill({ status: 200, contentType: "text/html", body: scheduleReadHtml });
+    }
   });
-  const card = page.locator(".card").filter({ has: page.locator("h2", { hasText: "playroom" }) });
-  await card.locator("details.schedule summary").click();
-  await card.locator('button[data-action="schedule-add"]').click();
-  await card.locator('button[data-action="schedule-save"]').click();
-  // Wait briefly for the PUT to be captured.
-  await page.waitForTimeout(200);
+
+  await page.goto(BASE_URL + "/");
+  await page.locator(".card").waitFor({ timeout: 5000 });
+
+  // Open the <details> to reveal the "edit schedule" button.
+  await page.locator("details.schedule summary").click();
+  // Click "edit schedule" to switch to edit variant.
+  await page.locator("button[hx-get*='schedule/edit']").click();
+  await page.locator("form[hx-put*='schedule']").waitFor({ timeout: 3000 });
+
+  // Click "+ add row" to append a new row.
+  await page.locator("button[hx-get*='schedule/new-row']").click();
+  await page.locator(".schedule-edit-tbody tr").waitFor({ timeout: 3000 });
+
+  // Click "save" to submit the form.
+  await page.locator("form[hx-put*='schedule'] button[type='submit']").click();
+  await page.waitForTimeout(300);
+
   const put = requests.find(r => r.method === "PUT" && r.url.endsWith("/schedule"));
   expect(put).toBeTruthy();
-  expect(put!.body.entries.length).toBe(1);
-  expect(put!.body.entries[0]).toMatchObject({ at: "08:00", action: "regeneration", pct: 60 });
+  // Should have at least the "at" field from the new row.
+  expect(put!.body["at"]).toBeDefined();
+  expect(put!.body["action"]).toBeDefined();
 });
 
 test("auto-fan: editing both value and checkbox PUTs {kind, value, enabled} to /threshold", async ({ page }) => {

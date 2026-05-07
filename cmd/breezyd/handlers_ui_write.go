@@ -25,6 +25,150 @@ import (
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
+// ---------- schedule editor ----------
+
+// scheduleReadFrag renders the read variant of the schedule block as an HTML fragment.
+func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := templates.ScheduleBlock(name, view.Schedule, view.Stale).Render(r.Context(), w); err != nil {
+		slog.Error("render ScheduleBlock read", "err", err)
+	}
+}
+
+// scheduleEditFrag renders the edit variant of the schedule block as an HTML fragment.
+func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg).Render(r.Context(), w); err != nil {
+		slog.Error("render ScheduleBlockEdit", "err", err)
+	}
+}
+
+// getUIScheduleRead serves the read variant of the schedule block.
+//
+// GET /ui/devices/{name}/schedule
+func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.viewFor(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	h.scheduleReadFrag(w, r, name)
+}
+
+// getUIScheduleEdit serves the edit variant of the schedule block.
+//
+// GET /ui/devices/{name}/schedule/edit
+func (h *Handler) getUIScheduleEdit(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.viewFor(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	h.scheduleEditFrag(w, r, name, "")
+}
+
+// getUIScheduleNewRow serves a single empty edit row, appended by the + button.
+//
+// GET /ui/devices/{name}/schedule/new-row
+func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	empty := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
+	if err := templates.ScheduleEditRow(empty).Render(r.Context(), w); err != nil {
+		slog.Error("render ScheduleEditRow new", "err", err)
+	}
+}
+
+// putUISchedule applies enabled+entries from the edit form, returns read variant on success.
+//
+// Form: enabled=true (checkbox; absent when unchecked), at[]=HH:MM ..., action[]=..., pct[]=N ...
+//
+// PUT /ui/devices/{name}/schedule
+func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.scheduleEditFrag(w, r, name, "bad form encoding")
+		return
+	}
+
+	// Enabled: checkbox sends "true" when checked, absent when unchecked.
+	enabled := r.FormValue("enabled") == "true"
+
+	ats := r.Form["at"]
+	actions := r.Form["action"]
+	pcts := r.Form["pct"]
+
+	// All three slices must be the same length (form rows are parallel arrays).
+	n := len(ats)
+	if len(actions) != n || len(pcts) != n {
+		h.scheduleEditFrag(w, r, name, "malformed form: row fields mismatched")
+		return
+	}
+
+	entries := make([]ScheduleEntry, 0, n)
+	for i := range ats {
+		at, err := ParseScheduleTime(ats[i])
+		if err != nil {
+			h.scheduleEditFrag(w, r, name, fmt.Sprintf("row %d: invalid time %q", i+1, ats[i]))
+			return
+		}
+		action := actions[i]
+		switch action {
+		case "ventilation", "regeneration", "supply", "extract", "off":
+			// valid
+		default:
+			h.scheduleEditFrag(w, r, name, fmt.Sprintf("row %d: invalid action %q", i+1, action))
+			return
+		}
+		pct := 0
+		if _, err := fmt.Sscanf(pcts[i], "%d", &pct); err != nil || pct < 10 || pct > 100 {
+			if action != "off" {
+				h.scheduleEditFrag(w, r, name, fmt.Sprintf("row %d: pct must be 10–100, got %q", i+1, pcts[i]))
+				return
+			}
+			pct = 10 // off rows: pct is irrelevant, use default
+		}
+		entries = append(entries, ScheduleEntry{At: at, Action: action, Pct: pct})
+	}
+
+	sch, ok := h.Schedulers[name]
+	if !ok || sch == nil {
+		h.scheduleEditFrag(w, r, name, fmt.Sprintf("device %q has no scheduler wired", name))
+		return
+	}
+	if err := sch.Replace(enabled, entries); err != nil {
+		if errors.Is(err, breezy.ErrInvalidArg) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			h.scheduleEditFrag(w, r, name, err.Error())
+			return
+		}
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.scheduleReadFrag(w, r, name)
+}
+
 // uiWriteError translates a backend write error into an HTTP status + error_banner.
 // Caller should return after this returns.
 func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error) {

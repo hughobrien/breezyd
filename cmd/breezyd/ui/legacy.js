@@ -1,5 +1,6 @@
 // legacy.js — write-side JS extracted from the original SPA index.html.
-// Handles all POST/PUT interactions: timer, threshold inline-edit, schedule editor.
+// Handles all POST/PUT interactions: timer, preset editor.
+// Schedule and threshold editors are now handled by htmx (PR2).
 //
 // The master poll, card rendering, and refreshAll machinery have been deleted
 // from this file — htmx now handles polling via hx-get="/ui/devices" every 5s.
@@ -28,9 +29,6 @@ const presetVals = {};      // name -> { 1: {supply,extract}, 2: ..., 3: ... }
 const optimisticLive = {}; // name -> { expiresAt, fan_supply_pct, fan_extract_pct, fan_supply_rpm, fan_extract_rpm }
 // Per-card match-speeds toggle for the preset editor. Defaults to true.
 const matchSpeeds = {};     // name -> bool
-// scheduleEdits[name] holds the in-flight edit buffer.
-const scheduleEdits = {};
-const scheduleOpen = {};
 
 // lastSnapshots caches the most recent /v1/devices/{name} JSON response
 // (keyed by name) so write handlers can read current state. Populated by
@@ -135,80 +133,13 @@ document.addEventListener("click", async (ev) => {
                       { mode: next });
       break;
     }
-    case "schedule-add":
-      ensureScheduleEdit(name);
-      scheduleEdits[name].entries.push({ at: "08:00", action: "regeneration", pct: 60 });
-      break;
-    case "schedule-del": {
-      const idx = Number(el.dataset.row);
-      ensureScheduleEdit(name);
-      scheduleEdits[name].entries.splice(idx, 1);
-      break;
-    }
-    case "schedule-save": {
-      const buf = scheduleEdits[name];
-      if (!buf) break;
-      const cleaned = buf.entries.map(en => ({
-        at: en.at,
-        action: en.action,
-        pct: Math.max(10, Math.min(100, Number(en.pct) || 10)),
-      }));
-      const ok = await postWrite(name, "schedule",
-        "/v1/devices/" + encodeURIComponent(name) + "/schedule",
-        { enabled: buf.enabled, entries: cleaned },
-        "PUT");
-      if (ok) delete scheduleEdits[name];
-      break;
-    }
   }
-  // Threshold editor is now handled by htmx (PR2 Task 16/17).
+  // Threshold and schedule editors are now handled by htmx (PR2).
 });
 
-// Capture-phase listener for `toggle` events on Device <details> elements.
-document.addEventListener("toggle", (ev) => {
-  const el = ev.target;
-  const name = el.closest(".card")?.querySelector("h2")?.textContent;
-  if (!name) return;
-  if (el.classList?.contains("schedule")) {
-    if (el.open) scheduleOpen[name] = true;
-    else delete scheduleOpen[name];
-  }
-}, true);
-
-function ensureScheduleEdit(name) {
-  if (scheduleEdits[name]) return;
-  const sch = lastSnapshots[name]?.service?.schedule || { enabled: false, entries: [] };
-  scheduleEdits[name] = {
-    enabled: sch.enabled === true,
-    entries: (sch.entries || []).map(e => ({ at: e.at, action: e.action, pct: e.pct })),
-  };
-}
-
-// Schedule cell edits go through the input/change listener.
+// Input/change listener for live slider feedback.
 document.addEventListener("input", (ev) => {
   const el = ev.target;
-  if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) {
-    const action = el.dataset.action;
-    const name = el.dataset.name;
-    const rowIdx = Number(el.dataset.row);
-    if (name) {
-      if (action === "schedule-enabled") {
-        ensureScheduleEdit(name);
-        scheduleEdits[name].enabled = el.checked;
-        return;
-      }
-      if (!Number.isNaN(rowIdx) && (action === "schedule-at" || action === "schedule-action" || action === "schedule-pct")) {
-        ensureScheduleEdit(name);
-        const entry = scheduleEdits[name].entries[rowIdx];
-        if (entry) {
-          if (action === "schedule-at") entry.at = el.value;
-          else if (action === "schedule-action") entry.action = el.value;
-          else entry.pct = Number(el.value);
-        }
-        return;
-      }
-    }
-  }
   // Live-drag visual feedback for sliders.
   if (!el.matches('input[type="range"]')) return;
   const sliderRow = el.closest(".slider-row");
