@@ -221,6 +221,9 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /v1/devices/{name}/schedule", h.getSchedule)
 	mux.HandleFunc("PUT /v1/devices/{name}/schedule", h.putSchedule)
 
+	mux.HandleFunc("GET /ui/devices", h.getUIDeviceList)
+	mux.HandleFunc("GET /ui/devices/{name}/card", h.getUIDeviceCard)
+	mux.HandleFunc("GET /ui/legacy.js", h.getLegacyJS)
 	mux.HandleFunc("GET /ui/style-"+styleHash+".css", h.getStyle)
 	mux.HandleFunc("GET /ui/vendor/{file}", h.getVendor)
 

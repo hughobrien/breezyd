@@ -1,6 +1,7 @@
 # Binaries
 /breezy
 /breezyd
+/render-layout
 *.test
 *.out
 

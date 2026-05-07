@@ -10,12 +10,22 @@ import (
 	"embed"
 	"encoding/hex"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 )
+
+// htmxVersion is the vendored htmx version embedded under ui/vendor/.
+// The Layout template references /ui/vendor/htmx-<version>.min.js.
+const htmxVersion = "2.0.4"
 
 //go:embed ui/index.html
 var indexHTML []byte
+
+//go:embed ui/legacy.js
+var legacyJS []byte
 
 //go:embed ui/vendor
 var vendorFS embed.FS
@@ -43,15 +53,24 @@ func init() {
 	styleHash = hex.EncodeToString(sum[:])[:10]
 }
 
-// getIndex serves the embedded dashboard shell. The STYLEHASH placeholder is
-// substituted at serve time as a stopgap until Task 9 of the htmx migration
-// switches getIndex to templ-rendered output. See
-// docs/superpowers/plans/2026-05-06-htmx-migration.md.
+// getIndex serves the templ-rendered page shell (Layout). The Layout template
+// includes the style hash, htmx version, theme-picker JS, and legacy.js.
 func (h *Handler) getIndex(w http.ResponseWriter, r *http.Request) {
-	body := strings.ReplaceAll(string(indexHTML), "STYLEHASH", styleHash)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(body))
+	d := templates.LayoutData{StyleHash: styleHash, HTMXVersion: htmxVersion}
+	if err := templates.Layout(d).Render(r.Context(), w); err != nil {
+		slog.Error("render Layout", "err", err)
+	}
+}
+
+// getLegacyJS serves the extracted write-side JS from index.html. This script
+// handles all POST interactions (power, mode, speed, heater, timer, threshold,
+// schedule). No-store: it is regenerated per binary and must not be cached.
+func (h *Handler) getLegacyJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(legacyJS)
 }
 
 // getStyle serves the extracted stylesheet at /ui/style-<hash>.css.
