@@ -31,7 +31,7 @@ func TestVendorAssets(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode != tc.wantStatus {
 				t.Fatalf("status: got %d, want %d", resp.StatusCode, tc.wantStatus)
 			}

@@ -53,7 +53,7 @@ func TestUIReadDeviceList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d", resp.StatusCode)
@@ -81,7 +81,7 @@ func TestUIReadDeviceCard_Happy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d", resp.StatusCode)
@@ -112,7 +112,7 @@ func TestUIReadDeviceCard_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d, want 404", resp.StatusCode)
@@ -128,7 +128,7 @@ func TestUIReadIndex_ServesHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d", resp.StatusCode)
@@ -162,7 +162,7 @@ func TestUIReadLegacyJS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d", resp.StatusCode)
