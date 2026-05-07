@@ -38,7 +38,7 @@ templ Layout(d LayoutData) {
 				id="device-list"
 				class="grid"
 				hx-get="/ui/devices"
-				hx-trigger="load, every 5s[document.visibilityState === 'visible']"
+				hx-trigger="load, every 5s[document.visibilityState === 'visible' && !document.querySelector('details.block.schedule form')]"
 				hx-swap="innerHTML"
 			></div>
 			<script>
@@ -66,6 +66,37 @@ templ Layout(d LayoutData) {
     if (picker.open && !picker.contains(ev.target)) {
       picker.open = false;
     }
+  });
+})();
+
+// Preserve user-toggled <details> open/closed state across htmx swaps.
+// Server still decides initial open (NeedsAttention forces device-info,
+// Sensors defaults to expanded, etc.). Once the user explicitly toggles
+// a details with a stable id, we remember their choice for the session
+// and re-apply it after each htmx settle so the 5s poll doesn't reset
+// it. Tracks #49.
+//
+// We listen for clicks on <summary> rather than the `toggle` event on
+// <details>: toggle doesn't bubble, and it also fires when we apply the
+// stored state in afterSettle, which would create write-after-write
+// races. The summary-click path is initiated only by the user.
+(function() {
+  var userToggled = new Map();
+  document.body.addEventListener('click', function(ev) {
+    var summary = ev.target instanceof Element ? ev.target.closest('summary') : null;
+    if (!summary) return;
+    var d = summary.parentElement;
+    if (!(d instanceof HTMLDetailsElement) || !d.id) return;
+    // Click toggles the details: if it's open now, the user is closing.
+    userToggled.set(d.id, !d.open);
+  });
+  document.body.addEventListener('htmx:afterSettle', function() {
+    userToggled.forEach(function(open, id) {
+      var el = document.getElementById(id);
+      if (el && el.open !== open) {
+        el.open = open;
+      }
+    });
   });
 })();
 			</script>
