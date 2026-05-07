@@ -36,6 +36,7 @@ templ Layout(d LayoutData) {
 			<div id="global-error-banner" aria-live="polite"></div>
 			<div
 				id="device-list"
+				class="grid"
 				hx-get="/ui/devices"
 				hx-trigger="load, every 5s[document.visibilityState === 'visible']"
 				hx-swap="innerHTML"
@@ -44,6 +45,10 @@ templ Layout(d LayoutData) {
 (function() {
   var picker = document.querySelector('.theme-picker');
   if (!picker) return;
+  // Force closed on load: some browsers preserve <details open> across
+  // bfcache restores or session restore, which would show the popout
+  // before any user interaction.
+  picker.open = false;
   picker.addEventListener('click', function(ev) {
     var target = ev.target.closest('[data-theme-set]');
     if (!target) return;

@@ -146,6 +146,19 @@ details.block.schedule > summary::before {
 }
 details.block.schedule[open] > summary::before { content: "▼"; }
 details.block.schedule > summary > h3 { margin: 0; }
+/* Theme picker: title bar in the page header. Without these rules the
+   default <summary> list-item layout puts the disclosure marker on its
+   own line above the block-level <h1>, so the title visually takes two
+   rows. Hide the marker entirely (this is a click-to-open dropdown, not
+   a content disclosure) and shrink the summary to its content width so
+   it doesn't span the page. */
+.theme-picker > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-block;
+}
+.theme-picker > summary::-webkit-details-marker { display: none; }
+.theme-picker > summary > h1 { margin: 0; }
 .schedule-toolbar {
   display: flex; gap: 0.5rem; align-items: center;
   margin: 0.4rem 0; font-size: 0.8rem;
