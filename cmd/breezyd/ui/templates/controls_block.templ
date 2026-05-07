@@ -185,6 +185,13 @@ func presetLabel(v ui.DeviceView, n int) string {
 	return fmt.Sprintf("%d/%d", p.Supply, p.Extract)
 }
 
+// presetEditor renders one of the three SPEED preset edit panels. The
+// hx-include selector below is intentionally document-scoped: with N
+// device cards, a slider POST grabs all 2N range inputs in panels with
+// the same number. The htmx:configRequest handler in layout.templ is
+// device-scoped and overrides supply/extract in the outgoing payload,
+// so the duplicate keys never reach the server. Don't tighten this
+// selector without also reworking the configRequest handler.
 templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 	<div
 		class="preset-editor"
@@ -271,8 +278,12 @@ func presetSliderValue(pct int) string {
 	return fmt.Sprintf("%d", pct)
 }
 
-// clampPresetDisplay returns the user-visible % readout, treating the
-// unknown sentinel (negative) as 0 for display.
+// clampPresetDisplay returns the user-visible % readout. The unknown
+// sentinel (-1, pre-poll) renders as 0 here while presetSliderValue
+// returns 50 for the thumb position — the asymmetry is deliberate: the
+// thumb needs a neutral landing spot so dragging feels natural, but the
+// readout must not lie about a known value, and the sliders are
+// disabled when v.Stale anyway so the user can't actually drag yet.
 func clampPresetDisplay(pct int) int {
 	if pct < 0 {
 		return 0
