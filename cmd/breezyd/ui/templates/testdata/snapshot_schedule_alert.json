@@ -92,6 +92,8 @@
   },
   "PostError": "",
   "DetailsOpen": {
-    "sensors": true
+    "info": true,
+    "sensors": true,
+    "schedule": true
   }
 }

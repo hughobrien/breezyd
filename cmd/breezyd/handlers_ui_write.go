@@ -36,7 +36,7 @@ func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name 
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	if err := templates.ScheduleBlock(name, view.Schedule, view.Stale).Render(r.Context(), w); err != nil {
+	if err := templates.ScheduleBlock(name, view.Schedule, view.Stale, view.DetailsOpen["schedule"]).Render(r.Context(), w); err != nil {
 		slog.Error("render ScheduleBlock read", "err", err)
 	}
 }
