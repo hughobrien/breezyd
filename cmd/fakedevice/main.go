@@ -43,9 +43,6 @@ func main() {
 	// Print address pair on stdout so Playwright can parse them.
 	// Format: one line of "udp=HOST:PORT admin=HOST:PORT\n"
 	fmt.Printf("udp=%s admin=%s\n", srv.Addr(), admin.Addr())
-	if err := os.Stdout.Sync(); err != nil {
-		log.Fatalf("stdout sync: %v", err)
-	}
 
 	// Block until SIGTERM/SIGINT.
 	sigCh := make(chan os.Signal, 1)
