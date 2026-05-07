@@ -9,8 +9,13 @@ package ui
 
 // DeviceView is the decoded, render-ready form of a device snapshot.
 type DeviceView struct {
-	Name        string
-	IP          string
+	Name string
+	IP   string
+	// Unreachable is true when the device is configured but no successful
+	// poll has produced a Snapshot yet (wrong IP, password, network down,
+	// firmware off). The card renders a minimal placeholder instead of the
+	// full layout when this is set; most other fields are zero values.
+	Unreachable bool
 	Serial      string // device ID string
 	Stale       bool
 	LastPollAge string // human-readable "Xs" / "Xm Ys" / "" when fresh

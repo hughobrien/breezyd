@@ -103,6 +103,44 @@ func TestUIReadDeviceCard_Happy(t *testing.T) {
 	}
 }
 
+// TestUIReadDeviceList_Unreachable is the issue #50 regression: a device
+// configured in config.toml but with no successful poll yet must show up
+// in /ui/devices as a placeholder, not be silently hidden.
+func TestUIReadDeviceList_Unreachable(t *testing.T) {
+	// Hand-build a Handler with one configured device but NO Snapshot in State.
+	devices := map[string]DeviceConfig{
+		"ghost": {ID: "BREEZYGHOST00001", Password: "1111", IP: "10.0.0.99:4000"},
+	}
+	h := &Handler{
+		State:      NewState(),
+		Devices:    NewDeviceRegistry(devices),
+		Pollers:    map[string]*Poller{},
+		Schedulers: map[string]*Scheduler{},
+	}
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	got := string(body)
+	if !strings.Contains(got, "ghost") {
+		t.Errorf("body missing unreachable device name 'ghost'; got: %s", got)
+	}
+	if !strings.Contains(got, "unreachable") {
+		t.Errorf("body missing 'unreachable' badge; got: %s", got)
+	}
+	if !strings.Contains(got, "10.0.0.99") {
+		t.Errorf("body missing configured IP; got: %s", got)
+	}
+}
+
 func TestUIReadDeviceCard_NotFound(t *testing.T) {
 	h := newUITestHandler(t, "alpha")
 	srv := httptest.NewServer(h.mux())

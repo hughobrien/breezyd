@@ -7,6 +7,7 @@ package main
 import (
 	"log/slog"
 	"net/http"
+	"sort"
 
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
@@ -35,21 +36,50 @@ func (h *Handler) getUIDeviceCard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// collectViews returns DeviceViews for all configured devices in name order.
+// collectViews returns DeviceViews for ALL configured devices in name order,
+// including ones without a successful poll (rendered as Unreachable).
+//
+// Iterating the device registry rather than the State cache mirrors the
+// /v1/devices JSON shape and ensures misconfigured devices (wrong IP, bad
+// password, etc.) surface in the dashboard with a placeholder card — the
+// only signal users have that the daemon sees them at all.
 func (h *Handler) collectViews() []ui.DeviceView {
-	if h.State == nil {
+	if h.Devices == nil {
 		return nil
 	}
-	names := h.State.Devices()
+	registry := h.Devices.Snapshot()
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	views := make([]ui.DeviceView, 0, len(names))
 	for _, name := range names {
-		snap, ok := h.State.Get(name)
-		if !ok {
-			continue
+		if h.State != nil {
+			// A Snapshot with no Values means the daemon has tried but never
+			// got data (auth fail, UDP timeout, etc.) — render as unreachable
+			// rather than a half-empty card. Once any params land, fall
+			// through to the full layout (which marks staleness on its own).
+			if snap, ok := h.State.Get(name); ok && len(snap.Values) > 0 {
+				views = append(views, h.buildView(name, snap))
+				continue
+			}
 		}
-		views = append(views, h.buildView(name, snap))
+		views = append(views, h.unreachableView(name, registry[name]))
 	}
 	return views
+}
+
+// unreachableView renders a placeholder DeviceView for a configured device
+// that has no Snapshot in the State cache (no successful poll yet).
+func (h *Handler) unreachableView(name string, cfg DeviceConfig) ui.DeviceView {
+	return ui.DeviceView{
+		Name:        name,
+		IP:          cfg.IP,
+		Serial:      cfg.ID,
+		Unreachable: true,
+	}
 }
 
 // viewFor returns the DeviceView for name, or false if no snapshot exists.
