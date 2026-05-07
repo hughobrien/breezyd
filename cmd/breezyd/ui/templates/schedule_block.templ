@@ -146,7 +146,7 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 				name="pct"
 				min="10"
 				max="100"
-				value={ fmt.Sprintf("%d", e.Pct) }
+				value={ schedulePctValue(e) }
 				class={ templ.KV("pct-disabled", e.Action == "off") }
 				if e.Action == "off" { readonly }
 			/>
@@ -163,6 +163,17 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 
 templ scheduleActionOption(value, label, current string) {
 	<option value={ value } if value == current { selected }>{ label }</option>
+}
+
+// schedulePctValue returns the value attribute for the pct input.
+// Empty when Action=="off" so a row that's off doesn't carry a stale
+// percent (the user can't act on it, and the handler treats off rows'
+// pct as irrelevant — see handlers_ui_write.go).
+func schedulePctValue(e ui.ScheduleEntryView) string {
+	if e.Action == "off" {
+		return ""
+	}
+	return fmt.Sprintf("%d", e.Pct)
 }
 
 // scheduleActionLabel maps action values to display labels.

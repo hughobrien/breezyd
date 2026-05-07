@@ -69,6 +69,54 @@ func TestLayout(t *testing.T) {
 	}
 }
 
+// TestScheduleEditRow pins two behaviors that were issue regressions:
+//
+//   - #42: the 'at' input is a native timepicker (type="time"), not a free
+//     text field.
+//   - #44: when the action is "off", the pct input has no value (an empty
+//     fan percent is the truthful read for an off row, and the handler
+//     accepts empty pct iff action=="off").
+func TestScheduleEditRow(t *testing.T) {
+	cases := []struct {
+		name       string
+		entry      ui.ScheduleEntryView
+		wantValueP string // pct input value attribute literal we expect to find
+		notWant    []string
+	}{
+		{
+			name:       "regen row keeps pct value",
+			entry:      ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60},
+			wantValueP: `value="60"`,
+		},
+		{
+			name:       "off row has empty pct value",
+			entry:      ui.ScheduleEntryView{At: "23:00", Action: "off", Pct: 60},
+			wantValueP: `value=""`,
+			notWant:    []string{`value="60"`},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var sb strings.Builder
+			if err := ScheduleEditRow(c.entry).Render(context.Background(), &sb); err != nil {
+				t.Fatal(err)
+			}
+			got := sb.String()
+			if !strings.Contains(got, `type="time"`) || !strings.Contains(got, `name="at"`) {
+				t.Errorf("at input is not a timepicker (issue #42 regression)\n%s", got)
+			}
+			if !strings.Contains(got, c.wantValueP) {
+				t.Errorf("pct input missing %s\n%s", c.wantValueP, got)
+			}
+			for _, n := range c.notWant {
+				if strings.Contains(got, n) {
+					t.Errorf("pct input unexpectedly contains %s (issue #44 regression)\n%s", n, got)
+				}
+			}
+		})
+	}
+}
+
 func TestDeviceCardGolden(t *testing.T) {
 	cases := []string{
 		"snapshot_regen", "snapshot_manual", "snapshot_settling",

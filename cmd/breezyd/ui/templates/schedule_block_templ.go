@@ -442,9 +442,9 @@ func ScheduleEditRow(e ui.ScheduleEntryView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var19 string
-		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", e.Pct))
+		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(schedulePctValue(e))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/schedule_block.templ`, Line: 149, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/schedule_block.templ`, Line: 149, Col: 31}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -544,6 +544,17 @@ func scheduleActionOption(value, label, current string) templ.Component {
 		}
 		return nil
 	})
+}
+
+// schedulePctValue returns the value attribute for the pct input.
+// Empty when Action=="off" so a row that's off doesn't carry a stale
+// percent (the user can't act on it, and the handler treats off rows'
+// pct as irrelevant — see handlers_ui_write.go).
+func schedulePctValue(e ui.ScheduleEntryView) string {
+	if e.Action == "off" {
+		return ""
+	}
+	return fmt.Sprintf("%d", e.Pct)
 }
 
 // scheduleActionLabel maps action values to display labels.
