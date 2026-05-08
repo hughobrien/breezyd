@@ -4,13 +4,13 @@
     {
       "id": 9,
       "subject": "Task 1: Vendor datastar SDK + JS",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Add datastar Go SDK to go.mod, vendor datastar.min.js, register in ui_assets.go.\n\n**Files:**\n- Modify: go.mod, go.sum, flake.nix, cmd/breezyd/ui_assets.go\n- Create: cmd/breezyd/ui/vendor/datastar-1.0.0-RC.11.min.js\n\n**Verify:** `just check && just nix-check`\n\n```json:metadata\n{\"files\": [\"go.mod\", \"go.sum\", \"flake.nix\", \"cmd/breezyd/ui_assets.go\", \"cmd/breezyd/ui/vendor/datastar-1.0.0-RC.11.min.js\"], \"verifyCommand\": \"just check && just nix-check\", \"acceptanceCriteria\": [\"go build clean\", \"datastarVersion constant\", \"vendor served with cache header\", \"flake.nix vendorHash updated\"]}\n```"
     },
     {
       "id": 10,
       "subject": "Task 2: PushHub",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [9],
       "description": "**Goal:** New PushHub type managing subscriber fan-out.\n\n**Files:**\n- Create: cmd/breezyd/push_hub.go, cmd/breezyd/push_hub_test.go\n\n**Verify:** `go test ./cmd/breezyd/ -run TestPushHub -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/push_hub.go\", \"cmd/breezyd/push_hub_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run TestPushHub -v\", \"acceptanceCriteria\": [\"fan-out works\", \"drop-oldest under pressure\", \"concurrent-safe\", \"render error tolerated\"]}\n```"
     },
@@ -56,5 +56,5 @@
       "description": "**Goal:** Bring docs in line with the new architecture.\n\n**Files:**\n- Modify: CHANGELOG.md, CLAUDE.md, README.md (if applicable)\n\n**Verify:** `just check && grep -rn 'htmx-2|breezy-ui|computeDetailsOpen|internal/uistate' --include='*.go' --include='*.md' --include='*.templ' --include='*.css' --include='*.ts' --include='*.nix' .` (no hits)\n\n```json:metadata\n{\"files\": [\"CHANGELOG.md\", \"CLAUDE.md\", \"README.md\"], \"verifyCommand\": \"just check && grep -rn 'htmx-2|breezy-ui|computeDetailsOpen|internal/uistate' --include='*.go' --include='*.md' --include='*.templ' --include='*.css' --include='*.ts' --include='*.nix' .\", \"acceptanceCriteria\": [\"CHANGELOG entries complete\", \"CLAUDE.md updated\", \"no stale references\"]}\n```"
     }
   ],
-  "lastUpdated": "2026-05-08T01:54:00Z"
+  "lastUpdated": "2026-05-08T20:30:00Z"
 }

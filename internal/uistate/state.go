@@ -58,7 +58,15 @@ func DefaultsForDevice(name string) PresetState {
 // callers apply defaults from there. Parse never returns an error: the
 // philosophy is that bad UI-state cookies must never produce a 5xx and
 // never partially apply.
+//
+// During the datastar migration, the PushHub render closure invokes the
+// view-builder without an HTTP request in hand. Tolerate r == nil so the
+// poller path can reuse the same code path. The nil case (and the entire
+// uistate package) goes away in Task 4.
 func Parse(r *http.Request) State {
+	if r == nil {
+		return State{}
+	}
 	c, err := r.Cookie(CookieName)
 	if err != nil {
 		return State{}

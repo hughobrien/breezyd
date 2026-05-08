@@ -32,6 +32,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/a-h/templ"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 	"github.com/hughobrien/breezyd/internal/config"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/prometheus/client_golang/prometheus"
@@ -134,14 +136,32 @@ func run(parent context.Context) error {
 		Devices:       devices,
 		ClientFactory: makeClientFactory(devices),
 	}
+	// Render closure captures handler so PushHub can build a DeviceCard for
+	// any (name, snap) tuple. The closure runs without an HTTP request, so
+	// viewFor is called with r=nil; uistate.Parse tolerates that. The
+	// nil-tolerance goes away in Task 4 when uistate is removed.
+	handler.PushHub = NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
+		view, ok := handler.viewFor(nil, name)
+		if !ok {
+			return nil, fmt.Errorf("no snapshot for %s", name)
+		}
+		return templates.DeviceCard(view), nil
+	})
 
 	stateDir, err := daemonStateDir()
 	if err != nil {
 		slog.Warn("energy: could not create state dir; energy tracking will not persist", "err", err)
 	}
+	// Compose poll-side fan-out: HomeKit characteristics first, then the
+	// browser push hub. Both are independent and idempotent; either firing
+	// in isolation is safe.
+	onPoll := func(name string, snap Snapshot) {
+		handler.SyncHomekit(name, snap)
+		handler.PushHub.Notify(name, snap)
+	}
 	pollers, schedulers, pollersWg := startPollers(
 		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
-		stateDir, state, metrics, handler.SyncHomekit,
+		stateDir, state, metrics, onPoll,
 		handler.scheduleDial,
 	)
 	handler.Pollers = pollers

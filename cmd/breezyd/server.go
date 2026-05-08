@@ -169,6 +169,12 @@ type Handler struct {
 	// results into characteristic values. Nil until StartHomekit runs.
 	homekitAccessories map[string]*homekit.Accessory
 
+	// PushHub fans out per-device snapshot updates to /ui/sse subscribers.
+	// Nil-tolerant: the JSON API and the in-progress migration paths run
+	// fine without it. Populated in main.go once the render closure can
+	// be wired to the templ machinery.
+	PushHub PushNotifier
+
 	// cachedMux is built lazily by mux() and cached. muxOnce guards the
 	// initialisation against a data race on the first concurrent burst
 	// of requests — net/http serves each request from its own goroutine,
@@ -223,6 +229,7 @@ func (h *Handler) mux() *http.ServeMux {
 
 	mux.HandleFunc("GET /ui/devices", h.getUIDeviceList)
 	mux.HandleFunc("GET /ui/devices/{name}/card", h.getUIDeviceCard)
+	mux.HandleFunc("GET /ui/sse", h.getUISSE)
 	mux.HandleFunc("POST /ui/devices/{name}/power", h.postUIPower)
 	mux.HandleFunc("POST /ui/devices/{name}/mode", h.postUIMode)
 	mux.HandleFunc("POST /ui/devices/{name}/preset", h.postUIPreset)
