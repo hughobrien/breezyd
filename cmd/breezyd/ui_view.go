@@ -205,8 +205,6 @@ func sensorsViewFrom(values map[breezy.ParamID][]byte) ui.SensorsView {
 		s.VOCAlert = raw[4] != 0
 	}
 	s.AlertActive = s.HumidityAlert || s.CO2Alert || s.VOCAlert
-	// Sensors block is expanded by default; alert forces expansion.
-	s.Expanded = true
 
 	// Configured thresholds.
 	if b, ok := breezy.Uint8At(values, 0x0019); ok {

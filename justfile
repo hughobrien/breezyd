@@ -71,6 +71,10 @@ test-ui-install:
 test-ui:
 	cd tests/ui && pnpm exec playwright test
 
+# run a subset of UI tests matching a grep pattern; e.g. just test-ui-grep "open state"
+test-ui-grep PATTERN:
+	cd tests/ui && pnpm exec playwright test --grep "{{PATTERN}}"
+
 # screenshot dashboard in 3-col + 1-col viewports (needs test-ui-install)
 screenshot:
 	cd tests/ui && pnpm exec tsx screenshot.ts

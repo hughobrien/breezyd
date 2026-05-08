@@ -29,14 +29,14 @@ import (
 
 // scheduleReadFrag renders the read variant of the schedule block as an HTML fragment.
 func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	if err := templates.ScheduleBlock(name, view.Schedule, view.Stale).Render(r.Context(), w); err != nil {
+	if err := templates.ScheduleBlock(name, view.Schedule, view.Stale, view.DetailsOpen["schedule"]).Render(r.Context(), w); err != nil {
 		slog.Error("render ScheduleBlock read", "err", err)
 	}
 }
@@ -45,7 +45,7 @@ func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name 
 // A non-empty errMsg signals a validation failure and produces a 422 response;
 // otherwise the response is the implicit 200 (used for the initial GET).
 func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -65,7 +65,7 @@ func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name,
 // GET /ui/devices/{name}/schedule
 func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(name); !ok {
+	if _, ok := h.viewFor(r, name); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -77,7 +77,7 @@ func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 // GET /ui/devices/{name}/schedule/edit
 func (h *Handler) getUIScheduleEdit(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(name); !ok {
+	if _, ok := h.viewFor(r, name); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -190,7 +190,7 @@ func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error
 // uiRenderCard renders the DeviceCard for a successful write. Re-fetches the
 // snapshot from cache (the breezy ops will have updated it via WriteThrough).
 func (h *Handler) uiRenderCard(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -201,7 +201,7 @@ func (h *Handler) uiRenderCard(w http.ResponseWriter, r *http.Request, name stri
 
 // uiValidationError renders the DeviceCard with PostError set, status 422.
 func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, name, msg string) {
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -244,6 +244,51 @@ func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := breezy.SetMode(ctx, rc, mode); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.uiRenderCard(w, r, name)
+}
+
+// postUIPreset writes the per-preset supply/extract percentages.
+//
+// Form: preset=1|2|3, supply=10..100, extract=10..100
+func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.uiValidationError(w, r, name, "bad form encoding")
+		return
+	}
+	preset, err := strconv.Atoi(r.FormValue("preset"))
+	if err != nil || preset < 1 || preset > 3 {
+		h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
+		return
+	}
+	supply, err := strconv.Atoi(r.FormValue("supply"))
+	if err != nil || supply < 10 || supply > 100 {
+		h.uiValidationError(w, r, name, "supply must be 10..100")
+		return
+	}
+	extract, err := strconv.Atoi(r.FormValue("extract"))
+	if err != nil || extract < 10 || extract > 100 {
+		h.uiValidationError(w, r, name, "extract must be 10..100")
+		return
+	}
+
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := breezy.SetPresetSpeed(ctx, rc, preset, supply, extract); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -506,7 +551,7 @@ func (h *Handler) getUIThresholdRead(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -528,7 +573,7 @@ func (h *Handler) getUIThresholdEdit(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -601,7 +646,7 @@ func (h *Handler) putUIThreshold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	view, ok := h.viewFor(name)
+	view, ok := h.viewFor(r, name)
 	if !ok {
 		http.NotFound(w, r)
 		return

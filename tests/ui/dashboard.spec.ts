@@ -127,7 +127,7 @@ test("Mode block: visible only in manual speed_mode", async ({ page }) => {
   await presets.asMode(DEVICE, "regeneration");
   await waitForPoll();
   const card = await loadCard(page);
-  await expect(card.locator(".ctrl", { hasText: "MODE" })).toBeVisible();
+  await expect(card.locator(".ctrl-label", { hasText: /^MODE$/ })).toBeVisible();
 
   // Now switch to preset mode — Mode block should disappear.
   await presets.asPresetSpeed(DEVICE, 1);
@@ -135,7 +135,7 @@ test("Mode block: visible only in manual speed_mode", async ({ page }) => {
   await page.reload();
   const card2 = page.locator(`[data-device="${DEVICE}"]`);
   await expect(card2).toBeVisible({ timeout: 10_000 });
-  await expect(card2.locator(".ctrl", { hasText: "MODE" })).toHaveCount(0);
+  await expect(card2.locator(".ctrl-label", { hasText: /^MODE$/ })).toHaveCount(0);
 });
 
 test("preset buttons: labels show supply/extract pcts from preset config", async ({ page }) => {
@@ -172,7 +172,7 @@ test("active special_mode hides the manual panel (Mode block + slider)", async (
   // Default snapshot has timer=turbo (0x0007=02) and manual speed_mode.
   await waitForPoll();
   const card = await loadCard(page);
-  await expect(card.locator(".ctrl", { hasText: "MODE" })).toHaveCount(0);
+  await expect(card.locator(".ctrl-label", { hasText: /^MODE$/ })).toHaveCount(0);
   await expect(card.locator(".ctrl .fan-slider-row")).toHaveCount(0);
 });
 
@@ -425,9 +425,10 @@ test("schedule: action=off greys the pct input", async ({ page }) => {
 
 test.fixme("schedule: duplicate-at disables save", async ({ page }) => {
   // [A] Two entries with the same At time → save button disabled.
-  // NOTE: Client-side duplicate-at validation is not yet implemented in the
-  // schedule editor. The server validates and returns an error on PUT.
-  // This test should be re-enabled once client-side validation is added.
+  // DEFERRED FEATURE: Client-side duplicate-at validation is not implemented.
+  // The server validates and returns 400 on PUT, so the user sees an inline
+  // error after submitting — no data loss. Adding the client-side check is
+  // a small UX improvement, not a bug. Re-enable this test when implementing.
   await reset(DEVICE);
   await presets.withSchedule(DEVICE, {
     enabled: true,
@@ -773,15 +774,17 @@ test("schedule: in-flight pct edit survives a poll interval (issue #43)", async 
   await expect(card.locator("form[hx-put*='schedule']")).toBeVisible();
 });
 
-// ── Category C: persistence (hx-preserve) ────────────────────────────────────
+// ── Category C: persistence (cookie-driven server render) ────────────────────
 
-// User-toggled <details> open state is preserved across the 5s htmx
-// swap by a small client-side IIFE in layout.templ that listens for
-// `toggle` events and re-applies the stored state on `htmx:afterSettle`.
+// User-toggled <details> open state is preserved across the 5s htmx swap
+// because the summary-click handler writes the new state to the breezy-ui
+// cookie, and the server reads that cookie on every render to emit the
+// correct `open` attribute directly. No JS reapply pass, no flicker.
 // Each block carries a stable id (info-{name}, sensors-{name}, etc.).
 
-test("sensors block: open state survives polls", async ({ page }) => {
-  // [C] hx-preserve on the Sensors <details> keeps it closed if user closed it.
+test("sensors block: open state survives polls (no flicker)", async ({ page }) => {
+  // [C] Closing the Sensors <details> persists via cookie; the server emits
+  // it without `open` on subsequent polls — no transient flicker.
   await reset(DEVICE);
   await waitForPoll();
   const card = await loadCard(page);
@@ -790,13 +793,27 @@ test("sensors block: open state survives polls", async ({ page }) => {
     await sensors.locator("summary").click();
   }
   await expect(sensors).not.toHaveAttribute("open", "");
-  // Need ≥1 actual poll swap (5s page interval).
-  await waitForPoll(6000);
+  // Watch for any moment where the `open` attribute is incorrectly applied
+  // during the swap window, then wait through ≥1 full poll cycle.
+  const everOpened = await page.evaluate(async () => {
+    const el = document.querySelector("details.sensors") as HTMLDetailsElement | null;
+    if (!el) return true;
+    let opened = false;
+    const obs = new MutationObserver(() => {
+      if (el.hasAttribute("open")) opened = true;
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ["open"] });
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    obs.disconnect();
+    return opened;
+  });
+  expect(everOpened).toBe(false);
   await expect(sensors).not.toHaveAttribute("open", "");
 });
 
-test("ENERGY block: open state survives polls", async ({ page }) => {
-  // [C] Opening the energy <details> and waiting through polls keeps it open.
+test("ENERGY block: open state survives polls (no flicker)", async ({ page }) => {
+  // [C] Opening the energy <details> persists via cookie; the server emits
+  // it with `open` on subsequent polls — no transient closure flicker.
   await reset(DEVICE);
   await presets.asMode(DEVICE, "regeneration");
   await presets.withTimer(DEVICE, "off");
@@ -805,19 +822,48 @@ test("ENERGY block: open state survives polls", async ({ page }) => {
   const energy = card.locator("details.energy");
   await energy.locator("summary").click();
   await expect(energy).toHaveAttribute("open", "");
-  await waitForPoll(6000);
+  // Watch for any moment where the `open` attribute is incorrectly dropped
+  // during the swap window, then wait through ≥1 full poll cycle.
+  const everClosed = await page.evaluate(async () => {
+    const el = document.querySelector("details.energy") as HTMLDetailsElement | null;
+    if (!el) return true;
+    let closed = false;
+    const obs = new MutationObserver(() => {
+      if (!el.hasAttribute("open")) closed = true;
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ["open"] });
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    obs.disconnect();
+    return closed;
+  });
+  expect(everClosed).toBe(false);
   await expect(energy).toHaveAttribute("open", "");
 });
 
-test("device info: open state survives polls", async ({ page }) => {
-  // [C] Manually opened device-info survives subsequent htmx swaps.
+test("device info: open state survives polls (no flicker)", async ({ page }) => {
+  // [C] Manually opened device-info persists via cookie; the server emits
+  // it with `open` on subsequent polls — no transient closure flicker.
   await reset(DEVICE);
   await waitForPoll();
   const card = await loadCard(page);
   const info = card.locator("details.device-info");
   await info.locator("summary").click();
   await expect(info).toHaveAttribute("open", "");
-  await waitForPoll(6000);
+  // Watch for any moment where the `open` attribute is incorrectly dropped
+  // during the swap window, then wait through ≥1 full poll cycle.
+  const everClosed = await page.evaluate(async () => {
+    const el = document.querySelector("details.device-info") as HTMLDetailsElement | null;
+    if (!el) return true;
+    let closed = false;
+    const obs = new MutationObserver(() => {
+      if (!el.hasAttribute("open")) closed = true;
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ["open"] });
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    obs.disconnect();
+    return closed;
+  });
+  expect(everClosed).toBe(false);
   await expect(info).toHaveAttribute("open", "");
 });
 
@@ -888,86 +934,481 @@ test("auth failure: polling error is handled gracefully", async ({ page }) => {
   await simulateAuthFailure(DEVICE, false);
 });
 
-// ── Category E: JS-only / legacy — marked fixme ──────────────────────────────
+// ── Category E: JS-only / legacy — some restored, some kept fixme ────────────
 
-test.fixme("preset editor open: no fan slider rows (editor is the control surface)", async ({ page }) => {
-  // Obsoleted by htmx model: the preset editor is now an htmx fragment GET,
-  // not JS-managed DOM state.  The editor fragment tests are in the htmx
-  // render-test suite.  No equivalent Playwright test needed here.
-  void page;
+test("preset editor open: no fan slider rows (editor is the control surface)", async ({ page }) => {
+  // [E→C] When speed_mode=preset, the manual fan-slider-row is absent from the DOM.
+  // The preset editor is the control surface for speed adjustment.
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+  const card = await loadCard(page);
+  // In preset speed mode, the manual slider row is not rendered at all
+  // (controls_block.templ only shows it when SpeedMode=="manual").
+  await expect(card.locator(".fan-slider-row")).toHaveCount(0);
 });
 
-test.fixme("mode click in manual: carries the higher fan pct as new manual_pct", async ({ page }) => {
-  // Obsoleted by htmx migration: secondary speed-preserve POST was JS orchestration
-  // in legacy.js (deleted Task 21).  The mode button issues a single POST /mode.
-  void page;
+test("preset editor: automode default OFF; drag both ≥10 implies regeneration", async ({ page, context }) => {
+  // [E→C] Automode defaults to OFF (cookie absent → false). Dragging both
+  // sliders to ≥10 fires POST /mode with mode=regeneration (#46 fix).
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.asMode(DEVICE, "supply"); // not regen, so the implied write fires
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+  const card = await loadCard(page);
+  // Open the preset 1 editor by clicking the chip.
+  await card.locator('[data-action="preset"][data-value="1"]').click();
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Automode should be unchecked by default (no cookie).
+  const automode = editor.locator('[data-action="automode-toggle"]');
+  await expect(automode).not.toBeChecked();
+
+  // Intercept the implied-mode POST.
+  const modeReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/mode`));
+
+  // Drag the supply slider to 30 (≥10, both will be synced via match-speeds=true).
+  const supplySlider = editor.locator('[data-action="preset-supply-slider"]');
+  await supplySlider.evaluate((el: HTMLInputElement) => {
+    el.value = "30";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  const modeReq = await modeReqP;
+  expect(modeReq.postData()).toContain("mode=regeneration");
 });
 
-test.fixme("mode click in manual: optimistic overlay flips Sensors rpms immediately", async ({ page }) => {
-  // Obsoleted by htmx model: optimistic overlay (setOptimisticLive) was removed
-  // in the htmx migration.  The card swap after a successful POST shows the
-  // correct state once the next poll completes.
-  void page;
+test("preset editor: dragging a slider into 1-9 snaps to 0", async ({ page, context }) => {
+  // [E→C] Values 1-9 are invalid for the firmware; htmx:configRequest snaps them to 0.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 2);
+  await presets.withPresetValues(DEVICE, 2, 50, 50);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+  const card = await loadCard(page);
+  await card.locator('[data-action="preset"][data-value="2"]').click();
+  const editor = card.locator('[data-preset-editor="2"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Set the extract slider to 5 (in the snap range) and dispatch a real change event.
+  // The htmx:configRequest handler should snap it to 0 in the DOM.
+  const extractSlider = editor.locator('[data-action="preset-extract-slider"]');
+  await extractSlider.evaluate((el: HTMLInputElement) => {
+    el.value = "5";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  // The handler runs synchronously inside dispatchEvent. Allow a tick for any
+  // async htmx machinery.
+  await page.waitForTimeout(50);
+
+  // Assert the DOM value is 0 — the handler did the snap.
+  await expect(extractSlider).toHaveValue("0");
 });
 
-test.fixme("preset editor: automode default ON; dragging in editor POSTs ventilation", async ({ page }) => {
-  // PR1 deferred: preset-editor rendering uses JS state that conflicts with
-  // templ-rendered DOM in PR2.  Restore in PR3 when editor becomes htmx fragment.
-  void page;
+test("preset editor: automode off + supply→0 implies extract mode", async ({ page, context }) => {
+  // [E→C] With match-speeds off and supply=0, extract≥10 → POST mode=extract.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.asMode(DEVICE, "regeneration"); // current mode differs from implied
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  // Set cookie with match-speeds=false so sibling is not synced.
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: false, match: false } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Intercept the implied-mode POST (extract).
+  const modeReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/mode`));
+
+  // Drag supply slider to 0 (extract stays at 50 because match=false).
+  await editor.locator('[data-action="preset-supply-slider"]').evaluate((el: HTMLInputElement) => {
+    el.value = "0";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  const modeReq = await modeReqP;
+  expect(modeReq.postData()).toContain("mode=extract");
 });
 
-test.fixme("preset editor: dragging a slider into 1-9 snaps to 0", async ({ page }) => {
-  // PR1 deferred: preset-editor is JS-only state.  Re-add in PR3 if slider
-  // snap is implemented server-side.
-  void page;
+test("preset editor: automode off + extract→0 implies supply mode", async ({ page, context }) => {
+  // [E→C] With match-speeds off and extract=0, supply≥10 → POST mode=supply.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.asMode(DEVICE, "regeneration"); // current mode differs from implied
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: false, match: false } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Intercept the implied-mode POST (supply).
+  const modeReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/mode`));
+
+  // Drag extract slider to 0 (supply stays at 50 because match=false).
+  await editor.locator('[data-action="preset-extract-slider"]').evaluate((el: HTMLInputElement) => {
+    el.value = "0";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  const modeReq = await modeReqP;
+  expect(modeReq.postData()).toContain("mode=supply");
 });
 
-test.fixme("preset editor: automode off + supply→0 implies extract mode", async ({ page }) => {
-  // PR1 deferred: preset-editor JS state.
-  void page;
+test("preset editor: automode off + both > 0 implies regeneration", async ({ page, context }) => {
+  // [E→C] With match-speeds off, supply≥10 and extract≥10 → POST mode=regeneration.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.asMode(DEVICE, "supply"); // current mode differs from implied
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: false, match: false } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Intercept the implied-mode POST (regeneration).
+  const modeReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/mode`));
+
+  // Drag supply slider to 60 (extract stays at 50 because match=false).
+  await editor.locator('[data-action="preset-supply-slider"]').evaluate((el: HTMLInputElement) => {
+    el.value = "60";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  const modeReq = await modeReqP;
+  expect(modeReq.postData()).toContain("mode=regeneration");
 });
 
-test.fixme("preset editor: automode off + extract→0 implies supply mode", async ({ page }) => {
-  // PR1 deferred: preset-editor JS state.
-  void page;
+test("preset activation (automode on): drag in editor sends POST mode=ventilation", async ({ page, context }) => {
+  // [E→C] With automode=true in cookie and active preset, dragging a slider
+  // fires POST /mode with mode=ventilation (not regeneration).
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.asMode(DEVICE, "supply"); // current mode differs from implied
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: true, match: true } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Intercept the implied-mode POST (ventilation because automode=true).
+  const modeReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/mode`));
+
+  await editor.locator('[data-action="preset-supply-slider"]').evaluate((el: HTMLInputElement) => {
+    el.value = "60";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  const modeReq = await modeReqP;
+  expect(modeReq.postData()).toContain("mode=ventilation");
 });
 
-test.fixme("preset editor: automode off + both > 0 implies regeneration", async ({ page }) => {
-  // PR1 deferred: preset-editor JS state.
-  void page;
+test("speed preset: editor opens after activating, sliders use cached preset values", async ({ page, context }) => {
+  // [E→C] Clicking a preset chip writes cookie.preset[name].open=N; the next
+  // swap (htmx POST /speed reply) renders the editor visible with preset values.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPowerOn(DEVICE);
+  await presets.withPresetValues(DEVICE, 2, 55, 60);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+  const card = await loadCard(page);
+
+  // Click preset 2 chip — htmx POSTs /speed, JS writes cookie open=2.
+  await card.locator('[data-action="preset"][data-value="2"]').click();
+
+  // After the swap, the editor for preset 2 should be visible.
+  const editor = card.locator('[data-preset-editor="2"]');
+  await expect(editor).toBeVisible({ timeout: 5000 });
+
+  // The sliders should reflect the cached preset values (55 supply, 60 extract).
+  const supplySlider = editor.locator('[data-action="preset-supply-slider"]');
+  const extractSlider = editor.locator('[data-action="preset-extract-slider"]');
+  await expect(supplySlider).toHaveValue("55");
+  await expect(extractSlider).toHaveValue("60");
 });
 
-test.fixme("preset activation (automode on): clicks ventilation alongside the preset", async ({ page }) => {
-  // Intentionally removed in PR2: secondary automode POST was JS orchestration.
-  // Re-add via server-side mode chain in postUISpeed if user feedback requires it.
-  void page;
+test("speed preset: clicking same active preset twice closes the editor", async ({ page, context }) => {
+  // [E→C] Re-clicking the active preset chip toggles cookie.preset[name].open to 0
+  // and the editor becomes hidden after the next swap.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  // Set cookie to open editor=1 so first render shows it open.
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: false, match: true } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Click preset 1 again (same active preset) — JS toggles open to 0.
+  await card.locator('[data-action="preset"][data-value="1"]').click();
+
+  // After the swap, the editor should be hidden.
+  await expect(editor).toBeHidden({ timeout: 5000 });
 });
 
-test.fixme("speed preset: editor opens after activating, sliders use cached preset values", async ({ page }) => {
-  // PR1 deferred: edit-variant rendering moves to htmx in PR2 (Task 17/18).
-  void page;
+test("speed preset editor: match-speeds default true → moving supply POSTs both", async ({ page, context }) => {
+  // [E→C] With match-speeds=true (default), dragging supply slider syncs the
+  // extract slider DOM value and POSTs both supply+extract with the same value.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: false, match: true } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Intercept the /preset POST to inspect its payload.
+  const presetReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/preset`));
+
+  // Drag supply slider to 70.
+  await editor.locator('[data-action="preset-supply-slider"]').evaluate((el: HTMLInputElement) => {
+    el.value = "70";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  const presetReq = await presetReqP;
+  const body = presetReq.postData() || "";
+  // Both supply and extract should be 70 (match-speeds synced them).
+  expect(body).toContain("supply=70");
+  expect(body).toContain("extract=70");
 });
 
-test.fixme("speed preset: clicking same active preset twice closes the editor", async ({ page }) => {
-  // PR1 deferred: edit-variant rendering moves to htmx in PR2.
-  void page;
+test("speed preset editor: match-speeds off → moving extract preserves cached supply", async ({ page, context }) => {
+  // [E→C] With match-speeds=false, dragging the extract slider does NOT sync supply.
+  // The POST sends the current slider values independently.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: false, match: false } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  // Verify match-speeds checkbox is unchecked.
+  await expect(editor.locator('[data-action="match-speeds-toggle"]')).not.toBeChecked();
+
+  // Intercept the /preset POST.
+  const presetReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/preset`));
+
+  // Drag extract slider to 80 (supply stays at 50).
+  await editor.locator('[data-action="preset-extract-slider"]').evaluate((el: HTMLInputElement) => {
+    el.value = "80";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  const presetReq = await presetReqP;
+  const body = presetReq.postData() || "";
+  expect(body).toContain("extract=80");
+  expect(body).toContain("supply=50");
 });
 
-test.fixme("speed preset editor: match-speeds default true → moving supply POSTs both", async ({ page }) => {
-  // PR1 deferred: edit-variant rendering moves to htmx in PR2.
-  void page;
+// ── Category P: preset editor new tests ──────────────────────────────────────
+
+test("automode default: unchecked when editor opens (no cookie)", async ({ page, context }) => {
+  // [P] With no breezy-ui cookie, automode defaults to false (unchecked) per #46.1.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+  const card = await loadCard(page);
+  // Click the preset 1 chip to open the editor.
+  await card.locator('[data-action="preset"][data-value="1"]').click();
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 5000 });
+  const automode = editor.locator('[data-action="automode-toggle"]');
+  await expect(automode).not.toBeChecked();
 });
 
-test.fixme("speed preset editor: match-speeds off → moving extract preserves cached supply", async ({ page }) => {
-  // PR1 deferred: edit-variant rendering moves to htmx in PR2.
-  void page;
+test("automode off→toggle while in preset, both fans ≥10: POSTs regeneration", async ({ page, context }) => {
+  // [P] Unchecking automode while device is in preset mode and both sliders ≥10
+  // fires an implied POST /mode with mode=regeneration (#46.2).
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 1);
+  await presets.withPresetValues(DEVICE, 1, 50, 50);
+  await presets.asMode(DEVICE, "supply"); // not regen; so the fire is observable
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+
+  // Open editor with automode=false (default).
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: encodeURIComponent(JSON.stringify({
+      preset: { [DEVICE]: { open: 1, automode: false, match: true } }
+    })),
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+
+  const card = await loadCard(page);
+  const editor = card.locator('[data-preset-editor="1"]');
+  await expect(editor).toBeVisible({ timeout: 3000 });
+
+  const automode = editor.locator('[data-action="automode-toggle"]');
+  // Check automode (off → on, pure preference, no write).
+  await automode.check();
+
+  // Now uncheck (on → off) — should fire POST /mode regeneration.
+  const modeReqP = page.waitForRequest(req =>
+    req.method() === "POST" && req.url().includes(`/ui/devices/${DEVICE}/mode`));
+  await automode.uncheck();
+  const modeReq = await modeReqP;
+  expect(modeReq.postData()).toContain("mode=regeneration");
 });
 
-test.fixme("auto-fan: snapshot without _sensor_enabled treats checkbox as default-on; save without toggling skips POST", async ({ page }) => {
-  // Htmx semantic shift: form always submits value+enabled; the legacy
-  // "skip POST if nothing changed" optimisation is gone.  The important
-  // invariant (missing key → default-on) is covered by the checkbox-state test above.
-  void page;
+test("preset editor: open state survives 5s poll (no flicker)", async ({ page, context }) => {
+  // [P] The preset editor stays visible across htmx polls because the cookie
+  // carries the open state to the server; no client-side re-apply pass flickers.
+  await context.clearCookies();
+  await reset(DEVICE);
+  await presets.asPresetSpeed(DEVICE, 2);
+  await presets.withPresetValues(DEVICE, 2, 50, 50);
+  await presets.withTimer(DEVICE, "off");
+  await waitForPoll();
+  const card = await loadCard(page);
+
+  // Click preset 2 chip to open editor.
+  await card.locator('[data-action="preset"][data-value="2"]').click();
+  const editor = card.locator('[data-preset-editor="2"]');
+  await expect(editor).toBeVisible({ timeout: 5000 });
+
+  // Monitor for any moment the editor becomes hidden during 6s (≥1 poll cycle).
+  const everHidden = await page.evaluate(async () => {
+    const el = document.querySelector('[data-preset-editor="2"]') as HTMLElement | null;
+    if (!el) return true;
+    let hidden = false;
+    const obs = new MutationObserver(() => {
+      if (el.hasAttribute('hidden')) hidden = true;
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ['hidden'] });
+    await new Promise(resolve => setTimeout(resolve, 6000));
+    obs.disconnect();
+    return hidden;
+  });
+  expect(everHidden).toBe(false);
+});
+
+test("cookie: malformed value falls back to defaults without 5xx", async ({ page, context }) => {
+  // [P] A corrupt breezy-ui cookie must not cause a 500; the server falls back
+  // to default UI state and serves the page normally.
+  const baseURL = process.env.BREEZYD_URL || "http://localhost:8000";
+  await context.addCookies([{
+    name: "breezy-ui",
+    value: "%7Bnot-json",
+    url: baseURL,
+    sameSite: "Lax",
+  }]);
+  await reset(DEVICE);
+  const resp = await page.goto("/");
+  expect(resp?.status()).toBe(200);
 });
 
 // ── Category N: net-new htmx-swap correctness ────────────────────────────────
@@ -1044,12 +1485,12 @@ test.describe("htmx swap correctness", () => {
     expect(elapsed).toBeLessThan(500);
   });
 
-  test.fixme("write to one endpoint does not re-render other sections unexpectedly", async ({ page }) => {
-    // [N] After a power toggle, the card is swapped (outerHTML) but user-opened
-    // <details> sections should stay open via hx-preserve.
-    // NOTE: hx-preserve is not yet wired for write responses — the whole card is
-    // returned fresh and <details> states reset. Re-enable once hx-preserve IDs
-    // are added to the card template.
+  test("write to one endpoint preserves user-opened <details> sections", async ({ page, context }) => {
+    // [N] After a card swap (outerHTML on a write), user-opened <details>
+    // stay open because the cookie-driven server render emits the same
+    // open-state markup the next render. Cookie write happens on the
+    // summary click, before the htmx XHR fires.
+    await context.clearCookies();
     await reset(DEVICE);
     await presets.asPowerOn(DEVICE);
     await presets.withTimer(DEVICE, "off");
@@ -1057,14 +1498,15 @@ test.describe("htmx swap correctness", () => {
     await presets.asManualSpeed(DEVICE, 50);
     await waitForPoll();
     const card = await loadCard(page);
-    // Open device-info.
+    // Open device-info via summary click — this writes the cookie.
     const info = card.locator("details.device-info");
     await info.locator("summary").click();
     await expect(info).toHaveAttribute("open", "");
-    // Toggle power.
+    // Toggle power — server renders the new card with cookie-driven open state.
     await card.locator('button[class*="toggle"][hx-post*="/power"]').click();
-    // After swap, device-info is still open (hx-preserve).
-    await expect(info).toHaveAttribute("open", "", { timeout: 3000 });
+    // After the swap, the new <details.device-info> still has open.
+    await expect(page.locator(`.card[data-device="${DEVICE}"] details.device-info`))
+      .toHaveAttribute("open", "", { timeout: 3000 });
   });
 });
 

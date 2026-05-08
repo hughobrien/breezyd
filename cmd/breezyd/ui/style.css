@@ -286,6 +286,7 @@ details.block.schedule > summary > h3 { margin: 0; }
   background: var(--bg-elevated); border: 1px solid var(--border-elevated); border-radius: 4px;
   display: flex; flex-direction: column; gap: 0.3rem;
 }
+.preset-editor[hidden] { display: none; }
 .preset-editor .match-speeds {
   font-size: 0.75rem; color: var(--fg-strong); display: inline-flex;
   align-items: center; gap: 0.3rem;

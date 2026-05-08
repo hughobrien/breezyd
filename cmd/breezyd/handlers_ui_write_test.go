@@ -1073,3 +1073,193 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 		t.Errorf("body missing edit form: %s", bs)
 	}
 }
+
+// ---------- postUIPreset tests ----------
+
+func TestPostUIPreset_Success(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
+		"preset":  {"2"},
+		"supply":  {"40"},
+		"extract": {"45"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `data-device="alpha"`) {
+		t.Errorf("body missing card markup: %s", string(body))
+	}
+}
+
+func TestPostUIPreset_NotFound(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/preset", url.Values{
+		"preset":  {"1"},
+		"supply":  {"40"},
+		"extract": {"45"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 404 {
+		t.Fatalf("status: %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPostUIPreset_BadPreset(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
+		"preset":  {"4"},
+		"supply":  {"40"},
+		"extract": {"45"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "preset must be") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
+func TestPostUIPreset_BadSupply(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// supply=5 is below the minimum of 10.
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
+		"preset":  {"1"},
+		"supply":  {"5"},
+		"extract": {"45"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "supply must be") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
+func TestPostUIPreset_BadExtract(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// extract=5 is below the minimum of 10.
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
+		"preset":  {"1"},
+		"supply":  {"40"},
+		"extract": {"5"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "extract must be") {
+		t.Errorf("body missing error message: %s", string(body))
+	}
+}
+
+func TestPostUIPreset_MissingFields(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Empty form: all fields missing → first validation fails (preset).
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 422 {
+		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestPostUIPreset_AuthError(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	// Keep the real device address but use the wrong password.
+	addr, _ := h.Devices.Get("alpha")
+	h.Devices.Set("alpha", DeviceConfig{
+		ID:       srvDeviceID,
+		Password: "WRONG",
+		IP:       addr.IP,
+	})
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
+		"preset":  {"1"},
+		"supply":  {"40"},
+		"extract": {"45"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 401 {
+		t.Fatalf("status: %d, want 401", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "auth") {
+		t.Errorf("body missing auth error: %s", string(body))
+	}
+}
+
+func TestPostUIPreset_BackendError(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	// 192.0.2.0/24 is TEST-NET-1 — guaranteed unreachable.
+	h.Devices.Set("alpha", DeviceConfig{
+		ID:       srvDeviceID,
+		Password: srvPassword,
+		IP:       "192.0.2.1:4000",
+	})
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
+		"preset":  {"1"},
+		"supply":  {"40"},
+		"extract": {"45"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 502 {
+		t.Fatalf("status: %d, want 502", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "err-banner") {
+		t.Errorf("body missing error banner: %s", string(body))
+	}
+}
