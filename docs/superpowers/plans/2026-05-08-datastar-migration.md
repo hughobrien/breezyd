@@ -12,6 +12,32 @@
 
 ---
 
+## Amendment 2026-05-08: use the datastar Go SDK
+
+The Go SDK has moved out of the datastar monorepo to its own repo. Every task below that previously hand-rolled the SSE wire format MUST instead use the SDK.
+
+- **Module path:** `github.com/starfederation/datastar-go` (NOT `github.com/starfederation/datastar/sdk/go`).
+- **Pin:** `v1.2.1`.
+- **JS bundle:** `datastar-1.0.1.min.js`, sourced from `github.com/starfederation/datastar@v1.0.1/bundles/datastar.js` (≈ 34 KB; ESM module).
+- **Wire-protocol delta (v1.x vs RC.11):** event type is `datastar-patch-elements` (not `datastar-merge-fragments`); data lines are `selector`, `mode`, `elements` (not `mergeMode` / `fragments`). All hand-rolled snippets in the original plan reflect the old protocol and must not be copied verbatim — use the SDK.
+
+**SDK surface used in this migration:**
+- `datastar.NewSSE(w, r, opts...) *ServerSentEventGenerator` — open SSE on a request.
+- `sse.PatchElementTempl(c templ.Component, opts...) error` — render templ + emit `datastar-patch-elements`.
+- `sse.PatchElements(html string, opts...) error` — emit pre-rendered HTML.
+- Options: `datastar.WithSelectorf("...", args...)`, `datastar.WithSelector("...")`, `datastar.WithSelectorID("...")`, `datastar.WithModeOuter()`, `datastar.WithModeInner()`.
+- Inline-attribute helpers: `datastar.GetSSE("/path")`, `datastar.PostSSE("/path")`, `datastar.PutSSE("/path")` produce the `@get('...')` / `@post('...')` / `@put('...')` strings that go into `data-on-*` attributes.
+
+**PushHub adaptation:** `Notify` cannot use `NewSSE` (no `http.ResponseWriter` / `*http.Request` in poll context). Render the templ component to a `bytes.Buffer` once, then fan out (selector, modeOuter, html) tuples to each subscriber. The `/ui/sse` handler holds the SDK generator and calls `sse.PatchElements(html, datastar.WithSelectorf(".card[data-device=%q]", name))` for each event drained from the channel, plus `sse.PatchElementTempl(...)` for initial-state cards. Keepalive is the SDK's built-in: it emits a comment-line every 30s automatically — no manual ticker needed.
+
+**Error envelopes:** instead of hand-emitting `event: datastar-merge-fragments`, action handlers call `datastar.NewSSE(w, r)` then `sse.PatchElements(...)` with `WithSelector("#global-error-banner")` + `WithModeInner()`. Status code is set on the response before `NewSSE` (HTTP semantics still 401/422/502).
+
+**JS bundle vendoring:** the bundle is an ES module — load with `<script type="module" src="...">`. SHA-256 the file at vendor time; pin the hash in a comment in `ui_assets.go` so future bumps are deliberate.
+
+The original plan's `buildMergeFragmentEvent` / `writeErrorBannerEvent` / `renderFragmentSSE` helpers do NOT need to exist — the SDK replaces all of them.
+
+---
+
 ## File Structure
 
 **New files:**
