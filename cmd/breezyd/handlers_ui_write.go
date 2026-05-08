@@ -170,7 +170,7 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 				h.scheduleEditFrag(w, r, name, fmt.Sprintf("row %d: pct must be 10–100, got %q", i+1, pcts[i]))
 				return
 			}
-			pct = 10 // off rows: pct is irrelevant, use default
+			pct = 0 // off rows: pct is the in-band "no value" sentinel
 		}
 		entries = append(entries, ScheduleEntry{At: at, Action: action, Pct: pct})
 	}
