@@ -374,6 +374,79 @@ func (h *Handler) dialRecording(name string) (*recordingClient, HandlerClient, f
 	}), raw, unlock, nil
 }
 
+// handlerOpTimeout caps a single device dial + op (one UDP
+// request/response round trip including any internal retries). This is
+// not the 12s fan-settle window — that's a separate, post-write
+// behavior that suppresses polled reads, not a deadline on the write
+// itself (see poller.go::fanSettleDuration).
+const handlerOpTimeout = 5 * time.Second
+
+// doDeviceOp acquires the per-device UDP lock, opens a recording
+// client, runs op with a 5s timeout derived from r.Context(), and
+// tears everything down (Close before unlock; LIFO defer order)
+// before returning. Caller has already validated the device exists
+// and any input fields, and is responsible for translating the
+// returned error and emitting any success body.
+//
+// Returns nil on success, the dial error if the client could not be
+// opened, or the op's error verbatim — including ctx.DeadlineExceeded
+// when the 5s budget elapsed.
+func (h *Handler) doDeviceOp(
+	r *http.Request,
+	name string,
+	op func(ctx context.Context, rc *recordingClient) error,
+) error {
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), handlerOpTimeout)
+	defer cancel()
+	return op(ctx, rc)
+}
+
+// doDeviceRead is the read-only sibling used by getParam. Same shape
+// as doDeviceOp but goes through h.dial (no recording wrapper) since
+// reads have no writes to record.
+func (h *Handler) doDeviceRead(
+	r *http.Request,
+	name string,
+	op func(ctx context.Context, c HandlerClient) error,
+) error {
+	c, unlock, err := h.dial(name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	defer func() { _ = c.Close() }()
+	ctx, cancel := context.WithTimeout(r.Context(), handlerOpTimeout)
+	defer cancel()
+	return op(ctx, c)
+}
+
+// doDeviceOpBackground is the no-request sibling of doDeviceOp, used by
+// callers that have no *http.Request to derive a parent context from
+// (HomeKit characteristic write callbacks, scheduler-fired writes,
+// etc.). The parent context is context.Background(); the same
+// handlerOpTimeout caps the op so an unreachable device cannot hang
+// the caller's goroutine indefinitely.
+func (h *Handler) doDeviceOpBackground(
+	name string,
+	op func(ctx context.Context, rc *recordingClient) error,
+) error {
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), handlerOpTimeout)
+	defer cancel()
+	return op(ctx, rc)
+}
+
 // scheduleDial returns a Dial closure compatible with Scheduler.Dial.
 // Mirrors dialRecording but does NOT acquire the per-device UDP mutex —
 // the Scheduler holds it via Scheduler.LockUDP set to poller.LockUDP, so
