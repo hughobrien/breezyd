@@ -51,7 +51,7 @@
     {
       "id": 16,
       "subject": "Task 8: CHANGELOG + CLAUDE.md + README",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [14],
       "description": "**Goal:** Bring docs in line with the new architecture.\n\n**Files:**\n- Modify: CHANGELOG.md, CLAUDE.md, README.md (if applicable)\n\n**Verify:** `just check && grep -rn 'htmx-2|breezy-ui|computeDetailsOpen|internal/uistate' --include='*.go' --include='*.md' --include='*.templ' --include='*.css' --include='*.ts' --include='*.nix' .` (no hits)\n\n```json:metadata\n{\"files\": [\"CHANGELOG.md\", \"CLAUDE.md\", \"README.md\"], \"verifyCommand\": \"just check && grep -rn 'htmx-2|breezy-ui|computeDetailsOpen|internal/uistate' --include='*.go' --include='*.md' --include='*.templ' --include='*.css' --include='*.ts' --include='*.nix' .\", \"acceptanceCriteria\": [\"CHANGELOG entries complete\", \"CLAUDE.md updated\", \"no stale references\"]}\n```"
     }
