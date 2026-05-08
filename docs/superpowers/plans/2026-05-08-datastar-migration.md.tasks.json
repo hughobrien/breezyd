@@ -17,7 +17,7 @@
     {
       "id": 11,
       "subject": "Task 3: getUISSE handler + onPoll wiring",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [10],
       "description": "**Goal:** New GET /ui/sse endpoint. Compose handler.SyncHomekit + handler.PushHub.Notify in onPoll. Dashboard still uses htmx in parallel.\n\n**Files:**\n- Create: cmd/breezyd/handlers_ui_sse.go, cmd/breezyd/handlers_ui_sse_test.go\n- Modify: cmd/breezyd/server.go, cmd/breezyd/main.go, cmd/breezyd/push_hub.go, internal/uistate/state.go (nil-safe Parse)\n\n**Verify:** `go test ./cmd/breezyd/ -run 'TestPushHub|TestGetUISSE' -v && just check`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_ui_sse.go\", \"cmd/breezyd/handlers_ui_sse_test.go\", \"cmd/breezyd/server.go\", \"cmd/breezyd/main.go\", \"cmd/breezyd/push_hub.go\", \"internal/uistate/state.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run 'TestPushHub|TestGetUISSE' -v && just check\", \"acceptanceCriteria\": [\"initial state events\", \"notify delivers\", \"context cancel cleans up\", \"keepalive emitted\"]}\n```"
     },

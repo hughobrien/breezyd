@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// HTML-fragment write endpoints under /ui/devices/{name}/...
-// Each handler:
+// Datastar action endpoints under /ui/devices/{name}/...
+// Each action handler:
 //  1. Resolves the device (404 if unknown).
-//  2. Parses form params (422 + DeviceCard with PostError on validation failure).
+//  2. Parses form params (422 + SSE banner on validation failure).
 //  3. Calls the existing breezy write path via dialRecording.
-//  4. On success: 200 + rendered DeviceCard.
-//  5. On breezy.ErrAuth: 401 + error_banner.
-//  6. On other backend error: 502 + error_banner.
+//  4. On success: 200 + empty body, plus PushHub.Notify so subscribed
+//     /ui/sse streams refresh the card immediately.
+//  5. On breezy.ErrAuth: 401 + datastar-patch-elements event into
+//     #global-error-banner.
+//  6. On other backend error: 502 + datastar-patch-elements event.
+//
+// Threshold and schedule fragment endpoints still emit HTML; they get
+// converted to SSE in Task 5.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -23,6 +29,7 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/starfederation/datastar-go/datastar"
 )
 
 // ---------- schedule editor ----------
@@ -173,43 +180,59 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 	h.scheduleReadFrag(w, r, name)
 }
 
-// uiWriteError translates a backend write error into an HTTP status + error_banner.
-// Caller should return after this returns.
+// uiWriteError emits a datastar-patch-elements event into
+// #global-error-banner with the error message and the matching HTTP
+// status (401 for auth, 502 otherwise). Caller should return after this.
 func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	switch {
 	case errors.Is(err, breezy.ErrAuth):
-		w.WriteHeader(http.StatusUnauthorized)
-		_ = templates.ErrorBanner("device authentication failed").Render(r.Context(), w)
+		errorBannerSSE(w, r, http.StatusUnauthorized, "device authentication failed")
 	default:
-		w.WriteHeader(http.StatusBadGateway)
-		_ = templates.ErrorBanner(err.Error()).Render(r.Context(), w)
+		errorBannerSSE(w, r, http.StatusBadGateway, err.Error())
 	}
 }
 
-// uiRenderCard renders the DeviceCard for a successful write. Re-fetches the
-// snapshot from cache (the breezy ops will have updated it via WriteThrough).
-func (h *Handler) uiRenderCard(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = templates.DeviceCard(view).Render(r.Context(), w)
+// uiValidationError emits a 422 + datastar-patch-elements event with the
+// human-readable validation message. The `name` parameter is unused now
+// (errors go to a global banner, not a per-card one), but kept for
+// symmetry with existing call sites.
+func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, _ /*name*/ string, msg string) {
+	errorBannerSSE(w, r, http.StatusUnprocessableEntity, msg)
 }
 
-// uiValidationError renders the DeviceCard with PostError set, status 422.
-func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, name, msg string) {
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
+// notifyAfterWrite reads the post-write Snapshot from the cache and fans
+// it out to /ui/sse subscribers. Called from every successful action
+// handler. The Snapshot was just refreshed by the breezy package's
+// WriteThrough hook, so subscribers see the new value within one event.
+func (h *Handler) notifyAfterWrite(name string) {
+	if h.PushHub == nil || h.State == nil {
 		return
 	}
-	view.PostError = msg
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusUnprocessableEntity)
-	_ = templates.DeviceCard(view).Render(r.Context(), w)
+	if snap, ok := h.State.Get(name); ok {
+		h.PushHub.Notify(name, snap)
+	}
+}
+
+// errorBannerSSE writes a datastar-patch-elements event targeting
+// #global-error-banner. Status is set first; the SDK's NewSSE then
+// streams the event body — its header-sets are no-ops by then but its
+// Send/PatchElements path writes the wire format correctly.
+func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "keep-alive")
+	}
+	w.WriteHeader(status)
+	sse := datastar.NewSSE(w, r)
+	htmlFragment := `<div class="err-banner" role="alert">` + html.EscapeString(msg) + `</div>`
+	if err := sse.PatchElements(
+		htmlFragment,
+		datastar.WithSelector("#global-error-banner"),
+		datastar.WithModeInner(),
+	); err != nil {
+		slog.Debug("errorBannerSSE: patch failed", "err", err)
+	}
 }
 
 // postUIMode sets the airflow mode.
@@ -247,7 +270,8 @@ func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIPreset writes the per-preset supply/extract percentages.
@@ -292,7 +316,8 @@ func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUISpeed sets the fan speed (manual percentage or preset).
@@ -347,7 +372,8 @@ func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, opErr)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIHeater toggles the heater.
@@ -383,7 +409,8 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUITimer toggles a special-mode timer.
@@ -425,7 +452,8 @@ func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIResetFilter resets the filter-clogged counter. No form body needed.
@@ -448,7 +476,8 @@ func (h *Handler) postUIResetFilter(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIResetFaults clears the active fault list. No form body needed.
@@ -471,7 +500,8 @@ func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIPower toggles a device on/off.
@@ -507,7 +537,8 @@ func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // ---------- threshold inline editor ----------
