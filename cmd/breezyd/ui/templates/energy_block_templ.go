@@ -16,7 +16,7 @@ import (
 
 // EnergyBlock renders the collapsible ENERGY <details> block. When ev
 // is nil, renders nothing. Open state is driven client-side by the
-// card-level $detailsOpen.energy signal via data-attr-open.
+// card-level $detailsOpen.energy signal via data-attr:open.
 func EnergyBlock(name string, ev *ui.EnergyView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -52,7 +52,7 @@ func EnergyBlock(name string, ev *ui.EnergyView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"block energy\" data-attr-open=\"$detailsOpen.energy\"><summary><h3>ENERGY</h3></summary> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"block energy\" data-attr:open=\"$detailsOpen.energy\"><summary><h3>ENERGY</h3></summary> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

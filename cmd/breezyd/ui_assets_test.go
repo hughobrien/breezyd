@@ -24,6 +24,8 @@ func TestVendorAssets(t *testing.T) {
 		{"/ui/vendor/../etc/passwd", 404, ""},
 		{"/ui/style-" + styleHash + ".css", 200, "text/css; charset=utf-8"},
 		{"/ui/style-deadbeef00.css", 404, ""},
+		{"/favicon.svg", 200, "image/svg+xml"},
+		{"/favicon.ico", 200, "image/svg+xml"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
@@ -39,8 +41,11 @@ func TestVendorAssets(t *testing.T) {
 				if got := resp.Header.Get("Content-Type"); got != tc.wantCT {
 					t.Errorf("content-type: got %q, want %q", got, tc.wantCT)
 				}
-				if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "immutable") {
-					t.Errorf("cache-control missing immutable: %q", got)
+				// Versioned/hashed assets are immutable; favicon is short-cached.
+				if strings.HasPrefix(tc.path, "/ui/") {
+					if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "immutable") {
+						t.Errorf("cache-control missing immutable: %q", got)
+					}
 				}
 			}
 		})

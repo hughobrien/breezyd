@@ -8,23 +8,19 @@
 //   - match-speeds mirroring (one slider mirrors the other)
 //   - implied-mode derivation (sliders → regeneration / supply / extract)
 //
-// All POSTs are form-encoded for parity with the action handlers'
-// r.ParseForm() reads. Responses are SSE event streams; this helper does
-// not parse them — the @post() macro from datastar would, but we use
-// fetch() here because we want to chain multiple POSTs. Per-card SSE
+// All POSTs send JSON for parity with the action handlers' JSON decoders.
+// Responses are SSE event streams; this helper does not parse them — we
+// use fetch() because we want to chain multiple POSTs. Per-card SSE
 // patches still arrive via the persistent /ui/sse stream, so the
 // dashboard reflects the new state regardless.
 window.dashboard = (function () {
   function snapZero(n) { return n > 0 && n < 10 ? 0 : n; }
 
-  function postForm(url, params) {
-    var body = Object.keys(params)
-      .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); })
-      .join('&');
+  function postJSON(url, params) {
     return fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
       credentials: 'same-origin',
     });
   }
@@ -62,7 +58,7 @@ window.dashboard = (function () {
 
     var promises = [];
     if (sup >= 10 && ext >= 10) {
-      promises.push(postForm('/ui/devices/' + encodeURIComponent(name) + '/preset', {
+      promises.push(postJSON('/ui/devices/' + encodeURIComponent(name) + '/preset', {
         preset: preset,
         supply: sup,
         extract: ext,
@@ -79,7 +75,7 @@ window.dashboard = (function () {
       card.getAttribute('data-speed-mode') === 'preset' + preset &&
       card.getAttribute('data-airflow-mode') !== implied
     ) {
-      promises.push(postForm('/ui/devices/' + encodeURIComponent(name) + '/mode', {
+      promises.push(postJSON('/ui/devices/' + encodeURIComponent(name) + '/mode', {
         mode: implied,
       }));
     }

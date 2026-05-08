@@ -44,6 +44,9 @@ var styleHash string
 //go:embed ui/style.css
 var styleCSS []byte
 
+//go:embed ui/favicon.svg
+var faviconSVG []byte
+
 func init() {
 	root, err := fs.Sub(vendorFS, "ui/vendor")
 	if err != nil {
@@ -67,6 +70,15 @@ func (h *Handler) getIndex(w http.ResponseWriter, r *http.Request) {
 	if err := templates.Layout(d).Render(r.Context(), w); err != nil {
 		slog.Error("render Layout", "err", err)
 	}
+}
+
+// getFavicon serves the SVG favicon. Browsers fetch /favicon.ico
+// aggressively even with <link rel="icon"> set; serving the same SVG
+// at both paths silences the 404.
+func (h *Handler) getFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(faviconSVG)
 }
 
 // getStyle serves the extracted stylesheet at /ui/style-<hash>.css.

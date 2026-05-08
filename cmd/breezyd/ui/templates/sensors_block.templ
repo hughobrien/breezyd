@@ -7,13 +7,13 @@ import (
 
 // SensorsBlock renders the collapsible Sensors <details>. Open state is
 // driven client-side by the card-level $detailsOpen.sensors signal via
-// data-attr-open. Server-rendered HTML defaults closed; datastar opens
+// data-attr:open. Server-rendered HTML defaults closed; datastar opens
 // it before paint when the seeded signal is true.
 templ SensorsBlock(name string, s ui.SensorsView) {
 	<details
 		id={ "sensors-" + name }
 		class={ "block", "sensors", templ.KV("alert", s.AlertActive) }
-		data-attr-open="$detailsOpen.sensors"
+		data-attr:open="$detailsOpen.sensors"
 	>
 		<summary><h3>Sensors</h3></summary>
 		@sensorsGrid(name, s)

@@ -25,14 +25,14 @@ templ DeviceCard(v ui.DeviceView) {
 			<details
 				id={ "info-" + v.Name }
 				class={ "device-info", templ.KV("alert", v.NeedsAttention) }
-				data-attr-open="$detailsOpen.info"
+				data-attr:open="$detailsOpen.info"
 			>
 				<summary>
 					<h2>{ v.Name }</h2>
 					<button
 						type="button"
 						class="toggle toggle-inline"
-						data-on-click={ powerButtonExpr(v) }
+						data-on:click={ powerButtonExpr(v) }
 						if v.Stale { disabled }
 						aria-pressed={ boolAttr(v.Power) }
 					>power</button>
@@ -90,7 +90,7 @@ templ kvRowWithAction(k, v, label, postURL string) {
 		<button
 			type="button"
 			class="btn-inline"
-			data-on-click={ "if (confirm('Run: " + label + "?')) { " + postFormExpr(postURL, "") + " }" }
+			data-on:click={ "if (confirm('Run: " + label + "?')) { " + postActionExpr(postURL, "") + " }" }
 		>{ label }</button>
 	</div>
 }
@@ -111,15 +111,13 @@ func filterStatusStr(v ui.DeviceView) string {
 	return v.FilterStatus
 }
 
-// powerButtonExpr produces the data-on-click expression for the power
-// toggle. POSTs the inverse of the current power state via the same
-// fetch helper the rest of the dashboard uses.
+// powerButtonExpr produces the data-on:click expression for the power
+// toggle. POSTs the inverse of the current power state.
 func powerButtonExpr(v ui.DeviceView) string {
-	target := "false"
-	if !v.Power {
-		target = "true"
-	}
-	return postFormExpr(fmt.Sprintf("/ui/devices/%s/power", v.Name), "on="+target)
+	return postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/power", v.Name),
+		fmt.Sprintf("{on: %t}", !v.Power),
+	)
 }
 
 // initialCardSignals returns the per-card datastar signals seed as JSON.

@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +17,22 @@ import (
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
+
+// postJSON POSTs the given body as application/json and returns the
+// response. Mirrors http.PostForm but for the JSON-bodied action
+// handlers.
+func postJSON(t *testing.T, url string, body any) *http.Response {
+	t.Helper()
+	b, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(url, "application/json", bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
 
 // fakePushHub records every Notify call. Action-handler tests inject one
 // to verify the post-write fan-out fires without spinning up a real
@@ -101,10 +119,7 @@ func TestUIWritePower_Happy(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/power", url.Values{"on": {"true"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d", resp.StatusCode)
@@ -117,10 +132,7 @@ func TestUIWritePower_NotFound(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/power", url.Values{"on": {"true"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/nope/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d", resp.StatusCode)
@@ -133,16 +145,13 @@ func TestUIWritePower_BadForm(t *testing.T) {
 	defer srv.Close()
 
 	// Missing 'on' field — form value is absent, so onStr == "".
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/power", url.Values{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	assertSSEErrorBody(t, body, "missing or invalid")
+	assertSSEErrorBody(t, body, "missing")
 }
 
 func TestUIWritePower_BackendError(t *testing.T) {
@@ -156,13 +165,10 @@ func TestUIWritePower_BackendError(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/power", url.Values{"on": {"true"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 502 {
-		t.Fatalf("status: %d, want 502", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "err-banner")
@@ -180,13 +186,10 @@ func TestUIWritePower_AuthError(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/power", url.Values{"on": {"true"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 401 {
-		t.Fatalf("status: %d, want 401", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "auth")
@@ -202,10 +205,7 @@ func TestUIWriteMode_Happy(t *testing.T) {
 
 	modes := []string{"ventilation", "regeneration", "supply", "extract"}
 	for _, mode := range modes {
-		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/mode", url.Values{"mode": {mode}})
-		if err != nil {
-			t.Fatalf("mode=%s: %v", mode, err)
-		}
+		resp := postJSON(t, srv.URL+"/ui/devices/alpha/mode", map[string]any{"mode": mode})
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != 200 {
 			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
@@ -221,10 +221,7 @@ func TestUIWriteMode_NotFound(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/mode", url.Values{"mode": {"regeneration"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/nope/mode", map[string]any{"mode": "regeneration"})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d, want 404", resp.StatusCode)
@@ -237,13 +234,10 @@ func TestUIWriteMode_BadForm(t *testing.T) {
 	defer srv.Close()
 
 	// Invalid mode value.
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/mode", url.Values{"mode": {"auto"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/mode", map[string]any{"mode": "auto"})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "ventilation/regeneration/supply/extract")
@@ -257,10 +251,7 @@ func TestUIWriteSpeed_HappyManual(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"manual": {"50"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"manual": 50})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d, want 200", resp.StatusCode)
@@ -273,14 +264,11 @@ func TestUIWriteSpeed_HappyPreset(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	for _, preset := range []string{"1", "2", "3"} {
-		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"preset": {preset}})
-		if err != nil {
-			t.Fatalf("preset=%s: %v", preset, err)
-		}
+	for _, preset := range []int{1, 2, 3} {
+		resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"preset": preset})
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != 200 {
-			t.Fatalf("preset=%s: status=%d, want 200", preset, resp.StatusCode)
+			t.Fatalf("preset=%d: status=%d, want 200", preset, resp.StatusCode)
 		}
 	}
 }
@@ -290,10 +278,7 @@ func TestUIWriteSpeed_NotFound(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/speed", url.Values{"manual": {"50"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/nope/speed", map[string]any{"manual": 50})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d, want 404", resp.StatusCode)
@@ -305,13 +290,10 @@ func TestUIWriteSpeed_BadForm_NeitherField(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "exactly one") {
@@ -324,13 +306,10 @@ func TestUIWriteSpeed_BadForm_BothFields(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"manual": {"50"}, "preset": {"2"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"manual": 50, "preset": 2})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -340,13 +319,10 @@ func TestUIWriteSpeed_BadForm_InvalidManual(t *testing.T) {
 	defer srv.Close()
 
 	// Out of range (5 < 10).
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"manual": {"5"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"manual": 5})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -356,13 +332,10 @@ func TestUIWriteSpeed_BadForm_InvalidPreset(t *testing.T) {
 	defer srv.Close()
 
 	// Out of range (4 > 3).
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/speed", url.Values{"preset": {"4"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"preset": 4})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -374,15 +347,12 @@ func TestUIWriteHeater_Happy(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	values := []string{"true", "false"}
+	values := []bool{true, false}
 	for _, on := range values {
-		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/heater", url.Values{"on": {on}})
-		if err != nil {
-			t.Fatalf("on=%s: %v", on, err)
-		}
+		resp := postJSON(t, srv.URL+"/ui/devices/alpha/heater", map[string]any{"on": on})
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != 200 {
-			t.Fatalf("on=%s: status=%d, want 200", on, resp.StatusCode)
+			t.Fatalf("on=%t: status=%d, want 200", on, resp.StatusCode)
 		}
 	}
 	if got := len(notifies.calls()); got != len(values) {
@@ -395,10 +365,7 @@ func TestUIWriteHeater_NotFound(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/heater", url.Values{"on": {"true"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/nope/heater", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d, want 404", resp.StatusCode)
@@ -411,16 +378,13 @@ func TestUIWriteHeater_BadForm(t *testing.T) {
 	defer srv.Close()
 
 	// Missing 'on' field.
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/heater", url.Values{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/heater", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	assertSSEErrorBody(t, body, "missing or invalid")
+	assertSSEErrorBody(t, body, "missing")
 }
 
 // ---------- postUIResetFilter tests ----------
@@ -501,10 +465,7 @@ func TestUIWriteTimer_Happy(t *testing.T) {
 
 	modes := []string{"off", "night", "turbo"}
 	for _, mode := range modes {
-		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/timer", url.Values{"mode": {mode}})
-		if err != nil {
-			t.Fatalf("mode=%s: %v", mode, err)
-		}
+		resp := postJSON(t, srv.URL+"/ui/devices/alpha/timer", map[string]any{"mode": mode})
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != 200 {
 			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
@@ -520,10 +481,7 @@ func TestUIWriteTimer_NotFound(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/timer", url.Values{"mode": {"night"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/nope/timer", map[string]any{"mode": "night"})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d, want 404", resp.StatusCode)
@@ -536,13 +494,10 @@ func TestUIWriteTimer_BadForm(t *testing.T) {
 	defer srv.Close()
 
 	// Missing 'mode' field.
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/timer", url.Values{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/timer", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "mode must be")
@@ -769,8 +724,8 @@ func TestUIThresholdPut_BadForm_MissingKind(t *testing.T) {
 		"value": {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -784,8 +739,8 @@ func TestUIThresholdPut_BadForm_InvalidKind(t *testing.T) {
 		"value": {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "invalid") {
@@ -802,8 +757,8 @@ func TestUIThresholdPut_BadForm_NeitherValueNorEnabled(t *testing.T) {
 		"kind": {"humidity"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -902,7 +857,7 @@ func TestUIScheduleGet_Edit(t *testing.T) {
 	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
 		t.Errorf("body missing form @put target: %s", bs)
 	}
-	if !strings.Contains(bs, "data-on-submit__prevent=") {
+	if !strings.Contains(bs, "data-on:submit__prevent=") {
 		t.Errorf("body missing data-on-submit attribute: %s", bs)
 	}
 	if !strings.Contains(bs, `name="at"`) {
@@ -1107,7 +1062,7 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
 	// Edit variant rendered with error message via SSE.
-	if !strings.Contains(bs, "data-on-submit__prevent=") {
+	if !strings.Contains(bs, "data-on:submit__prevent=") {
 		t.Errorf("body missing edit form: %s", bs)
 	}
 	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
@@ -1123,14 +1078,7 @@ func TestPostUIPreset_Success(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
-		"preset":  {"2"},
-		"supply":  {"40"},
-		"extract": {"45"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 2, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d, want 200", resp.StatusCode)
@@ -1143,14 +1091,7 @@ func TestPostUIPreset_NotFound(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/nope/preset", url.Values{
-		"preset":  {"1"},
-		"supply":  {"40"},
-		"extract": {"45"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/nope/preset", map[string]any{"preset": 1, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 404 {
 		t.Fatalf("status: %d, want 404", resp.StatusCode)
@@ -1162,17 +1103,10 @@ func TestPostUIPreset_BadPreset(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
-		"preset":  {"4"},
-		"supply":  {"40"},
-		"extract": {"45"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 4, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "preset must be")
@@ -1184,17 +1118,10 @@ func TestPostUIPreset_BadSupply(t *testing.T) {
 	defer srv.Close()
 
 	// supply=5 is below the minimum of 10.
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
-		"preset":  {"1"},
-		"supply":  {"5"},
-		"extract": {"45"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 5, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "supply must be")
@@ -1206,17 +1133,10 @@ func TestPostUIPreset_BadExtract(t *testing.T) {
 	defer srv.Close()
 
 	// extract=5 is below the minimum of 10.
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
-		"preset":  {"1"},
-		"supply":  {"40"},
-		"extract": {"5"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 40, "extract": 5})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "extract must be")
@@ -1228,13 +1148,10 @@ func TestPostUIPreset_MissingFields(t *testing.T) {
 	defer srv.Close()
 
 	// Empty form: all fields missing → first validation fails (preset).
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 422 {
-		t.Fatalf("status: %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 }
 
@@ -1250,17 +1167,10 @@ func TestPostUIPreset_AuthError(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
-		"preset":  {"1"},
-		"supply":  {"40"},
-		"extract": {"45"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 401 {
-		t.Fatalf("status: %d, want 401", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "auth")
@@ -1277,17 +1187,10 @@ func TestPostUIPreset_BackendError(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/preset", url.Values{
-		"preset":  {"1"},
-		"supply":  {"40"},
-		"extract": {"45"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 502 {
-		t.Fatalf("status: %d, want 502", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "err-banner")

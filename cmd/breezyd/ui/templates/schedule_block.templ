@@ -15,7 +15,7 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 		<details
 			id={ "schedule-" + name }
 			class={ "block", "schedule", templ.KV("alert", s.Alert) }
-			data-attr-open="$detailsOpen.schedule"
+			data-attr:open="$detailsOpen.schedule"
 		>
 			<summary><h3>SCHEDULE</h3></summary>
 			<div class="schedule-toolbar">
@@ -31,7 +31,7 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 				<span class="grow"></span>
 				<button
 					type="button"
-					data-on-click={ datastar.GetSSE("/ui/devices/%s/schedule/edit", name) }
+					data-on:click={ datastar.GetSSE("/ui/devices/%s/schedule/edit", name) }
 					if stale { disabled }
 				>edit schedule</button>
 			</div>
@@ -81,7 +81,7 @@ templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg strin
 	<details class="block schedule" open>
 		<summary><h3>SCHEDULE</h3></summary>
 		<form
-			data-on-submit__prevent={ scheduleSubmitExpr(name) }
+			data-on:submit__prevent={ scheduleSubmitExpr(name) }
 		>
 			<div class="schedule-toolbar">
 				<label>
@@ -96,11 +96,11 @@ templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg strin
 				<span class="grow"></span>
 				<button
 					type="button"
-					data-on-click={ datastar.GetSSE("/ui/devices/%s/schedule/new-row", name) }
+					data-on:click={ datastar.GetSSE("/ui/devices/%s/schedule/new-row", name) }
 				>+ add row</button>
 				<button
 					type="button"
-					data-on-click={ datastar.GetSSE("/ui/devices/%s/schedule", name) }
+					data-on:click={ datastar.GetSSE("/ui/devices/%s/schedule", name) }
 				>cancel</button>
 				<button type="submit">save</button>
 			</div>
@@ -155,7 +155,7 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 			<button
 				type="button"
 				class="del"
-				data-on-click="evt.target.closest('tr').remove()"
+				data-on:click="evt.target.closest('tr').remove()"
 			>×</button>
 		</td>
 	</tr>
@@ -165,7 +165,7 @@ templ scheduleActionOption(value, label, current string) {
 	<option value={ value } if value == current { selected }>{ label }</option>
 }
 
-// scheduleSubmitExpr builds the data-on-submit expression for the
+// scheduleSubmitExpr builds the data-on:submit expression for the
 // schedule editor form: PUT the form, then GET the read variant. The
 // PUT response is itself a patch (read or edit-with-error), so the
 // follow-up GET is only needed when the PUT 422s — but datastar

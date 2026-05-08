@@ -9,9 +9,9 @@ type LayoutData struct {
 }
 
 // Layout renders the page shell. The body opens an SSE connection to
-// /ui/sse on load (data-on-load); the daemon emits one
-// datastar-patch-elements event per configured device on connect, then
-// streams updates from the poller. There is no client-side polling.
+// /ui/sse on first datastar processing (data-init); the daemon emits
+// one datastar-patch-elements event per configured device on connect,
+// then streams updates from the poller. There is no client-side polling.
 templ Layout(d LayoutData) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -25,11 +25,12 @@ templ Layout(d LayoutData) {
 					document.documentElement.setAttribute("data-theme", t);
 				}
 			</script>
+			<link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
 			<link rel="stylesheet" href={ "/ui/style-" + d.StyleHash + ".css" }/>
 			<script type="module" src={ "/ui/vendor/datastar-" + d.DatastarVersion + ".min.js" }></script>
 			<script src="/ui/vendor/dashboard.js"></script>
 		</head>
-		<body data-on-load="@get('/ui/sse')">
+		<body data-init="@get('/ui/sse')">
 			@ThemePicker()
 			<div id="global-error-banner" aria-live="polite"></div>
 			<div id="device-list" class="grid"></div>
