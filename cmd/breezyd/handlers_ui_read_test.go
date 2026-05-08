@@ -89,8 +89,8 @@ func TestUIReadIndex_ServesDatastar(t *testing.T) {
 	if !strings.Contains(bs, "datastar-1.0.1.min.js") {
 		t.Errorf("layout missing datastar script reference; got: %s", bs)
 	}
-	if !strings.Contains(bs, `data-on-load="@get('/ui/sse')"`) {
-		t.Errorf("layout missing data-on-load to /ui/sse; got: %s", bs)
+	if !strings.Contains(bs, `data-init="@get('/ui/sse')"`) {
+		t.Errorf("layout missing data-init to /ui/sse; got: %s", bs)
 	}
 	if strings.Contains(bs, "htmx") {
 		t.Errorf("layout unexpectedly contains htmx reference; got: %s", bs)

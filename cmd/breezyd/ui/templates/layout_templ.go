@@ -17,9 +17,9 @@ type LayoutData struct {
 }
 
 // Layout renders the page shell. The body opens an SSE connection to
-// /ui/sse on load (data-on-load); the daemon emits one
-// datastar-patch-elements event per configured device on connect, then
-// streams updates from the poller. There is no client-side polling.
+// /ui/sse on first datastar processing (data-init); the daemon emits
+// one datastar-patch-elements event per configured device on connect,
+// then streams updates from the poller. There is no client-side polling.
 func Layout(d LayoutData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -41,14 +41,14 @@ func Layout(d LayoutData) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>breezy</title><script>\n\t\t\t\tvar t = localStorage.getItem(\"theme\");\n\t\t\t\tif (t === \"light\" || t === \"dark\") {\n\t\t\t\t\tdocument.documentElement.setAttribute(\"data-theme\", t);\n\t\t\t\t}\n\t\t\t</script><link rel=\"stylesheet\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>breezy</title><script>\n\t\t\t\tvar t = localStorage.getItem(\"theme\");\n\t\t\t\tif (t === \"light\" || t === \"dark\") {\n\t\t\t\t\tdocument.documentElement.setAttribute(\"data-theme\", t);\n\t\t\t\t}\n\t\t\t</script><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\"><link rel=\"stylesheet\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 templ.SafeURL
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinURLErrs("/ui/style-" + d.StyleHash + ".css")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 28, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 29, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -61,13 +61,13 @@ func Layout(d LayoutData) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs("/ui/vendor/datastar-" + d.DatastarVersion + ".min.js")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 29, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 30, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"></script><script src=\"/ui/vendor/dashboard.js\"></script></head><body data-on-load=\"@get('/ui/sse')\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"></script><script src=\"/ui/vendor/dashboard.js\"></script></head><body data-init=\"@get('/ui/sse')\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

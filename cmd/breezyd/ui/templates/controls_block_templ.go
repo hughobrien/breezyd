@@ -135,14 +135,14 @@ func controlsBlock(v ui.DeviceView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><div class=\"ctrl-group ctrl-group-heater\"><span class=\"ctrl-label\">HEATER</span><div class=\"seg\"><button type=\"button\" class=\"toggle\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><div class=\"ctrl-group ctrl-group-heater\"><span class=\"ctrl-label\">HEATER</span><div class=\"seg\"><button type=\"button\" class=\"toggle\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var3 string
-		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(postFormExpr(fmt.Sprintf("/ui/devices/%s/heater", v.Name), fmt.Sprintf("on=%t", !v.Heater)))
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(postActionExpr(fmt.Sprintf("/ui/devices/%s/heater", v.Name), fmt.Sprintf("{on: %t}", !v.Heater)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 50, Col: 113}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 50, Col: 118}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -200,7 +200,7 @@ func presetBtn(v ui.DeviceView, n int) templ.Component {
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<button type=\"button\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<button type=\"button\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -278,14 +278,14 @@ func manualBtn(v ui.DeviceView) templ.Component {
 			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<button type=\"button\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<button type=\"button\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
-		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs("$editor = 0; " + postFormExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("manual=%d", manualBtnPct(v))))
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs("$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 72, Col: 123}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 72, Col: 128}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -343,14 +343,14 @@ func modeBtn(v ui.DeviceView, label, value string) templ.Component {
 			templ_7745c5c3_Var12 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<button type=\"button\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<button type=\"button\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var13 string
-		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs("$editor = 0; " + postFormExpr("/ui/devices/"+v.Name+"/mode", "mode="+value))
+		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs("$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 81, Col: 94}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 81, Col: 117}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -421,14 +421,14 @@ func timerBtn(v ui.DeviceView, label, value string) templ.Component {
 			templ_7745c5c3_Var16 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<button type=\"button\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<button type=\"button\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var17 string
-		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(postFormExpr("/ui/devices/"+v.Name+"/timer", "mode="+timerMode(v.SpecialMode, value)))
+		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(postActionExpr("/ui/devices/"+v.Name+"/timer", fmt.Sprintf("{mode: '%s'}", timerMode(v.SpecialMode, value))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 90, Col: 103}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 90, Col: 126}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -522,14 +522,14 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\" data-on-change__debounce.200ms=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\" data-on:change__debounce.200ms=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var22 string
-		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(postFormExpr("/ui/devices/"+v.Name+"/speed", "manual=' + evt.target.value + '"))
+		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 116, Col: 115}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 116, Col: 120}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -634,7 +634,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\"><label class=\"match-speeds\"><input type=\"checkbox\" data-bind-automode")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\"><label class=\"match-speeds\"><input type=\"checkbox\" data-bind:automode")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -644,7 +644,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "> automode</label> <label class=\"match-speeds\"><input type=\"checkbox\" data-bind-match-speeds")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "> automode</label> <label class=\"match-speeds\"><input type=\"checkbox\" data-bind:matchSpeeds")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -680,7 +680,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "\" data-on-change__debounce.200ms=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "\" data-on:change__debounce.200ms=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -742,7 +742,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "\" data-on-change__debounce.200ms=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "\" data-on:change__debounce.200ms=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -786,31 +786,30 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 	})
 }
 
-// postFormExpr builds a datastar expression that performs a
-// form-encoded fetch POST and returns the promise. Action handlers
-// don't depend on the response body for success (the SSE push channel
-// updates the card); the explicit fetch keeps signal-as-JSON-body
-// semantics from leaking into our handlers.
+// postActionExpr builds a datastar @post action expression that sends
+// `payload` as a JSON body. `payload` is a JS object-literal expression
+// (e.g. `{on: true}`, `{manual: evt.target.valueAsNumber}`); pass empty
+// string for no body.
 //
-// `body` is a literal form-encoded string. For dynamic values, callers
-// embed JS expression fragments enclosed in single quotes — see the
-// manual slider row.
-func postFormExpr(url, body string) string {
-	return fmt.Sprintf(
-		`fetch('%s', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '%s', credentials: 'same-origin' })`,
-		url, body,
-	)
+// @post (rather than raw fetch()) lets datastar process the SSE-event
+// stream the handler returns on error, which is how
+// #global-error-banner gets populated for auth/UDP failures.
+func postActionExpr(url, payload string) string {
+	if payload == "" {
+		return fmt.Sprintf("@post('%s')", url)
+	}
+	return fmt.Sprintf("@post('%s', {payload: %s})", url, payload)
 }
 
 // presetChipExpr toggles the per-card $editor signal for chip n and
 // fires the speed-preset POST. Re-clicking the same chip closes the
 // editor.
 func presetChipExpr(name string, n int) string {
-	post := postFormExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("preset=%d", n))
+	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
 	return fmt.Sprintf("$editor = $editor === %d ? 0 : %d; %s", n, n, post)
 }
 
-// presetSliderExpr builds the data-on-change expression for a preset
+// presetSliderExpr builds the data-on:change expression for a preset
 // editor slider. Dispatches to window.dashboard.presetSliderChange,
 // which performs the snap / match-speeds / implied-mode logic and the
 // resulting POSTs.

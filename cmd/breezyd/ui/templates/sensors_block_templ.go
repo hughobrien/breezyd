@@ -15,7 +15,7 @@ import (
 
 // SensorsBlock renders the collapsible Sensors <details>. Open state is
 // driven client-side by the card-level $detailsOpen.sensors signal via
-// data-attr-open. Server-rendered HTML defaults closed; datastar opens
+// data-attr:open. Server-rendered HTML defaults closed; datastar opens
 // it before paint when the seeded signal is true.
 func SensorsBlock(name string, s ui.SensorsView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -69,7 +69,7 @@ func SensorsBlock(name string, s ui.SensorsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-attr-open=\"$detailsOpen.sensors\"><summary><h3>Sensors</h3></summary>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-attr:open=\"$detailsOpen.sensors\"><summary><h3>Sensors</h3></summary>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

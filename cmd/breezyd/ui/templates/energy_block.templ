@@ -8,13 +8,13 @@ import (
 
 // EnergyBlock renders the collapsible ENERGY <details> block. When ev
 // is nil, renders nothing. Open state is driven client-side by the
-// card-level $detailsOpen.energy signal via data-attr-open.
+// card-level $detailsOpen.energy signal via data-attr:open.
 templ EnergyBlock(name string, ev *ui.EnergyView) {
 	if ev != nil {
 		<details
 			id={ "energy-" + name }
 			class="block energy"
-			data-attr-open="$detailsOpen.energy"
+			data-attr:open="$detailsOpen.energy"
 		>
 			<summary><h3>ENERGY</h3></summary>
 			if ev.Error != "" {

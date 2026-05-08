@@ -47,7 +47,7 @@ templ controlsBlock(v ui.DeviceView) {
 					<button
 						type="button"
 						class="toggle"
-						data-on-click={ postFormExpr(fmt.Sprintf("/ui/devices/%s/heater", v.Name), fmt.Sprintf("on=%t", !v.Heater)) }
+						data-on:click={ postActionExpr(fmt.Sprintf("/ui/devices/%s/heater", v.Name), fmt.Sprintf("{on: %t}", !v.Heater)) }
 						if v.Stale { disabled }
 						aria-pressed={ boolAttr(v.Heater) }
 					>heater</button>
@@ -60,7 +60,7 @@ templ controlsBlock(v ui.DeviceView) {
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
 		type="button"
-		data-on-click={ presetChipExpr(v.Name, n) }
+		data-on:click={ presetChipExpr(v.Name, n) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == fmt.Sprintf("preset%d", n)) }
 	>{ presetLabel(v, n) }</button>
@@ -69,7 +69,7 @@ templ presetBtn(v ui.DeviceView, n int) {
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
-		data-on-click={ "$editor = 0; " + postFormExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("manual=%d", manualBtnPct(v))) }
+		data-on:click={ "$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v))) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == "manual") }
 	>manual</button>
@@ -78,7 +78,7 @@ templ manualBtn(v ui.DeviceView) {
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on-click={ "$editor = 0; " + postFormExpr("/ui/devices/"+v.Name+"/mode", "mode="+value) }
+		data-on:click={ "$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value)) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.AirflowMode == value) }
 	>{ label }</button>
@@ -87,7 +87,7 @@ templ modeBtn(v ui.DeviceView, label, value string) {
 templ timerBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on-click={ postFormExpr("/ui/devices/"+v.Name+"/timer", "mode="+timerMode(v.SpecialMode, value)) }
+		data-on:click={ postActionExpr("/ui/devices/"+v.Name+"/timer", fmt.Sprintf("{mode: '%s'}", timerMode(v.SpecialMode, value))) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpecialMode == value) }
 	>{ label }</button>
@@ -113,7 +113,7 @@ templ manualSliderRow(v ui.DeviceView) {
 			max="100"
 			step="1"
 			value={ fmt.Sprintf("%d", v.ManualPct) }
-			data-on-change__debounce.200ms={ postFormExpr("/ui/devices/"+v.Name+"/speed", "manual=' + evt.target.value + '") }
+			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
 		/>
 		<span class="val">{ fmt.Sprintf("%d%%", v.ManualPct) }</span>
 	</div>
@@ -157,11 +157,11 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 		data-show={ fmt.Sprintf("$editor === %d", n) }
 	>
 		<label class="match-speeds">
-			<input type="checkbox" data-bind-automode if v.Stale { disabled }/>
+			<input type="checkbox" data-bind:automode if v.Stale { disabled }/>
 			automode
 		</label>
 		<label class="match-speeds">
-			<input type="checkbox" data-bind-match-speeds if v.Stale { disabled }/>
+			<input type="checkbox" data-bind:matchSpeeds if v.Stale { disabled }/>
 			match speeds
 		</label>
 		<div class="slider-row">
@@ -174,7 +174,7 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				value={ presetSliderValue(p.Supply) }
 				data-side="supply"
 				data-preset={ fmt.Sprintf("%d", n) }
-				data-on-change__debounce.200ms={ presetSliderExpr(v.Name, n, "supply") }
+				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "supply") }
 				if v.Stale { disabled }
 			/>
 			<span class="val">{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Supply)) }</span>
@@ -189,7 +189,7 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				value={ presetSliderValue(p.Extract) }
 				data-side="extract"
 				data-preset={ fmt.Sprintf("%d", n) }
-				data-on-change__debounce.200ms={ presetSliderExpr(v.Name, n, "extract") }
+				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "extract") }
 				if v.Stale { disabled }
 			/>
 			<span class="val">{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Extract)) }</span>
@@ -197,31 +197,30 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 	</div>
 }
 
-// postFormExpr builds a datastar expression that performs a
-// form-encoded fetch POST and returns the promise. Action handlers
-// don't depend on the response body for success (the SSE push channel
-// updates the card); the explicit fetch keeps signal-as-JSON-body
-// semantics from leaking into our handlers.
+// postActionExpr builds a datastar @post action expression that sends
+// `payload` as a JSON body. `payload` is a JS object-literal expression
+// (e.g. `{on: true}`, `{manual: evt.target.valueAsNumber}`); pass empty
+// string for no body.
 //
-// `body` is a literal form-encoded string. For dynamic values, callers
-// embed JS expression fragments enclosed in single quotes — see the
-// manual slider row.
-func postFormExpr(url, body string) string {
-	return fmt.Sprintf(
-		`fetch('%s', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '%s', credentials: 'same-origin' })`,
-		url, body,
-	)
+// @post (rather than raw fetch()) lets datastar process the SSE-event
+// stream the handler returns on error, which is how
+// #global-error-banner gets populated for auth/UDP failures.
+func postActionExpr(url, payload string) string {
+	if payload == "" {
+		return fmt.Sprintf("@post('%s')", url)
+	}
+	return fmt.Sprintf("@post('%s', {payload: %s})", url, payload)
 }
 
 // presetChipExpr toggles the per-card $editor signal for chip n and
 // fires the speed-preset POST. Re-clicking the same chip closes the
 // editor.
 func presetChipExpr(name string, n int) string {
-	post := postFormExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("preset=%d", n))
+	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
 	return fmt.Sprintf("$editor = $editor === %d ? 0 : %d; %s", n, n, post)
 }
 
-// presetSliderExpr builds the data-on-change expression for a preset
+// presetSliderExpr builds the data-on:change expression for a preset
 // editor slider. Dispatches to window.dashboard.presetSliderChange,
 // which performs the snap / match-speeds / implied-mode logic and the
 // resulting POSTs.

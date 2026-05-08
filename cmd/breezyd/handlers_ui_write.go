@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -245,16 +246,18 @@ func patchFragmentSSE(w http.ResponseWriter, r *http.Request, selector string, c
 }
 
 // errorBannerSSE writes a datastar-patch-elements event targeting
-// #global-error-banner. Status is set first; the SDK's NewSSE then
-// streams the event body — its header-sets are no-ops by then but its
-// Send/PatchElements path writes the wire format correctly.
+// #global-error-banner. Returns HTTP 200 — datastar's @post drops
+// non-2xx response bodies, so we encode the error in the SSE payload
+// itself and exit cleanly. The `status` parameter survives only as a
+// custom Datastar-Status response header for observability/debugging.
 func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Datastar-Status", strconv.Itoa(status))
 	if r.ProtoMajor == 1 {
 		w.Header().Set("Connection", "keep-alive")
 	}
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusOK)
 	sse := datastar.NewSSE(w, r)
 	htmlFragment := `<div class="err-banner" role="alert">` + html.EscapeString(msg) + `</div>`
 	if err := sse.PatchElements(
@@ -266,21 +269,34 @@ func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg stri
 	}
 }
 
+// decodeJSONBody decodes r.Body into v. Action endpoints under
+// /ui/devices/{name}/... receive JSON payloads from datastar's @post
+// action helper (default contentType is JSON). On decode failure, emits
+// a 422 + #global-error-banner SSE event and returns false.
+func (h *Handler) decodeJSONBody(w http.ResponseWriter, r *http.Request, name string, v interface{}) bool {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		h.uiValidationError(w, r, name, "bad JSON body")
+		return false
+	}
+	return true
+}
+
 // postUIMode sets the airflow mode.
 //
-// Form: mode=ventilation | regeneration | supply | extract
+// JSON: {"mode": "ventilation" | "regeneration" | "supply" | "extract"}
 func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.Devices.Get(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		h.uiValidationError(w, r, name, "bad form encoding")
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if !h.decodeJSONBody(w, r, name, &req) {
 		return
 	}
-	mode := r.FormValue("mode")
-	switch mode {
+	switch req.Mode {
 	case "ventilation", "regeneration", "supply", "extract":
 		// valid
 	default:
@@ -289,7 +305,7 @@ func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetMode(ctx, rc, mode)
+		return breezy.SetMode(ctx, rc, req.Mode)
 	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
@@ -300,35 +316,36 @@ func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
 
 // postUIPreset writes the per-preset supply/extract percentages.
 //
-// Form: preset=1|2|3, supply=10..100, extract=10..100
+// JSON: {"preset": 1|2|3, "supply": 10..100, "extract": 10..100}
 func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.Devices.Get(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		h.uiValidationError(w, r, name, "bad form encoding")
+	var req struct {
+		Preset  int `json:"preset"`
+		Supply  int `json:"supply"`
+		Extract int `json:"extract"`
+	}
+	if !h.decodeJSONBody(w, r, name, &req) {
 		return
 	}
-	preset, err := strconv.Atoi(r.FormValue("preset"))
-	if err != nil || preset < 1 || preset > 3 {
+	if req.Preset < 1 || req.Preset > 3 {
 		h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
 		return
 	}
-	supply, err := strconv.Atoi(r.FormValue("supply"))
-	if err != nil || supply < 10 || supply > 100 {
+	if req.Supply < 10 || req.Supply > 100 {
 		h.uiValidationError(w, r, name, "supply must be 10..100")
 		return
 	}
-	extract, err := strconv.Atoi(r.FormValue("extract"))
-	if err != nil || extract < 10 || extract > 100 {
+	if req.Extract < 10 || req.Extract > 100 {
 		h.uiValidationError(w, r, name, "extract must be 10..100")
 		return
 	}
 
 	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetPresetSpeed(ctx, rc, preset, supply, extract)
+		return breezy.SetPresetSpeed(ctx, rc, req.Preset, req.Supply, req.Extract)
 	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
@@ -339,43 +356,39 @@ func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
 
 // postUISpeed sets the fan speed (manual percentage or preset).
 //
-// Form: manual=N (10..100) XOR preset=N (1..3)
+// JSON: {"manual": N} (10..100) XOR {"preset": N} (1..3)
 func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.Devices.Get(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		h.uiValidationError(w, r, name, "bad form encoding")
+	var req struct {
+		Manual *int `json:"manual,omitempty"`
+		Preset *int `json:"preset,omitempty"`
+	}
+	if !h.decodeJSONBody(w, r, name, &req) {
 		return
 	}
-	manualStr := r.FormValue("manual")
-	presetStr := r.FormValue("preset")
-	hasManual := manualStr != ""
-	hasPreset := presetStr != ""
+	hasManual := req.Manual != nil
+	hasPreset := req.Preset != nil
 	if hasManual == hasPreset {
 		h.uiValidationError(w, r, name, "set exactly one of 'preset' (1-3) or 'manual' (10-100)")
 		return
 	}
-
-	var presetN, manualN int
-	if hasPreset {
-		if _, err := fmt.Sscanf(presetStr, "%d", &presetN); err != nil || presetN < 1 || presetN > 3 {
-			h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
-			return
-		}
-	} else {
-		if _, err := fmt.Sscanf(manualStr, "%d", &manualN); err != nil || manualN < 10 || manualN > 100 {
-			h.uiValidationError(w, r, name, "manual must be 10..100")
-			return
-		}
+	if hasPreset && (*req.Preset < 1 || *req.Preset > 3) {
+		h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
+		return
+	}
+	if hasManual && (*req.Manual < 10 || *req.Manual > 100) {
+		h.uiValidationError(w, r, name, "manual must be 10..100")
+		return
 	}
 	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
 		if hasPreset {
-			return breezy.SetSpeedPreset(ctx, rc, presetN)
+			return breezy.SetSpeedPreset(ctx, rc, *req.Preset)
 		}
-		return breezy.SetSpeedManual(ctx, rc, manualN)
+		return breezy.SetSpeedManual(ctx, rc, *req.Manual)
 	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
@@ -386,26 +399,26 @@ func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
 
 // postUIHeater toggles the heater.
 //
-// Form: on=true | on=false
+// JSON: {"on": bool}
 func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.Devices.Get(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		h.uiValidationError(w, r, name, "bad form encoding")
+	var req struct {
+		On *bool `json:"on"`
+	}
+	if !h.decodeJSONBody(w, r, name, &req) {
 		return
 	}
-	onStr := r.FormValue("on")
-	if onStr != "true" && onStr != "false" {
-		h.uiValidationError(w, r, name, "missing or invalid 'on' field (true/false)")
+	if req.On == nil {
+		h.uiValidationError(w, r, name, "missing 'on' field (true/false)")
 		return
 	}
-	on := onStr == "true"
 
 	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetHeater(ctx, rc, on)
+		return breezy.SetHeater(ctx, rc, *req.On)
 	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
@@ -416,7 +429,7 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 
 // postUITimer toggles a special-mode timer.
 //
-// Form: mode=off | night | turbo
+// JSON: {"mode": "off" | "night" | "turbo"}
 //
 // The template implements the toggle: if the requested mode matches the
 // currently-active special_mode, the button sends mode=off instead.
@@ -427,12 +440,13 @@ func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		h.uiValidationError(w, r, name, "bad form encoding")
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if !h.decodeJSONBody(w, r, name, &req) {
 		return
 	}
-	mode := r.FormValue("mode")
-	switch mode {
+	switch req.Mode {
 	case "off", "night", "turbo":
 		// valid
 	default:
@@ -441,7 +455,7 @@ func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetTimer(ctx, rc, mode)
+		return breezy.SetTimer(ctx, rc, req.Mode)
 	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
@@ -486,26 +500,26 @@ func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
 
 // postUIPower toggles a device on/off.
 //
-// Form: on=true | on=false
+// JSON: {"on": bool}
 func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := h.Devices.Get(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		h.uiValidationError(w, r, name, "bad form encoding")
+	var req struct {
+		On *bool `json:"on"`
+	}
+	if !h.decodeJSONBody(w, r, name, &req) {
 		return
 	}
-	onStr := r.FormValue("on")
-	if onStr != "true" && onStr != "false" {
-		h.uiValidationError(w, r, name, "missing or invalid 'on' field (true/false)")
+	if req.On == nil {
+		h.uiValidationError(w, r, name, "missing 'on' field (true/false)")
 		return
 	}
-	on := onStr == "true"
 
 	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.Power(ctx, rc, on)
+		return breezy.Power(ctx, rc, *req.On)
 	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return

@@ -51,8 +51,24 @@ test.describe("rendering", () => {
     expect(resp?.status()).toBe(200);
     const html = await page.content();
     expect(html).toContain("datastar-1.0.1.min.js");
-    expect(html).toContain('data-on-load="@get(\'/ui/sse\')"');
+    expect(html).toContain('data-init="@get(\'/ui/sse\')"');
     expect(html).not.toMatch(/htmx-\d/);
+  });
+
+  // Pins the failure mode below the "card not visible" symptom: if datastar
+  // ever stops firing the page-load handler that opens /ui/sse (e.g. an
+  // attribute rename, a bundle that doesn't ship the matching plugin), we
+  // want this test to fail before any cosmetic test does.
+  test("datastar opens /ui/sse on page load", async ({ page }) => {
+    // datastar's @get appends a `?datastar=...` query string, so match
+    // by substring rather than endsWith.
+    const sseRequests: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/ui/sse")) sseRequests.push(r.url());
+    });
+    await page.goto("/");
+    await expect(page.locator(".card")).toBeVisible({ timeout: 5_000 });
+    expect(sseRequests.length).toBeGreaterThan(0);
   });
 
   test("sensor block surfaces live values", async ({ page }) => {
@@ -149,9 +165,9 @@ test.describe("controls", () => {
     const card = await loadCard(page);
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeHidden();
-    await card.locator('button:text-is("55/60")').click();
+    await card.locator('button:text-is("48/49")').click();
     await expect(editor2).toBeVisible({ timeout: 2_000 });
-    await card.locator('button[aria-pressed="true"]:text-is("55/60")').click();
+    await card.locator('button[aria-pressed="true"]:text-is("48/49")').click();
     await expect(editor2).toBeHidden({ timeout: 2_000 });
   });
 });
@@ -199,8 +215,11 @@ test.describe("error paths", () => {
     try {
       await card.locator('button.toggle-inline').click();
       const banner = page.locator("#global-error-banner");
+      // handlerOpTimeout is 5s in the daemon; the request blocks for the
+      // full timeout before the SSE banner event lands. 12s gives enough
+      // headroom that ordering with prior tests doesn't tip us into flake.
       await expect(banner).toContainText(/err-banner|timeout|i\/o/i, {
-        timeout: 4_000,
+        timeout: 12_000,
       });
     } finally {
       await simulateUDPTimeout(DEVICE, false);

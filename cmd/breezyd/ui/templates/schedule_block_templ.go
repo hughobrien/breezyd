@@ -71,7 +71,7 @@ func ScheduleBlock(name string, s ui.ScheduleView, stale bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-attr-open=\"$detailsOpen.schedule\"><summary><h3>SCHEDULE</h3></summary><div class=\"schedule-toolbar\"><label><input type=\"checkbox\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-attr:open=\"$detailsOpen.schedule\"><summary><h3>SCHEDULE</h3></summary><div class=\"schedule-toolbar\"><label><input type=\"checkbox\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -87,7 +87,7 @@ func ScheduleBlock(name string, s ui.ScheduleView, stale bool) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " disabled> enabled</label> <span class=\"grow\"></span> <button type=\"button\" data-on-click=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " disabled> enabled</label> <span class=\"grow\"></span> <button type=\"button\" data-on:click=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -302,7 +302,7 @@ func ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg string
 			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<details class=\"block schedule\" open><summary><h3>SCHEDULE</h3></summary><form data-on-submit__prevent=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<details class=\"block schedule\" open><summary><h3>SCHEDULE</h3></summary><form data-on:submit__prevent=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -315,7 +315,7 @@ func ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg string
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\"><div class=\"schedule-toolbar\"><label><input type=\"checkbox\" name=\"enabled\" value=\"true\"> <input type=\"hidden\" name=\"enabled\" value=\"false\"> enabled</label> <span class=\"grow\"></span> <button type=\"button\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\"><div class=\"schedule-toolbar\"><label><input type=\"checkbox\" name=\"enabled\" value=\"true\"> <input type=\"hidden\" name=\"enabled\" value=\"false\"> enabled</label> <span class=\"grow\"></span> <button type=\"button\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -328,7 +328,7 @@ func ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg string
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\">+ add row</button> <button type=\"button\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\">+ add row</button> <button type=\"button\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -487,7 +487,7 @@ func ScheduleEditRow(e ui.ScheduleEntryView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "></td><td><button type=\"button\" class=\"del\" data-on-click=\"evt.target.closest('tr').remove()\">×</button></td></tr>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "></td><td><button type=\"button\" class=\"del\" data-on:click=\"evt.target.closest('tr').remove()\">×</button></td></tr>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -560,7 +560,7 @@ func scheduleActionOption(value, label, current string) templ.Component {
 	})
 }
 
-// scheduleSubmitExpr builds the data-on-submit expression for the
+// scheduleSubmitExpr builds the data-on:submit expression for the
 // schedule editor form: PUT the form, then GET the read variant. The
 // PUT response is itself a patch (read or edit-with-error), so the
 // follow-up GET is only needed when the PUT 422s — but datastar
