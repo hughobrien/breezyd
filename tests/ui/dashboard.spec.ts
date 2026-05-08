@@ -1009,29 +1009,20 @@ test("preset editor: dragging a slider into 1-9 snaps to 0", async ({ page, cont
   const editor = card.locator('[data-preset-editor="2"]');
   await expect(editor).toBeVisible({ timeout: 3000 });
 
-  // Set the extract slider to 5 (in the snap range) and fire the change event.
-  // The htmx:configRequest handler should snap to 0 before the POST fires,
-  // preventing the POST entirely (both would be 0 if match-speeds=true, or
-  // supply=50,extract=0 if match-speeds=false — but since both would be sub-10
-  // in the match-speeds=true case, the POST is cancelled).
-  // We verify the DOM value is snapped to 0.
+  // Set the extract slider to 5 (in the snap range) and dispatch a real change event.
+  // The htmx:configRequest handler should snap it to 0 in the DOM.
   const extractSlider = editor.locator('[data-action="preset-extract-slider"]');
   await extractSlider.evaluate((el: HTMLInputElement) => {
     el.value = "5";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  // Trigger the htmx:configRequest path synchronously by dispatching change.
-  // htmx fires configRequest before the POST — we can inspect the DOM after.
-  // Use page.evaluate to simulate the snap logic.
-  const snappedValue = await page.evaluate(() => {
-    const el = document.querySelector(
-      '[data-preset-editor="2"] [data-action="preset-extract-slider"]') as HTMLInputElement | null;
-    if (!el) return null;
-    const raw = parseInt(el.value, 10);
-    const snapped = (raw > 0 && raw < 10) ? 0 : raw;
-    el.value = String(snapped);
-    return el.value;
-  });
-  expect(snappedValue).toBe("0");
+
+  // The handler runs synchronously inside dispatchEvent. Allow a tick for any
+  // async htmx machinery.
+  await page.waitForTimeout(50);
+
+  // Assert the DOM value is 0 — the handler did the snap.
+  await expect(extractSlider).toHaveValue("0");
 });
 
 test("preset editor: automode off + supply→0 implies extract mode", async ({ page, context }) => {
