@@ -9,6 +9,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -925,6 +926,89 @@ func TestHandler_PostThreshold_EnabledOnly(t *testing.T) {
 				t.Errorf("%s enable = %v, want %s", c.kind, resp["hex"], c.paramHex)
 			}
 		})
+	}
+}
+
+func TestDoDeviceOp_ReleasesLockOnSuccess(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	// newServerHandler wires NoticeFunc but leaves Pollers empty; install a
+	// real Poller so LockUDP returns a real mutex (the no-op fallback in
+	// lockDevice would mask a leak).
+	h.Pollers = map[string]*Poller{"playroom": {Name: "playroom"}}
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	called := false
+	err := h.doDeviceOp(req, "playroom", func(ctx context.Context, rc *recordingClient) error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("doDeviceOp: %v", err)
+	}
+	if !called {
+		t.Error("op was not invoked")
+	}
+	// Lock must be released — taking it again must not block.
+	done := make(chan struct{})
+	go func() {
+		unlock := h.Pollers["playroom"].LockUDP()
+		unlock()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("lock not released after successful op")
+	}
+}
+
+func TestDoDeviceOp_ReleasesLockOnError(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	h.Pollers = map[string]*Poller{"playroom": {Name: "playroom"}}
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	want := errors.New("op exploded")
+	got := h.doDeviceOp(req, "playroom", func(ctx context.Context, rc *recordingClient) error {
+		return want
+	})
+	if !errors.Is(got, want) {
+		t.Fatalf("doDeviceOp err: got %v, want %v", got, want)
+	}
+	done := make(chan struct{})
+	go func() {
+		unlock := h.Pollers["playroom"].LockUDP()
+		unlock()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("lock not released after errored op")
+	}
+}
+
+func TestDoDeviceRead_ReleasesLockOnError(t *testing.T) {
+	h, _, _ := newServerHandler(t)
+	h.Pollers = map[string]*Poller{"playroom": {Name: "playroom"}}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	want := errors.New("read failed")
+	got := h.doDeviceRead(req, "playroom", func(ctx context.Context, c HandlerClient) error {
+		return want
+	})
+	if !errors.Is(got, want) {
+		t.Fatalf("doDeviceRead err: got %v, want %v", got, want)
+	}
+	done := make(chan struct{})
+	go func() {
+		unlock := h.Pollers["playroom"].LockUDP()
+		unlock()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("lock not released after errored read")
 	}
 }
 
