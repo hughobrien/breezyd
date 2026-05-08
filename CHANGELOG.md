@@ -9,29 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Server-rendered dashboard via htmx and `templ`. Two HTTP namespaces: `/v1/...` (JSON, unchanged — CLI uses this) and `/ui/...` (HTML fragments, the dashboard uses this). All device cards are rendered server-side by Go templates; htmx drives polling (every 5 s) and write interactions.
+- Datastar replaces htmx and the cookie-based UI-state machinery. Single library for client reactivity and server interaction; per-card UI state lives in `data-signals`; visibility flips via `data-attr-open` and `data-show`. Roughly 600 lines of dashboard code go away (the `internal/uistate` package, the `breezy-ui` cookie protocol, four `DeviceView` UI fields, `computeDetailsOpen`, and ~210 lines of inline JS).
+- Server-Sent Events push channel: `GET /ui/sse` opens a long-lived stream per browser. The daemon's poller fans out updated cards to every subscribed connection on each successful UDP poll, replacing the dashboard's 5-second client-side polling. Reconnects re-emit current state. A 30-second SSE comment-line keepalive keeps idle connections open through intermediaries; the daemon clears its 30s `WriteTimeout` for the SSE handler so streams aren't terminated early.
+- Alert-as-CSS: when a sensor or schedule alert fires, the relevant `<details>` block heading turns red with a `⚠` prefix. The user's open/closed choice is preserved across alert state changes (no more force-open).
+- Server-rendered dashboard via `templ`. Two HTTP namespaces: `/v1/...` (JSON, unchanged — CLI uses this) and `/ui/...` (now SSE event streams, the dashboard uses this).
 - Dark mode: auto via `prefers-color-scheme`, manual override via theme picker on the title. Choice persists to localStorage.
 - CSS extracted from `index.html` to a content-hashed `/ui/style-<hash>.css` for proper caching. CSS custom properties used for theming throughout.
 - Build-tagged `fakedevice_admin` admin control surface: an HTTP plane attached to `pkg/breezy/fakedevice` that lets tests mutate the fake device's state without real hardware.
 - New helper binary `cmd/fakedevice` (built with `-tags fakedevice_admin`): standalone fakedevice process used by Playwright tests.
-- `internal/uistate` package owning a `breezy-ui` JSON cookie that carries `<details>` open state and per-device preset-editor state (open preset, automode, match-speeds). Server reads the cookie on every render and emits the right markup directly, replacing the JS-shim `htmx:afterSettle` re-apply pattern (#49) so dashboard UI state survives polls without flicker.
-- Restored inline SPEED preset editor that was dropped in the htmx migration (#53). Clicking a preset chip toggles a panel with supply + exhaust sliders, an `automode` checkbox, and a `match speeds` checkbox; slider drags POST to `/ui/devices/{name}/preset`. New `POST /v1/devices/{name}/preset` already existed; the htmx shim is `POST /ui/devices/{name}/preset`.
+- Restored inline SPEED preset editor (#53). Clicking a preset chip toggles a panel with supply + exhaust sliders, an `automode` checkbox, and a `match speeds` checkbox; slider drags POST to `/ui/devices/{name}/preset` via the new `dashboard.js` helper, which centralises the snap-1..9-to-0 + match-speeds-mirror + implied-mode logic.
+- NixOS module's optional nginx integration sets the SSE-friendly directives (`proxy_buffering off`, `proxy_cache off`, `proxy_http_version 1.1`, `proxy_set_header Connection ""`, `proxy_read_timeout 1d`) so SSE streams flush immediately and survive past nginx's default 60s read timeout.
 
 ### Fixed
 
-- `automode` checkbox in the preset editor now defaults **unchecked** (was checked in the legacy SPA). Toggling automode from checked → unchecked while the active preset's fans are both ≥ 10 % now fires a `regeneration` mode write immediately (#46), instead of waiting for the next slider drag.
+- `automode` checkbox in the preset editor now defaults **unchecked** (was checked in the legacy SPA). Toggling automode from checked → unchecked while the active preset's fans are both ≥ 10 % now fires a `regeneration` mode write immediately (#46), via the new `dashboard.js` slider helper.
 
 ### Changed
 
-- Dashboard writes are no longer optimistic — UI updates after the server confirms (typically 50–150 ms on LAN). Errors surface as inline banners on the card.
-- Playwright suite runs against a real `breezyd` process spawned from `cmd/fakedevice` rather than `page.route()` mocks. 84 tests total (83 active + 1 fixme; the preset-editor restoration un-fixme'd 11 legacy tests, deleted 3 obsolete tests, re-enabled the previously-fixme'd write-preserves-details test, and added 4 new ones).
+- The dashboard substrate is now datastar + SSE. `/ui/devices/{name}/...` action endpoints return 200 + empty body on success (subscribers see the new card via the SSE push channel) or a status-coded `datastar-patch-elements` event into `#global-error-banner` on failure. Threshold and schedule fragment endpoints emit SSE patch events targeting their cells. The `/v1/*` JSON API is unchanged.
+- The `GET /ui/devices` and `GET /ui/devices/{name}/card` routes are removed — the SSE push channel replaces them.
 - `just build` now depends on `just generate` (templ codegen). The `templ` CLI is a required build prerequisite: provided by `nix develop`, or `go install github.com/a-h/templ/cmd/templ@v0.3.x` outside Nix.
 - `just check` and `just ci` include `just test-templ-drift` (verifies generated `*_templ.go` files match sources) and `just test-fakedevice-admin` (builds with the admin build tag).
+- Playwright suite reduced from 1600 to ~200 lines, covering the SSE-driven user-visible behaviors (initial render, action clicks, cross-tab synchronization, threshold edit, error banner, reconnect-via-reload).
 
 ### Removed
 
-- `cmd/breezyd/ui/legacy.js` (the JS-rendered SPA's event handlers). The only JS remaining in the dashboard is a small inline FOUC-prevention + theme-picker block in the page shell, plus the cookie helpers + delegated event handlers added with the preset-editor restoration.
-- Live-drag slider feedback (`.val` text update during drag). Slider value is updated after the htmx PUT + swap.
+- `internal/uistate/` package and the `breezy-ui` cookie protocol.
+- `cmd/breezyd/ui/vendor/htmx-2.0.4.min.js` and `htmx-response-targets-2.0.4.min.js`.
+- `DeviceView.{DetailsOpen, EditingPreset, Automode, MatchSpeeds, PostError}` fields.
+- `computeDetailsOpen` and `defaultOpen` helpers.
+- `cmd/breezyd/ui/templates/device_list.templ` (the `/ui/devices` route is gone).
+- The editor-open render-golden variant (`golden_editor_open_preset2.html`) — under `data-show`, the card HTML is editor-state-independent.
+- `cmd/breezyd/ui/legacy.js` (the JS-rendered SPA's event handlers; replaced by the `dashboard.js` helper plus a small inline FOUC-prevention + theme-picker block in the page shell).
+- Live-drag slider feedback (`.val` text update during drag). Slider value is updated after the SSE patch lands.
 
 - Daemon-driven per-device 24-hour cyclic schedule. Each device's card has a new collapsible SCHEDULE block with an `At | Action | Pct` table editor; entries fire writes (Power → SetMode → SetSpeedManual, or Power(false) for "off") at each At-time. State persists to `<state_dir>/schedule_<device>.json`. On transient write failure the daemon retries every 30 s for up to 10 min (abandoned earlier when superseded by the next entry); `breezy.ErrAuth` is treated as a config error and not retried. The dashboard auto-expands the SCHEDULE block with a `⚠` line when the most recent fire failed.
 - New `GET`/`PUT /v1/devices/{name}/schedule` endpoints. PUT replaces the schedule wholesale (≤24 entries, action ∈ off/regeneration/ventilation/supply/extract, pct 10–100, no duplicate At-times); validation failures return 400 `bad_request`. Edits clear any in-flight retry and the previous fire's alert banner.

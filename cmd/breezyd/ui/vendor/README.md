@@ -2,9 +2,10 @@
 
 | File | Source | License | sha256 |
 |---|---|---|---|
-| htmx-2.0.4.min.js | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | BSD-2-Clause | e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447 |
-| htmx-response-targets-2.0.4.min.js | https://unpkg.com/htmx-ext-response-targets@2.0.4/dist/response-targets.js | BSD-2-Clause | 811d992edad4523f12f999688668b79cb2900e57a43c41eb0c26ae7f6669c418 |
+| datastar-1.0.1.min.js | https://github.com/starfederation/datastar v1.0.1 `bundles/datastar.js` | MIT | 54768cf34985be0229c7229f1df9469fbd32e2a0c09b4a3f1e81ad8c4d6840da |
+| dashboard.js | this repo (preset-slider snap + match-speeds + implied-mode helper) | GPL-3.0-or-later | n/a (regenerated from source) |
 
-To upgrade: bump the version in the filename, re-run the curl commands in
-`docs/superpowers/plans/2026-05-06-htmx-migration.md` Task 2 Step 1, update
-this table, and grep for the old version in `cmd/breezyd/`.
+To upgrade datastar: bump the version in the filename, re-download the
+matching bundle, recompute the sha256, update this table and the
+`datastarVersion` constant in `cmd/breezyd/ui_assets.go`, then grep for
+the old version under `cmd/breezyd/`.

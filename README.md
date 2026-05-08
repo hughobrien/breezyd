@@ -27,7 +27,7 @@ against the same device.
   <img src="tests/ui/screenshots/homekit-accessories.png" width="45%" alt="Each Breezy as a separate AirPurifier accessory in the Apple Home rooms list" />
 </p>
 
-The bundled web dashboard is served from the daemon at `GET /`; it is server-rendered with `templ` + htmx and auto-refreshes every 5 s. It covers power/mode/speed/heater/timer plus per-device 24-hour schedules and supports dark mode (auto via `prefers-color-scheme`, manual via a theme picker). See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
+The bundled web dashboard is served from the daemon at `GET /`; it is server-rendered with `templ` + datastar and pushes updates over SSE — every connected browser sees the new state within one poll cycle, with no client-side polling. It covers power/mode/speed/heater/timer plus per-device 24-hour schedules and supports dark mode (auto via `prefers-color-scheme`, manual via a theme picker). See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
 
 ## At a glance
 
@@ -61,7 +61,7 @@ What's covered:
   reset, RTC set.
 - Per-device snapshots and Prometheus metrics.
 - `breezy discover` for first-time bootstrap.
-- Server-rendered web dashboard at `GET /` on the daemon (templ + htmx),
+- Server-rendered web dashboard at `GET /` on the daemon (templ + datastar over SSE),
   served from the same binary; auto-refreshes every 5 s; covers sensors,
   fans, service info, and the four high-level controls (power / mode /
   speed / heater). Dark mode supported (auto + manual override).
@@ -567,7 +567,7 @@ If you turn on `[homekit]` in the config, also:
 
 ## Web UI
 
-The daemon serves a server-rendered dashboard (templ + htmx) at the root path of its HTTP listener:
+The daemon serves a server-rendered dashboard (templ + datastar over SSE) at the root path of its HTTP listener:
 
 ```
 http://127.0.0.1:9876/
@@ -890,7 +890,7 @@ breezyd/
 │   ├── discover.go            # LAN broadcast
 │   └── fakedevice/            # in-process protocol-speaking fake for tests
 ├── cmd/breezyd/               # the daemon (HTTP + Prometheus + poller)
-│   └── ui/                    # templ templates, htmx vendor, style.css, view.go
+│   └── ui/                    # templ templates, datastar+dashboard vendor JS, style.css, view.go
 ├── cmd/breezy/                # the CLI (standalone UDP by default; daemon mode opt-in)
 ├── cmd/fakedevice/            # build-tagged fakedevice binary with admin HTTP (for Playwright)
 ├── internal/config/           # TOML config loader, shared by both

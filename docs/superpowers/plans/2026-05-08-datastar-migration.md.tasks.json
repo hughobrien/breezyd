@@ -24,28 +24,28 @@
     {
       "id": 12,
       "subject": "Task 4: Cutover — datastar + drop htmx + drop uistate",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [11],
       "description": "**Goal:** Switch dashboard from htmx to datastar in one cutover. Action handlers stop returning HTML. Templates use data-* attrs. Drop htmx, internal/uistate, 4 DeviceView fields, computeDetailsOpen, getUIDeviceList, getUIDeviceCard, ~210 lines inline JS.\n\n**Files:**\n- Modify: handlers_ui_write.go, handlers_ui_read.go, server.go, ui/view.go, all *.templ, style.css, ui_assets.go, render_test.go, testdata/, handlers_ui_*_test.go, layout.templ\n- Delete: internal/uistate/, htmx vendor JS files\n- Create: cmd/breezyd/ui/vendor/dashboard.js\n\n**Verify:** `just check && just build && # smoke-test binary with fakedevice`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_ui_write.go\", \"cmd/breezyd/handlers_ui_read.go\", \"cmd/breezyd/server.go\", \"cmd/breezyd/ui/view.go\", \"cmd/breezyd/ui/templates/\", \"cmd/breezyd/ui/style.css\", \"cmd/breezyd/ui_assets.go\", \"internal/uistate/\", \"cmd/breezyd/ui/vendor/\"], \"verifyCommand\": \"just check && just build\", \"acceptanceCriteria\": [\"check clean\", \"no htmx references\", \"SSE-driven updates work\", \"action endpoints reshaped\", \"goldens updated\"]}\n```"
     },
     {
       "id": 13,
       "subject": "Task 5: Convert threshold + schedule fragment endpoints to SSE",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [12],
       "description": "**Goal:** Threshold and schedule fragment endpoints emit SSE event streams instead of raw HTML.\n\n**Files:**\n- Modify: cmd/breezyd/handlers_ui_write.go, cmd/breezyd/handlers_ui_write_test.go, cmd/breezyd/ui/templates/sensors_block.templ, cmd/breezyd/ui/templates/schedule_block.templ\n\n**Verify:** `go test ./cmd/breezyd/ -run 'TestUIThreshold|TestUISchedule' -v && just check`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_ui_write.go\", \"cmd/breezyd/handlers_ui_write_test.go\", \"cmd/breezyd/ui/templates/sensors_block.templ\", \"cmd/breezyd/ui/templates/schedule_block.templ\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run 'TestUIThreshold|TestUISchedule' -v && just check\", \"acceptanceCriteria\": [\"fragment endpoints emit SSE\", \"templates use datastar attrs\", \"editors work in browser\"]}\n```"
     },
     {
       "id": 14,
       "subject": "Task 6: Playwright suite update",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [12],
       "description": "**Goal:** Adapt Playwright suite for SSE-driven dashboard.\n\n**Files:**\n- Modify: tests/ui/dashboard.spec.ts, tests/ui/screenshot.ts, tests/ui/global-setup.ts (if needed)\n- Regenerate: tests/ui/screenshots/dashboard-3col.png\n\n**Verify:** `just test-ui`\n\n```json:metadata\n{\"files\": [\"tests/ui/dashboard.spec.ts\", \"tests/ui/screenshot.ts\", \"tests/ui/global-setup.ts\", \"tests/ui/screenshots/dashboard-3col.png\"], \"verifyCommand\": \"just test-ui\", \"acceptanceCriteria\": [\"cookie tests dropped\", \"SSE-driven assertions\", \"cross-tab + reconnect tests added\", \"screenshot regenerated\"]}\n```"
     },
     {
       "id": 15,
       "subject": "Task 7: NixOS module nginx config",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** Auto-configured nginx location adds SSE-friendly directives.\n\n**Files:**\n- Modify: nix/module.nix\n\n**Verify:** `just nix-check && nix build`\n\n```json:metadata\n{\"files\": [\"nix/module.nix\"], \"verifyCommand\": \"just nix-check && nix build\", \"acceptanceCriteria\": [\"proxy_buffering off\", \"proxy_cache off\", \"proxy_http_version 1.1\", \"Connection header\", \"proxy_read_timeout 1d\"]}\n```"
     },
     {
