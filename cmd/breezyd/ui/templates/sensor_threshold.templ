@@ -14,7 +14,7 @@ templ SensorThresholdRead(name, kind, label, suffix, tooltip string, value int, 
 		<div class="sensor-label">{ label }</div>
 		<div
 			class={ "value-clickable", templ.KV("alert-fire", alerting) }
-			data-on-click={ datastar.GetSSE("/ui/devices/%s/threshold/%s/edit", name, kind) }
+			data-on:click={ datastar.GetSSE("/ui/devices/%s/threshold/%s/edit", name, kind) }
 		>{ fmt.Sprintf("%d%s", value, suffix) }</div>
 	</div>
 }
@@ -27,7 +27,7 @@ templ SensorThresholdEdit(name, kind, label string, min, max, step, threshold in
 		<div class="sensor-label">{ label }</div>
 		<form
 			class="thresh-edit-inline"
-			data-on-submit__prevent={ datastar.PutSSE("/ui/devices/%s/threshold", name) }
+			data-on:submit__prevent={ datastar.PutSSE("/ui/devices/%s/threshold", name) }
 		>
 			<input type="hidden" name="kind" value={ kind }/>
 			<input
@@ -55,7 +55,7 @@ templ SensorThresholdEdit(name, kind, label string, min, max, step, threshold in
 			<button type="submit" if disabled { disabled }>✓</button>
 			<button
 				type="button"
-				data-on-click={ datastar.GetSSE("/ui/devices/%s/threshold/%s", name, kind) }
+				data-on:click={ datastar.GetSSE("/ui/devices/%s/threshold/%s", name, kind) }
 				if disabled { disabled }
 			>✕</button>
 		</form>

@@ -49,11 +49,18 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 
 	sse := datastar.NewSSE(w, r)
 
+	// Initial state appends each card to #device-list. Per-card outer patches
+	// can't run until the .card[data-device=...] target exists, which it
+	// doesn't on a fresh page load — datastar drops them as
+	// PatchElementsNoTargetsFound. Append uses real DOM mutation (appendChild)
+	// so datastar's MutationObserver picks up data-on:click etc. on the new
+	// nodes. Subsequent per-card updates below use outer mode to replace
+	// existing cards in place.
 	for _, view := range h.collectViews() {
 		if err := sse.PatchElementTempl(
 			templates.DeviceCard(view),
-			datastar.WithSelectorf(`.card[data-device=%q]`, view.Name),
-			datastar.WithModeOuter(),
+			datastar.WithSelector("#device-list"),
+			datastar.WithModeAppend(),
 		); err != nil {
 			slog.Debug("sse initial: patch failed", "err", err, "device", view.Name)
 			return

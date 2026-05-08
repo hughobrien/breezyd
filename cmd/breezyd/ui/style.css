@@ -290,7 +290,7 @@ details.block.schedule > summary > h3 { margin: 0; }
    expression is falsy; no extra rule needed for hidden state. */
 
 /* Alert: highlights a block heading when its underlying alert flag
-   fires. data-attr-open governs visibility; this is purely visual. */
+   fires. data-attr:open governs visibility; this is purely visual. */
 .block.alert > summary > h3,
 .device-info.alert > summary > h2 {
   color: var(--error);

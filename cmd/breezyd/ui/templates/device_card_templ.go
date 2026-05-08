@@ -151,7 +151,7 @@ func DeviceCard(v ui.DeviceView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" data-attr-open=\"$detailsOpen.info\"><summary><h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" data-attr:open=\"$detailsOpen.info\"><summary><h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -164,7 +164,7 @@ func DeviceCard(v ui.DeviceView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</h2><button type=\"button\" class=\"toggle toggle-inline\" data-on-click=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</h2><button type=\"button\" class=\"toggle toggle-inline\" data-on:click=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -464,14 +464,14 @@ func kvRowWithAction(k, v, label, postURL string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</span> <button type=\"button\" class=\"btn-inline\" data-on-click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</span> <button type=\"button\" class=\"btn-inline\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var24 string
-		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs("if (confirm('Run: " + label + "?')) { " + postFormExpr(postURL, "") + " }")
+		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs("if (confirm('Run: " + label + "?')) { " + postActionExpr(postURL, "") + " }")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/device_card.templ`, Line: 93, Col: 94}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/device_card.templ`, Line: 93, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 		if templ_7745c5c3_Err != nil {
@@ -514,15 +514,13 @@ func filterStatusStr(v ui.DeviceView) string {
 	return v.FilterStatus
 }
 
-// powerButtonExpr produces the data-on-click expression for the power
-// toggle. POSTs the inverse of the current power state via the same
-// fetch helper the rest of the dashboard uses.
+// powerButtonExpr produces the data-on:click expression for the power
+// toggle. POSTs the inverse of the current power state.
 func powerButtonExpr(v ui.DeviceView) string {
-	target := "false"
-	if !v.Power {
-		target = "true"
-	}
-	return postFormExpr(fmt.Sprintf("/ui/devices/%s/power", v.Name), "on="+target)
+	return postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/power", v.Name),
+		fmt.Sprintf("{on: %t}", !v.Power),
+	)
 }
 
 // initialCardSignals returns the per-card datastar signals seed as JSON.

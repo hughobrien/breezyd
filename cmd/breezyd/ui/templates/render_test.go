@@ -46,7 +46,7 @@ func TestLayout(t *testing.T) {
 		`/ui/style-abc123def0.css`,
 		`/ui/vendor/datastar-1.0.1.min.js`,
 		`/ui/vendor/dashboard.js`,
-		`data-on-load="@get('/ui/sse')"`,
+		`data-init="@get('/ui/sse')"`,
 		`<summary><h1>breezy</h1></summary>`,
 		`data-theme-set="light"`,
 		`data-theme-set="dark"`,
