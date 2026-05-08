@@ -374,9 +374,11 @@ func (h *Handler) dialRecording(name string) (*recordingClient, HandlerClient, f
 	}), raw, unlock, nil
 }
 
-// handlerOpTimeout caps every device-dialing handler op. 5s mirrors
-// the firmware's worst-case settle window without leaving requests
-// hanging when the device is unreachable.
+// handlerOpTimeout caps a single device dial + op (one UDP
+// request/response round trip including any internal retries). This is
+// not the 12s fan-settle window — that's a separate, post-write
+// behavior that suppresses polled reads, not a deadline on the write
+// itself (see poller.go::fanSettleDuration).
 const handlerOpTimeout = 5 * time.Second
 
 // doDeviceOp acquires the per-device UDP lock, opens a recording
