@@ -374,6 +374,11 @@ func (h *Handler) dialRecording(name string) (*recordingClient, HandlerClient, f
 	}), raw, unlock, nil
 }
 
+// handlerOpTimeout caps every device-dialing handler op. 5s mirrors
+// the firmware's worst-case settle window without leaving requests
+// hanging when the device is unreachable.
+const handlerOpTimeout = 5 * time.Second
+
 // doDeviceOp acquires the per-device UDP lock, opens a recording
 // client, runs op with a 5s timeout derived from r.Context(), and
 // tears everything down (Close before unlock; LIFO defer order)
@@ -395,7 +400,7 @@ func (h *Handler) doDeviceOp(
 	}
 	defer unlock()
 	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerOpTimeout)
 	defer cancel()
 	return op(ctx, rc)
 }
@@ -414,9 +419,30 @@ func (h *Handler) doDeviceRead(
 	}
 	defer unlock()
 	defer func() { _ = c.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerOpTimeout)
 	defer cancel()
 	return op(ctx, c)
+}
+
+// doDeviceOpBackground is the no-request sibling of doDeviceOp, used by
+// callers that have no *http.Request to derive a parent context from
+// (HomeKit characteristic write callbacks, scheduler-fired writes,
+// etc.). The parent context is context.Background(); the same
+// handlerOpTimeout caps the op so an unreachable device cannot hang
+// the caller's goroutine indefinitely.
+func (h *Handler) doDeviceOpBackground(
+	name string,
+	op func(ctx context.Context, rc *recordingClient) error,
+) error {
+	rc, raw, unlock, err := h.dialRecording(name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	defer func() { _ = raw.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), handlerOpTimeout)
+	defer cancel()
+	return op(ctx, rc)
 }
 
 // scheduleDial returns a Dial closure compatible with Scheduler.Dial.

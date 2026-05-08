@@ -929,6 +929,13 @@ func TestHandler_PostThreshold_EnabledOnly(t *testing.T) {
 	}
 }
 
+// The three Releases* tests below verify that the per-device UDP
+// mutex is released on every exit path of doDeviceOp / doDeviceRead.
+// They do NOT verify that the underlying socket Close runs BEFORE
+// the unlock — that LIFO defer ordering is documented on h.dial
+// (see server.go) but not directly observable from outside the
+// helpers. If you ever flip the two defer lines in doDeviceOp, all
+// three tests still pass; rely on code review for that invariant.
 func TestDoDeviceOp_ReleasesLockOnSuccess(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	// newServerHandler wires NoticeFunc but leaves Pollers empty; install a
