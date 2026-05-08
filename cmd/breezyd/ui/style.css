@@ -286,7 +286,20 @@ details.block.schedule > summary > h3 { margin: 0; }
   background: var(--bg-elevated); border: 1px solid var(--border-elevated); border-radius: 4px;
   display: flex; flex-direction: column; gap: 0.3rem;
 }
-.preset-editor[hidden] { display: none; }
+/* Datastar's data-show toggles `display: none` directly when the
+   expression is falsy; no extra rule needed for hidden state. */
+
+/* Alert: highlights a block heading when its underlying alert flag
+   fires. data-attr-open governs visibility; this is purely visual. */
+.block.alert > summary > h3,
+.device-info.alert > summary > h2 {
+  color: var(--error);
+}
+.block.alert > summary::before,
+.device-info.alert > summary::before {
+  content: "⚠ ";
+  color: var(--error);
+}
 .preset-editor .match-speeds {
   font-size: 0.75rem; color: var(--fg-strong); display: inline-flex;
   align-items: center; gap: 0.3rem;

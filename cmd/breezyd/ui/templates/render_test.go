@@ -31,12 +31,12 @@ func loadView(t *testing.T, name string) ui.DeviceView {
 
 func TestLayout(t *testing.T) {
 	var sb strings.Builder
-	d := LayoutData{StyleHash: "abc123def0", HTMXVersion: "2.0.4"}
+	d := LayoutData{StyleHash: "abc123def0", DatastarVersion: "1.0.1"}
 	if err := Layout(d).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	got := sb.String()
-	// FOUC script must appear before the stylesheet link
+	// FOUC script must appear before the stylesheet link.
 	scriptIdx := strings.Index(got, "localStorage.getItem")
 	linkIdx := strings.Index(got, `<link rel="stylesheet"`)
 	if scriptIdx < 0 || linkIdx < 0 || scriptIdx > linkIdx {
@@ -44,18 +44,19 @@ func TestLayout(t *testing.T) {
 	}
 	wantContains := []string{
 		`/ui/style-abc123def0.css`,
-		`/ui/vendor/htmx-2.0.4.min.js`,
-		`/ui/vendor/htmx-response-targets-2.0.4.min.js`,
-		`hx-ext="response-targets"`,
-		`hx-target-422="closest .card"`,
-		`every 5s`,
+		`/ui/vendor/datastar-1.0.1.min.js`,
+		`/ui/vendor/dashboard.js`,
+		`data-on-load="@get('/ui/sse')"`,
 		`<summary><h1>breezy</h1></summary>`,
 		`data-theme-set="light"`,
 		`data-theme-set="dark"`,
 		`data-theme-set="auto"`,
 	}
 	wantAbsent := []string{
+		`htmx`,
 		`legacy.js`,
+		`every 5s`,
+		`hx-ext`,
 	}
 	for _, w := range wantContains {
 		if !strings.Contains(got, w) {
@@ -71,16 +72,16 @@ func TestLayout(t *testing.T) {
 
 // TestScheduleEditRow pins two behaviors that were issue regressions:
 //
-//   - #42: the 'at' input is a native timepicker (type="time"), not a free
-//     text field.
-//   - #44: when the action is "off", the pct input has no value (an empty
-//     fan percent is the truthful read for an off row, and the handler
-//     accepts empty pct iff action=="off").
+//   - #42: the 'at' input is a native timepicker (type="time"), not a
+//     free text field.
+//   - #44: when the action is "off", the pct input has no value (an
+//     empty fan percent is the truthful read for an off row, and the
+//     handler accepts empty pct iff action=="off").
 func TestScheduleEditRow(t *testing.T) {
 	cases := []struct {
 		name       string
 		entry      ui.ScheduleEntryView
-		wantValueP string // pct input value attribute literal we expect to find
+		wantValueP string
 		notWant    []string
 	}{
 		{
@@ -122,7 +123,6 @@ func TestDeviceCardGolden(t *testing.T) {
 		"snapshot_regen", "snapshot_manual", "snapshot_settling",
 		"snapshot_sensor_alert", "snapshot_schedule_alert",
 		"snapshot_energy_error", "snapshot_no_energy",
-		"snapshot_editor_open_preset2",
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {

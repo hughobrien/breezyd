@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // HTTP handlers for the dashboard's static assets: the page shell, the
-// extracted stylesheet, and the vendored htmx libraries. Templates that
-// render device data live in handlers_ui_read.go and handlers_ui_write.go.
+// extracted stylesheet, and the vendored datastar JS bundle. Templates
+// that render device data live in handlers_ui_read.go and
+// handlers_ui_write.go.
 package main
 
 import (
@@ -17,9 +18,18 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 )
 
-// htmxVersion is the vendored htmx version embedded under ui/vendor/.
-// The Layout template references /ui/vendor/htmx-<version>.min.js.
-const htmxVersion = "2.0.4"
+// datastarVersion is the vendored datastar JS bundle version. The file
+// is the unmodified `bundles/datastar.js` from the datastar v1.0.1
+// release (already minified despite the lack of `.min` suffix upstream;
+// we keep the `.min.js` filename so versioned URLs stay cache-busting).
+//
+// SHA-256 of cmd/breezyd/ui/vendor/datastar-1.0.1.min.js:
+//
+//	54768cf34985be0229c7229f1df9469fbd32e2a0c09b4a3f1e81ad8c4d6840da
+//
+// Bumping this version is a deliberate act: download the new bundle,
+// recompute the digest, and update both the constant and the comment.
+const datastarVersion = "1.0.1"
 
 //go:embed ui/vendor
 var vendorFS embed.FS
@@ -47,12 +57,13 @@ func init() {
 	styleHash = hex.EncodeToString(sum[:])[:10]
 }
 
-// getIndex serves the templ-rendered page shell (Layout). The Layout template
-// includes the style hash, htmx version, and theme-picker JS.
+// getIndex serves the templ-rendered page shell (Layout). The Layout
+// template includes the style hash, datastar version, and theme-picker
+// JS.
 func (h *Handler) getIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	d := templates.LayoutData{StyleHash: styleHash, HTMXVersion: htmxVersion}
+	d := templates.LayoutData{StyleHash: styleHash, DatastarVersion: datastarVersion}
 	if err := templates.Layout(d).Render(r.Context(), w); err != nil {
 		slog.Error("render Layout", "err", err)
 	}

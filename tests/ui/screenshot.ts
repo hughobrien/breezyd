@@ -159,10 +159,25 @@ async function main() {
 
   try {
     await captureViewport(daemonURL, 1400, 900, resolve(OUT_DIR, "dashboard-3col.png"), async (page) => {
-      // Open preset 2's editor on the bedroom card so the README screenshot
-      // shows the restored preset editor (#53).
-      await page.locator('.card:first-of-type [data-action="preset"][data-value="2"]').click();
-      await page.waitForSelector('.card:first-of-type [data-preset-editor="2"]:not([hidden])');
+      // Open preset 2's editor on the bedroom card so the README
+      // screenshot shows the editor in its open state. Datastar's
+      // data-show toggles based on the card-level $editor signal —
+      // clicking the chip flips it to 2.
+      await page
+        .locator('.card:first-of-type .preset-editor[data-preset-editor="2"]')
+        .first()
+        .scrollIntoViewIfNeeded();
+      const chip = page
+        .locator('.card:first-of-type [data-preset-editor="2"]')
+        .locator("xpath=preceding::div[contains(@class,'seg')][1]")
+        .locator('button:nth-of-type(2)');
+      await chip.click();
+      // data-show is reactive; the editor becomes visible without a
+      // server round-trip.
+      await page.waitForSelector(
+        '.card:first-of-type [data-preset-editor="2"]:visible',
+        { timeout: 5_000 },
+      );
     });
     await captureViewport(daemonURL, 480, 900, resolve(OUT_DIR, "dashboard-1col.png"));
   } finally {
@@ -192,13 +207,14 @@ async function captureViewport(
     });
 
     await page.goto(daemonURL + "/");
-    await page.waitForSelector(".card", { timeout: 10_000 });
+    // Wait for the SSE-driven initial-state pass to populate every card.
     await page.waitForFunction(
       (n) => document.querySelectorAll(".card").length >= n,
       DEVICES.length,
       { timeout: 10_000 },
     );
-    // Let htmx finish any in-flight swap before snapping.
+    // Brief pause so any follow-up patch (next poll tick) has a chance
+    // to land before the screenshot.
     await page.waitForTimeout(500);
     if (beforeShot) await beforeShot(page);
     await page.screenshot({ path: outFile, fullPage: true });

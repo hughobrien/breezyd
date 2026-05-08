@@ -9,11 +9,66 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
+
+// fakePushHub records every Notify call. Action-handler tests inject one
+// to verify the post-write fan-out fires without spinning up a real
+// PushHub + render closure.
+type fakePushHub struct {
+	mu       sync.Mutex
+	notified []string
+}
+
+func (f *fakePushHub) Notify(name string, _ Snapshot) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.notified = append(f.notified, name)
+}
+
+func (f *fakePushHub) calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.notified...)
+}
+
+func (f *fakePushHub) assertCalledFor(t *testing.T, want string) {
+	t.Helper()
+	got := f.calls()
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("PushHub.Notify calls: got %v, want [%s]", got, want)
+	}
+}
+
+// attachFakePushHub wires a fakePushHub into h and returns it. The
+// returned value is shared by reference, so observed calls from inside
+// the handler are visible after the request returns.
+func attachFakePushHub(h *Handler) *fakePushHub {
+	f := &fakePushHub{}
+	h.PushHub = f
+	return f
+}
+
+// assertSSEErrorBody fails the test if body doesn't look like a
+// datastar-patch-elements event containing wantSubstr inside its
+// elements payload.
+func assertSSEErrorBody(t *testing.T, body []byte, wantSubstr string) {
+	t.Helper()
+	s := string(body)
+	if !strings.Contains(s, "event: datastar-patch-elements") {
+		t.Errorf("body missing SSE event: %s", s)
+	}
+	if !strings.Contains(s, "#global-error-banner") {
+		t.Errorf("body missing #global-error-banner selector: %s", s)
+	}
+	if wantSubstr != "" && !strings.Contains(s, wantSubstr) {
+		t.Errorf("body missing %q: %s", wantSubstr, s)
+	}
+}
 
 // newUIWriteTestHandler builds a Handler for write-path UI tests. It seeds a
 // Snapshot so viewFor works, and wires a real ClientFactory that dials the
@@ -42,6 +97,7 @@ func newUIWriteTestHandler(t *testing.T) *Handler {
 
 func TestUIWritePower_Happy(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
@@ -53,10 +109,7 @@ func TestUIWritePower_Happy(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup: %s", string(body))
-	}
+	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWritePower_NotFound(t *testing.T) {
@@ -89,12 +142,7 @@ func TestUIWritePower_BadForm(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup")
-	}
-	if !strings.Contains(string(body), "missing or invalid") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "missing or invalid")
 }
 
 func TestUIWritePower_BackendError(t *testing.T) {
@@ -117,9 +165,7 @@ func TestUIWritePower_BackendError(t *testing.T) {
 		t.Fatalf("status: %d, want 502", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "err-banner") {
-		t.Errorf("body missing error banner: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "err-banner")
 }
 
 func TestUIWritePower_AuthError(t *testing.T) {
@@ -143,19 +189,19 @@ func TestUIWritePower_AuthError(t *testing.T) {
 		t.Fatalf("status: %d, want 401", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "auth") {
-		t.Errorf("body missing auth error: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "auth")
 }
 
 // ---------- postUIMode tests ----------
 
 func TestUIWriteMode_Happy(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	for _, mode := range []string{"ventilation", "regeneration", "supply", "extract"} {
+	modes := []string{"ventilation", "regeneration", "supply", "extract"}
+	for _, mode := range modes {
 		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/mode", url.Values{"mode": {mode}})
 		if err != nil {
 			t.Fatalf("mode=%s: %v", mode, err)
@@ -164,10 +210,9 @@ func TestUIWriteMode_Happy(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
 		}
-		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), `data-device="alpha"`) {
-			t.Errorf("mode=%s: body missing card markup: %s", mode, string(body))
-		}
+	}
+	if got := len(notifies.calls()); got != len(modes) {
+		t.Errorf("PushHub.Notify count: got %d, want %d", got, len(modes))
 	}
 }
 
@@ -201,18 +246,14 @@ func TestUIWriteMode_BadForm(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup")
-	}
-	if !strings.Contains(string(body), "ventilation/regeneration/supply/extract") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "ventilation/regeneration/supply/extract")
 }
 
 // ---------- postUISpeed tests ----------
 
 func TestUIWriteSpeed_HappyManual(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
@@ -224,10 +265,7 @@ func TestUIWriteSpeed_HappyManual(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup: %s", string(body))
-	}
+	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWriteSpeed_HappyPreset(t *testing.T) {
@@ -332,10 +370,12 @@ func TestUIWriteSpeed_BadForm_InvalidPreset(t *testing.T) {
 
 func TestUIWriteHeater_Happy(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	for _, on := range []string{"true", "false"} {
+	values := []string{"true", "false"}
+	for _, on := range values {
 		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/heater", url.Values{"on": {on}})
 		if err != nil {
 			t.Fatalf("on=%s: %v", on, err)
@@ -344,10 +384,9 @@ func TestUIWriteHeater_Happy(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatalf("on=%s: status=%d, want 200", on, resp.StatusCode)
 		}
-		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), `data-device="alpha"`) {
-			t.Errorf("on=%s: body missing card markup: %s", on, string(body))
-		}
+	}
+	if got := len(notifies.calls()); got != len(values) {
+		t.Errorf("PushHub.Notify count: got %d, want %d", got, len(values))
 	}
 }
 
@@ -381,18 +420,14 @@ func TestUIWriteHeater_BadForm(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup")
-	}
-	if !strings.Contains(string(body), "missing or invalid") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "missing or invalid")
 }
 
 // ---------- postUIResetFilter tests ----------
 
 func TestUIWriteResetFilter_Happy(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
@@ -404,10 +439,7 @@ func TestUIWriteResetFilter_Happy(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup: %s", string(body))
-	}
+	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWriteResetFilter_NotFound(t *testing.T) {
@@ -429,6 +461,7 @@ func TestUIWriteResetFilter_NotFound(t *testing.T) {
 
 func TestUIWriteResetFaults_Happy(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
@@ -440,10 +473,7 @@ func TestUIWriteResetFaults_Happy(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup: %s", string(body))
-	}
+	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWriteResetFaults_NotFound(t *testing.T) {
@@ -465,10 +495,12 @@ func TestUIWriteResetFaults_NotFound(t *testing.T) {
 
 func TestUIWriteTimer_Happy(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	for _, mode := range []string{"off", "night", "turbo"} {
+	modes := []string{"off", "night", "turbo"}
+	for _, mode := range modes {
 		resp, err := http.PostForm(srv.URL+"/ui/devices/alpha/timer", url.Values{"mode": {mode}})
 		if err != nil {
 			t.Fatalf("mode=%s: %v", mode, err)
@@ -477,10 +509,9 @@ func TestUIWriteTimer_Happy(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
 		}
-		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), `data-device="alpha"`) {
-			t.Errorf("mode=%s: body missing card markup: %s", mode, string(body))
-		}
+	}
+	if got := len(notifies.calls()); got != len(modes) {
+		t.Errorf("PushHub.Notify count: got %d, want %d", got, len(modes))
 	}
 }
 
@@ -514,12 +545,7 @@ func TestUIWriteTimer_BadForm(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup")
-	}
-	if !strings.Contains(string(body), "mode must be") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "mode must be")
 }
 
 // ---------- threshold endpoint tests ----------
@@ -556,11 +582,14 @@ func TestUIThresholdGet_Read(t *testing.T) {
 			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
 		}
 		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), `class="sensor-cell"`) {
-			t.Errorf("kind=%s: body missing sensor-cell: %s", kind, string(body))
+		if !strings.Contains(string(body), "event: datastar-patch-elements") {
+			t.Errorf("kind=%s: body missing SSE event: %s", kind, string(body))
 		}
-		if !strings.Contains(string(body), `data-action="edit-threshold"`) {
-			t.Errorf("kind=%s: body missing edit-threshold action: %s", kind, string(body))
+		if !strings.Contains(string(body), `data-threshold-cell="`+kind+`"`) {
+			t.Errorf("kind=%s: body missing data-threshold-cell: %s", kind, string(body))
+		}
+		if !strings.Contains(string(body), "/threshold/"+kind+"/edit") {
+			t.Errorf("kind=%s: body missing edit link target: %s", kind, string(body))
 		}
 	}
 }
@@ -580,11 +609,14 @@ func TestUIThresholdGet_Edit(t *testing.T) {
 			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
 		}
 		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "event: datastar-patch-elements") {
+			t.Errorf("kind=%s: body missing SSE event: %s", kind, string(body))
+		}
 		if !strings.Contains(string(body), `class="thresh-input"`) {
 			t.Errorf("kind=%s: body missing thresh-input: %s", kind, string(body))
 		}
-		if !strings.Contains(string(body), `data-action="threshold-save"`) {
-			t.Errorf("kind=%s: body missing threshold-save button: %s", kind, string(body))
+		if !strings.Contains(string(body), `<button type="submit"`) {
+			t.Errorf("kind=%s: body missing submit button: %s", kind, string(body))
 		}
 	}
 }
@@ -708,8 +740,8 @@ func TestUIThresholdPut_BrowserCheckbox(t *testing.T) {
 	// (not an error banner). The render path goes through buildView, which would
 	// pick up the WriteThrough'd enabled=true.
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-kind="humidity"`) {
-		t.Errorf("body missing humidity threshold render; got: %s", body)
+	if !strings.Contains(string(body), `data-threshold-cell="humidity"`) {
+		t.Errorf("body missing humidity threshold cell; got: %s", body)
 	}
 }
 
@@ -864,8 +896,14 @@ func TestUIScheduleGet_Edit(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, `hx-put="/ui/devices/alpha/schedule"`) {
-		t.Errorf("body missing form hx-put: %s", bs)
+	if !strings.Contains(bs, "event: datastar-patch-elements") {
+		t.Errorf("body missing SSE event: %s", bs)
+	}
+	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
+		t.Errorf("body missing form @put target: %s", bs)
+	}
+	if !strings.Contains(bs, "data-on-submit__prevent=") {
+		t.Errorf("body missing data-on-submit attribute: %s", bs)
 	}
 	if !strings.Contains(bs, `name="at"`) {
 		t.Errorf("body missing at input: %s", bs)
@@ -1068,9 +1106,12 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	// Edit variant rendered with error message.
-	if !strings.Contains(bs, `hx-put="/ui/devices/alpha/schedule"`) {
+	// Edit variant rendered with error message via SSE.
+	if !strings.Contains(bs, "data-on-submit__prevent=") {
 		t.Errorf("body missing edit form: %s", bs)
+	}
+	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
+		t.Errorf("body missing schedule URL: %s", bs)
 	}
 }
 
@@ -1078,6 +1119,7 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 
 func TestPostUIPreset_Success(t *testing.T) {
 	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
@@ -1093,10 +1135,7 @@ func TestPostUIPreset_Success(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-device="alpha"`) {
-		t.Errorf("body missing card markup: %s", string(body))
-	}
+	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestPostUIPreset_NotFound(t *testing.T) {
@@ -1136,9 +1175,7 @@ func TestPostUIPreset_BadPreset(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "preset must be") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "preset must be")
 }
 
 func TestPostUIPreset_BadSupply(t *testing.T) {
@@ -1160,9 +1197,7 @@ func TestPostUIPreset_BadSupply(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "supply must be") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "supply must be")
 }
 
 func TestPostUIPreset_BadExtract(t *testing.T) {
@@ -1184,9 +1219,7 @@ func TestPostUIPreset_BadExtract(t *testing.T) {
 		t.Fatalf("status: %d, want 422", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "extract must be") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "extract must be")
 }
 
 func TestPostUIPreset_MissingFields(t *testing.T) {
@@ -1230,9 +1263,7 @@ func TestPostUIPreset_AuthError(t *testing.T) {
 		t.Fatalf("status: %d, want 401", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "auth") {
-		t.Errorf("body missing auth error: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "auth")
 }
 
 func TestPostUIPreset_BackendError(t *testing.T) {
@@ -1259,7 +1290,5 @@ func TestPostUIPreset_BackendError(t *testing.T) {
 		t.Fatalf("status: %d, want 502", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "err-banner") {
-		t.Errorf("body missing error banner: %s", string(body))
-	}
+	assertSSEErrorBody(t, body, "err-banner")
 }
