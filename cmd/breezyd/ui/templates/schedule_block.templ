@@ -132,7 +132,7 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 			/>
 		</td>
 		<td>
-			<select name="action">
+			<select name="action" data-on:change={ scheduleActionChangeExpr() }>
 				@scheduleActionOption("ventilation", "auto", e.Action)
 				@scheduleActionOption("regeneration", "regen", e.Action)
 				@scheduleActionOption("supply", "supply", e.Action)
@@ -147,6 +147,7 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 				min="10"
 				max="100"
 				value={ schedulePctValue(e) }
+				data-orig-pct={ schedulePctOrigValue(e) }
 				class={ templ.KV("pct-disabled", e.Action == "off") }
 				if e.Action == "off" { readonly }
 			/>
@@ -183,6 +184,25 @@ func schedulePctValue(e ui.ScheduleEntryView) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", e.Pct)
+}
+
+// schedulePctOrigValue is the value to restore into the pct <input> when
+// the user toggles action away from "off". Pct's valid range is [10..100],
+// so 0 (or anything out of range) is treated as the "no value" sentinel
+// and falls back to a sensible default of 50.
+func schedulePctOrigValue(e ui.ScheduleEntryView) string {
+	if e.Pct >= 10 && e.Pct <= 100 {
+		return fmt.Sprintf("%d", e.Pct)
+	}
+	return "50"
+}
+
+// scheduleActionChangeExpr is the inline data-on:change expression for the
+// action <select> in the schedule editor. It locates the row's pct <input>
+// and synchronises value/readonly/class with the new action value:
+// off ⇒ clear + lock; non-off ⇒ restore data-orig-pct + unlock.
+func scheduleActionChangeExpr() string {
+	return `const pct = evt.target.closest('tr').querySelector('input[name=pct]'); if (evt.target.value === 'off') { pct.value = ''; pct.setAttribute('readonly', ''); pct.classList.add('pct-disabled'); } else { pct.value = pct.dataset.origPct; pct.removeAttribute('readonly'); pct.classList.remove('pct-disabled'); }`
 }
 
 // scheduleActionLabel maps action values to display labels.
