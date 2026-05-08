@@ -23,7 +23,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/a-h/templ"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
@@ -289,16 +288,9 @@ func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetMode(ctx, rc, mode); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetMode(ctx, rc, mode)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -335,16 +327,9 @@ func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetPresetSpeed(ctx, rc, preset, supply, extract); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetPresetSpeed(ctx, rc, preset, supply, extract)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -374,34 +359,25 @@ func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	var opErr error
+	var presetN, manualN int
 	if hasPreset {
-		n := 0
-		if _, err := fmt.Sscanf(presetStr, "%d", &n); err != nil || n < 1 || n > 3 {
+		if _, err := fmt.Sscanf(presetStr, "%d", &presetN); err != nil || presetN < 1 || presetN > 3 {
 			h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
 			return
 		}
-		opErr = breezy.SetSpeedPreset(ctx, rc, n)
 	} else {
-		n := 0
-		if _, err := fmt.Sscanf(manualStr, "%d", &n); err != nil || n < 10 || n > 100 {
+		if _, err := fmt.Sscanf(manualStr, "%d", &manualN); err != nil || manualN < 10 || manualN > 100 {
 			h.uiValidationError(w, r, name, "manual must be 10..100")
 			return
 		}
-		opErr = breezy.SetSpeedManual(ctx, rc, n)
 	}
-	if opErr != nil {
-		h.uiWriteError(w, r, opErr)
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		if hasPreset {
+			return breezy.SetSpeedPreset(ctx, rc, presetN)
+		}
+		return breezy.SetSpeedManual(ctx, rc, manualN)
+	}); err != nil {
+		h.uiWriteError(w, r, err)
 		return
 	}
 	h.notifyAfterWrite(name)
@@ -428,16 +404,9 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 	}
 	on := onStr == "true"
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetHeater(ctx, rc, on); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetHeater(ctx, rc, on)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -471,16 +440,9 @@ func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetTimer(ctx, rc, mode); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetTimer(ctx, rc, mode)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -495,16 +457,9 @@ func (h *Handler) postUIResetFilter(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.ResetFilter(ctx, rc); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.ResetFilter(ctx, rc)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -519,16 +474,9 @@ func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.ResetFaults(ctx, rc); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.ResetFaults(ctx, rc)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -556,16 +504,9 @@ func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 	}
 	on := onStr == "true"
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.Power(ctx, rc, on); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.Power(ctx, rc, on)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
@@ -704,16 +645,9 @@ func (h *Handler) putUIThreshold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetThresholdConfig(ctx, rc, kind, valuePtr, enabledPtr); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetThresholdConfig(ctx, rc, kind, valuePtr, enabledPtr)
+	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
