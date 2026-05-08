@@ -10,11 +10,14 @@ templ DeviceCard(v ui.DeviceView) {
 	if v.Unreachable {
 		@unreachableCard(v)
 	} else {
-		<div class={ "card", templ.KV("stale", v.Stale) } data-device={ v.Name }>
+		<div class={ "card", templ.KV("stale", v.Stale) }
+			     data-device={ v.Name }
+			     data-speed-mode={ v.SpeedMode }
+			     data-airflow-mode={ v.AirflowMode }>
 			if v.PostError != "" {
 				<div class="card-error" role="alert">{ v.PostError }</div>
 			}
-			<details id={ "info-" + v.Name } class="device-info" if v.NeedsAttention { open }>
+			<details id={ "info-" + v.Name } class="device-info" if v.DetailsOpen["info"] { open }>
 				<summary>
 					<h2>{ v.Name }</h2>
 					<button
@@ -43,9 +46,9 @@ templ DeviceCard(v ui.DeviceView) {
 		} else if v.Stale {
 			<div class="row"><span class="ts red">no poll</span></div>
 		}
-			@EnergyBlock(v.Name, v.Energy, false)
-			@SensorsBlock(v.Name, v.Sensors)
-			@ScheduleBlock(v.Name, v.Schedule, v.Stale)
+			@EnergyBlock(v.Name, v.Energy, v.DetailsOpen["energy"])
+			@SensorsBlock(v.Name, v.Sensors, v.DetailsOpen["sensors"])
+			@ScheduleBlock(v.Name, v.Schedule, v.Stale, v.DetailsOpen["schedule"])
 			@controlsBlock(v)
 		</div>
 	}

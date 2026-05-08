@@ -51,6 +51,22 @@ type DeviceView struct {
 	Energy   *EnergyView // nil when no energy tracker
 	Schedule ScheduleView
 
+	// DetailsOpen carries the cookie-derived + force-open <details>
+	// state, keyed by section name: "info", "sensors", "energy",
+	// "schedule". Templates read this to decide the `open` attribute.
+	DetailsOpen map[string]bool
+
+	// EditingPreset is which preset-editor panel is visible (1, 2, 3)
+	// or 0 when no editor is open. Server-rendered from the cookie;
+	// the JS in layout.templ writes the cookie on chip click.
+	EditingPreset int
+
+	// Automode is the editor's automode-checkbox state. Default false.
+	Automode bool
+
+	// MatchSpeeds is the editor's match-speeds-checkbox state. Default true.
+	MatchSpeeds bool
+
 	// PostError is set by write handlers to surface a banner after a failed POST.
 	PostError string
 }
@@ -63,10 +79,6 @@ type PresetView struct {
 
 // SensorsView carries all sensor readings plus threshold/alert state.
 type SensorsView struct {
-	// Expanded controls the <details open> attribute for the Sensors block.
-	// True when AlertActive==true OR when the user hasn't collapsed it.
-	Expanded bool
-
 	AlertActive bool // any of humidity/CO2/VOC alerting
 
 	HumidityPct int

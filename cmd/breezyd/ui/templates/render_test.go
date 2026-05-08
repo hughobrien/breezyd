@@ -122,6 +122,7 @@ func TestDeviceCardGolden(t *testing.T) {
 		"snapshot_regen", "snapshot_manual", "snapshot_settling",
 		"snapshot_sensor_alert", "snapshot_schedule_alert",
 		"snapshot_energy_error", "snapshot_no_energy",
+		"snapshot_editor_open_preset2",
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {

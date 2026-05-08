@@ -6,8 +6,9 @@ import (
 )
 
 // SensorsBlock renders the collapsible Sensors <details> block.
-templ SensorsBlock(name string, s ui.SensorsView) {
-	<details id={ "sensors-" + name } class="block sensors" if s.Expanded { open }>
+// open is the cookie-derived + force-open state from DeviceView.DetailsOpen["sensors"].
+templ SensorsBlock(name string, s ui.SensorsView, open bool) {
+	<details id={ "sensors-" + name } class="block sensors" if open { open }>
 		<summary><h3>Sensors</h3></summary>
 		@sensorsGrid(name, s)
 	</details>

@@ -1,14 +1,14 @@
 {
-  "Name": "attic",
-  "IP": "192.168.1.44",
-  "Serial": "BREEZY003",
+  "Name": "living-room",
+  "IP": "192.168.1.42",
+  "Serial": "BREEZY001",
   "Stale": false,
   "LastPollAge": "",
-  "FanSettling": true,
+  "FanSettling": false,
   "Power": true,
   "AirflowMode": "regeneration",
-  "SpeedMode": "manual",
-  "ManualPct": 70,
+  "SpeedMode": "preset2",
+  "ManualPct": 80,
   "Heater": false,
   "Preset1": {
     "Supply": 40,
@@ -22,28 +22,31 @@
     "Supply": 80,
     "Extract": 80
   },
+  "EditingPreset": 2,
+  "Automode": false,
+  "MatchSpeeds": true,
   "SpecialMode": "off",
   "SpecialModeRemaining": "",
   "FirmwareVersion": "1.04",
   "FirmwareDate": "2024-03-15",
   "FilterStatus": "clean",
-  "FilterRemaining": "200d",
-  "MotorLifetime": "567h 30m",
-  "RTCBattery": "3.180V",
+  "FilterRemaining": "142d",
+  "MotorLifetime": "1234h 56m",
+  "RTCBattery": "3.200V",
   "FaultLevel": "none",
   "NeedsAttention": false,
   "Sensors": {
     "AlertActive": false,
-    "HumidityPct": 48,
-    "CO2PPM": 590,
-    "VOCPPM": 90,
-    "TempOutdoorC": 5.0,
-    "TempSupplyC": 16.3,
-    "TempExhaustInletC": 20.0,
-    "TempExhaustOutC": 10.1,
-    "RecoveryPct": 71,
-    "SupplyRPM": null,
-    "ExtractRPM": null,
+    "HumidityPct": 45,
+    "CO2PPM": 650,
+    "VOCPPM": 85,
+    "TempOutdoorC": 8.5,
+    "TempSupplyC": 18.2,
+    "TempExhaustInletC": 21.0,
+    "TempExhaustOutC": 12.4,
+    "RecoveryPct": 78,
+    "SupplyRPM": 1200,
+    "ExtractRPM": 1180,
     "HumidityAlert": false,
     "CO2Alert": false,
     "VOCAlert": false,
@@ -56,33 +59,36 @@
   },
   "Energy": {
     "Error": "",
-    "InstantW": 380.0,
-    "ConsumedW": 55.0,
-    "HeatingTodayKWh": 1.9,
+    "InstantW": 450.0,
+    "ConsumedW": 65.0,
+    "HeatingTodayKWh": 2.34,
     "CoolingTodayKWh": 0.0,
-    "ConsumedTodayKWh": 0.27,
-    "HeatingMonthKWh": 38.1,
+    "ConsumedTodayKWh": 0.31,
+    "HeatingMonthKWh": 45.6,
     "CoolingMonthKWh": 0.0,
-    "ConsumedMonthKWh": 5.4,
-    "HeatingLifetimeKWh": 250.0,
-    "CoolingLifetimeKWh": 12.0,
-    "ConsumedLifetimeKWh": 36.0
+    "ConsumedMonthKWh": 6.2,
+    "HeatingLifetimeKWh": 312.5,
+    "CoolingLifetimeKWh": 18.3,
+    "ConsumedLifetimeKWh": 45.1
   },
   "Schedule": {
     "Present": true,
     "Enabled": true,
     "Entries": [
       {
-        "At": "06:30",
+        "At": "07:00",
         "Action": "regeneration",
-        "Pct": 70
+        "Pct": 60
+      },
+      {
+        "At": "22:00",
+        "Action": "regeneration",
+        "Pct": 40
       }
     ],
     "Alert": false,
     "LastApply": null
   },
   "PostError": "",
-  "DetailsOpen": {
-    "sensors": true
-  }
+  "DetailsOpen": {}
 }

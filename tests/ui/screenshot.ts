@@ -158,7 +158,12 @@ async function main() {
   await new Promise((r) => setTimeout(r, 1500));
 
   try {
-    await captureViewport(daemonURL, 1400, 900, resolve(OUT_DIR, "dashboard-3col.png"));
+    await captureViewport(daemonURL, 1400, 900, resolve(OUT_DIR, "dashboard-3col.png"), async (page) => {
+      // Open preset 2's editor on the bedroom card so the README screenshot
+      // shows the restored preset editor (#53).
+      await page.locator('.card:first-of-type [data-action="preset"][data-value="2"]').click();
+      await page.waitForSelector('.card:first-of-type [data-preset-editor="2"]:not([hidden])');
+    });
     await captureViewport(daemonURL, 480, 900, resolve(OUT_DIR, "dashboard-1col.png"));
   } finally {
     // Kill breezyd first so it stops talking UDP to the fakedevices, then
@@ -168,7 +173,13 @@ async function main() {
   }
 }
 
-async function captureViewport(daemonURL: string, width: number, height: number, outFile: string) {
+async function captureViewport(
+  daemonURL: string,
+  width: number,
+  height: number,
+  outFile: string,
+  beforeShot?: (page: import("@playwright/test").Page) => Promise<void>,
+) {
   const browser = await chromium.launch();
   try {
     const ctx = await browser.newContext({ viewport: { width, height } });
@@ -189,6 +200,7 @@ async function captureViewport(daemonURL: string, width: number, height: number,
     );
     // Let htmx finish any in-flight swap before snapping.
     await page.waitForTimeout(500);
+    if (beforeShot) await beforeShot(page);
     await page.screenshot({ path: outFile, fullPage: true });
 
     if (pageErrors.length > 0) {
