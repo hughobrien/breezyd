@@ -67,19 +67,12 @@ func (h *Handler) getParam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, unlock, err := h.dial(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = client.Close() }()
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	out, err := client.ReadParams(ctx, []breezy.ParamID{id})
-	if err != nil {
+	var out map[breezy.ParamID][]byte
+	if err := h.doDeviceRead(r, name, func(ctx context.Context, c HandlerClient) error {
+		var rerr error
+		out, rerr = c.ReadParams(ctx, []breezy.ParamID{id})
+		return rerr
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -140,16 +133,9 @@ func (h *Handler) postParam(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", fmt.Sprintf("decode hex: %v", err))
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := rc.WriteParams(ctx, []breezy.ParamWrite{{ID: id, Value: val}}); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return rc.WriteParams(ctx, []breezy.ParamWrite{{ID: id, Value: val}})
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -175,16 +161,9 @@ func (h *Handler) postPower(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'on' field (true/false)")
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.Power(ctx, rc, *body.On); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.Power(ctx, rc, *body.On)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -212,23 +191,13 @@ func (h *Handler) postSpeed(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "set exactly one of 'preset' (1-3) or 'manual' (10-100)")
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		if body.Preset != nil {
+			return breezy.SetSpeedPreset(ctx, rc, *body.Preset)
+		}
+		return breezy.SetSpeedManual(ctx, rc, *body.Manual)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	var opErr error
-	if body.Preset != nil {
-		opErr = breezy.SetSpeedPreset(ctx, rc, *body.Preset)
-	} else {
-		opErr = breezy.SetSpeedManual(ctx, rc, *body.Manual)
-	}
-	if opErr != nil {
-		writeErr(w, classifyClientErr(opErr), opErr.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -255,16 +224,9 @@ func (h *Handler) postPreset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing required field(s); send 'preset' (1-3), 'supply' (10-100), 'extract' (10-100)")
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetPresetSpeed(ctx, rc, *body.Preset, *body.Supply, *body.Extract); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetPresetSpeed(ctx, rc, *body.Preset, *body.Supply, *body.Extract)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -282,16 +244,9 @@ func (h *Handler) postMode(w http.ResponseWriter, r *http.Request) {
 	if !readBody(w, r, &body) {
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetMode(ctx, rc, body.Mode); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetMode(ctx, rc, body.Mode)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -313,16 +268,9 @@ func (h *Handler) postHeater(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'on' field (true/false)")
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetHeater(ctx, rc, *body.On); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetHeater(ctx, rc, *body.On)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -356,16 +304,9 @@ func (h *Handler) postThreshold(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "must supply at least one of 'value' or 'enabled'")
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetThresholdConfig(ctx, rc, body.Kind, body.Value, body.Enabled); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetThresholdConfig(ctx, rc, body.Kind, body.Value, body.Enabled)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -390,16 +331,9 @@ func (h *Handler) postTimer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", "missing 'mode' field (off|night|turbo)")
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetTimer(ctx, rc, body.Mode); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetTimer(ctx, rc, body.Mode)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -429,16 +363,9 @@ func (h *Handler) postRTC(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "bad_request", fmt.Sprintf("parse time %q: %v", body.Time, err))
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.SetRTC(ctx, rc, t); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetRTC(ctx, rc, t)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}

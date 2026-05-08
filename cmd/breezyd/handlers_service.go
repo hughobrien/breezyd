@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
@@ -95,16 +94,9 @@ func (h *Handler) postFilterReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.ResetFilter(ctx, rc); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.ResetFilter(ctx, rc)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
@@ -116,16 +108,9 @@ func (h *Handler) postFaultsReset(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireDevice(w, name); !ok {
 		return
 	}
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		writeErr(w, classifyClientErr(err), err.Error())
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	if err := breezy.ResetFaults(ctx, rc); err != nil {
+	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.ResetFaults(ctx, rc)
+	}); err != nil {
 		writeErr(w, classifyClientErr(err), err.Error())
 		return
 	}
