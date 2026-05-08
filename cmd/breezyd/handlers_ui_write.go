@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -198,8 +199,23 @@ func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, breezy.ErrAuth):
 		errorBannerSSE(w, r, http.StatusUnauthorized, "device authentication failed")
 	default:
-		errorBannerSSE(w, r, http.StatusBadGateway, err.Error())
+		errorBannerSSE(w, r, http.StatusBadGateway, uiBannerMsg(err))
 	}
+}
+
+// uiBannerMsg renders err as a user-facing banner string. Raw
+// `context deadline exceeded` is meaningless to a dashboard user, so
+// translate timeout-shaped errors (ctx deadline + net.Error timeouts)
+// into a clear "device timeout".
+func uiBannerMsg(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "device timeout (no response)"
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return "device timeout (no response)"
+	}
+	return err.Error()
 }
 
 // uiValidationError emits a 422 + datastar-patch-elements event with the
