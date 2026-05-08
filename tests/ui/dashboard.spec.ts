@@ -425,9 +425,10 @@ test("schedule: action=off greys the pct input", async ({ page }) => {
 
 test.fixme("schedule: duplicate-at disables save", async ({ page }) => {
   // [A] Two entries with the same At time → save button disabled.
-  // NOTE: Client-side duplicate-at validation is not yet implemented in the
-  // schedule editor. The server validates and returns an error on PUT.
-  // This test should be re-enabled once client-side validation is added.
+  // DEFERRED FEATURE: Client-side duplicate-at validation is not implemented.
+  // The server validates and returns 400 on PUT, so the user sees an inline
+  // error after submitting — no data loss. Adding the client-side check is
+  // a small UX improvement, not a bug. Re-enable this test when implementing.
   await reset(DEVICE);
   await presets.withSchedule(DEVICE, {
     enabled: true,
@@ -948,19 +949,6 @@ test("preset editor open: no fan slider rows (editor is the control surface)", a
   await expect(card.locator(".fan-slider-row")).toHaveCount(0);
 });
 
-test.fixme("mode click in manual: carries the higher fan pct as new manual_pct", async ({ page }) => {
-  // Obsoleted by htmx migration: secondary speed-preserve POST was JS orchestration
-  // in legacy.js (deleted Task 21).  The mode button issues a single POST /mode.
-  void page;
-});
-
-test.fixme("mode click in manual: optimistic overlay flips Sensors rpms immediately", async ({ page }) => {
-  // Obsoleted by htmx model: optimistic overlay (setOptimisticLive) was removed
-  // in the htmx migration.  The card swap after a successful POST shows the
-  // correct state once the next poll completes.
-  void page;
-});
-
 test("preset editor: automode default OFF; drag both ≥10 implies regeneration", async ({ page, context }) => {
   // [E→C] Automode defaults to OFF (cookie absent → false). Dragging both
   // sliders to ≥10 fires POST /mode with mode=regeneration (#46 fix).
@@ -1319,13 +1307,6 @@ test("speed preset editor: match-speeds off → moving extract preserves cached 
   expect(body).toContain("supply=50");
 });
 
-test.fixme("auto-fan: snapshot without _sensor_enabled treats checkbox as default-on; save without toggling skips POST", async ({ page }) => {
-  // Htmx semantic shift: form always submits value+enabled; the legacy
-  // "skip POST if nothing changed" optimisation is gone.  The important
-  // invariant (missing key → default-on) is covered by the checkbox-state test above.
-  void page;
-});
-
 // ── Category P: preset editor new tests ──────────────────────────────────────
 
 test("automode default: unchecked when editor opens (no cookie)", async ({ page, context }) => {
@@ -1504,12 +1485,12 @@ test.describe("htmx swap correctness", () => {
     expect(elapsed).toBeLessThan(500);
   });
 
-  test.fixme("write to one endpoint does not re-render other sections unexpectedly", async ({ page }) => {
-    // [N] After a power toggle, the card is swapped (outerHTML) but user-opened
-    // <details> sections should stay open via hx-preserve.
-    // NOTE: hx-preserve is not yet wired for write responses — the whole card is
-    // returned fresh and <details> states reset. Re-enable once hx-preserve IDs
-    // are added to the card template.
+  test("write to one endpoint preserves user-opened <details> sections", async ({ page, context }) => {
+    // [N] After a card swap (outerHTML on a write), user-opened <details>
+    // stay open because the cookie-driven server render emits the same
+    // open-state markup the next render. Cookie write happens on the
+    // summary click, before the htmx XHR fires.
+    await context.clearCookies();
     await reset(DEVICE);
     await presets.asPowerOn(DEVICE);
     await presets.withTimer(DEVICE, "off");
@@ -1517,14 +1498,15 @@ test.describe("htmx swap correctness", () => {
     await presets.asManualSpeed(DEVICE, 50);
     await waitForPoll();
     const card = await loadCard(page);
-    // Open device-info.
+    // Open device-info via summary click — this writes the cookie.
     const info = card.locator("details.device-info");
     await info.locator("summary").click();
     await expect(info).toHaveAttribute("open", "");
-    // Toggle power.
+    // Toggle power — server renders the new card with cookie-driven open state.
     await card.locator('button[class*="toggle"][hx-post*="/power"]').click();
-    // After swap, device-info is still open (hx-preserve).
-    await expect(info).toHaveAttribute("open", "", { timeout: 3000 });
+    // After the swap, the new <details.device-info> still has open.
+    await expect(page.locator(`.card[data-device="${DEVICE}"] details.device-info`))
+      .toHaveAttribute("open", "", { timeout: 3000 });
   });
 });
 

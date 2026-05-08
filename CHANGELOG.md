@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Dashboard writes are no longer optimistic — UI updates after the server confirms (typically 50–150 ms on LAN). Errors surface as inline banners on the card.
-- Playwright suite runs against a real `breezyd` process spawned from `cmd/fakedevice` rather than `page.route()` mocks. 87 tests total (82 active + 5 fixme; the preset-editor restoration un-fixme'd 11 legacy tests and added 4 new ones).
+- Playwright suite runs against a real `breezyd` process spawned from `cmd/fakedevice` rather than `page.route()` mocks. 84 tests total (83 active + 1 fixme; the preset-editor restoration un-fixme'd 11 legacy tests, deleted 3 obsolete tests, re-enabled the previously-fixme'd write-preserves-details test, and added 4 new ones).
 - `just build` now depends on `just generate` (templ codegen). The `templ` CLI is a required build prerequisite: provided by `nix develop`, or `go install github.com/a-h/templ/cmd/templ@v0.3.x` outside Nix.
 - `just check` and `just ci` include `just test-templ-drift` (verifies generated `*_templ.go` files match sources) and `just test-fakedevice-admin` (builds with the admin build tag).
 
