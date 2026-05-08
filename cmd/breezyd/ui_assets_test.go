@@ -18,9 +18,8 @@ func TestVendorAssets(t *testing.T) {
 		wantStatus int
 		wantCT     string
 	}{
-		{"/ui/vendor/htmx-2.0.4.min.js", 200, "application/javascript; charset=utf-8"},
-		{"/ui/vendor/htmx-response-targets-2.0.4.min.js", 200, "application/javascript; charset=utf-8"},
 		{"/ui/vendor/datastar-1.0.1.min.js", 200, "application/javascript; charset=utf-8"},
+		{"/ui/vendor/dashboard.js", 200, "application/javascript; charset=utf-8"},
 		{"/ui/vendor/missing.js", 404, ""},
 		{"/ui/vendor/../etc/passwd", 404, ""},
 		{"/ui/style-" + styleHash + ".css", 200, "text/css; charset=utf-8"},

@@ -582,11 +582,14 @@ func TestUIThresholdGet_Read(t *testing.T) {
 			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
 		}
 		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), `class="sensor-cell"`) {
-			t.Errorf("kind=%s: body missing sensor-cell: %s", kind, string(body))
+		if !strings.Contains(string(body), "event: datastar-patch-elements") {
+			t.Errorf("kind=%s: body missing SSE event: %s", kind, string(body))
 		}
-		if !strings.Contains(string(body), `data-action="edit-threshold"`) {
-			t.Errorf("kind=%s: body missing edit-threshold action: %s", kind, string(body))
+		if !strings.Contains(string(body), `data-threshold-cell="`+kind+`"`) {
+			t.Errorf("kind=%s: body missing data-threshold-cell: %s", kind, string(body))
+		}
+		if !strings.Contains(string(body), "/threshold/"+kind+"/edit") {
+			t.Errorf("kind=%s: body missing edit link target: %s", kind, string(body))
 		}
 	}
 }
@@ -606,11 +609,14 @@ func TestUIThresholdGet_Edit(t *testing.T) {
 			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
 		}
 		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "event: datastar-patch-elements") {
+			t.Errorf("kind=%s: body missing SSE event: %s", kind, string(body))
+		}
 		if !strings.Contains(string(body), `class="thresh-input"`) {
 			t.Errorf("kind=%s: body missing thresh-input: %s", kind, string(body))
 		}
-		if !strings.Contains(string(body), `data-action="threshold-save"`) {
-			t.Errorf("kind=%s: body missing threshold-save button: %s", kind, string(body))
+		if !strings.Contains(string(body), `<button type="submit"`) {
+			t.Errorf("kind=%s: body missing submit button: %s", kind, string(body))
 		}
 	}
 }
@@ -734,8 +740,8 @@ func TestUIThresholdPut_BrowserCheckbox(t *testing.T) {
 	// (not an error banner). The render path goes through buildView, which would
 	// pick up the WriteThrough'd enabled=true.
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-kind="humidity"`) {
-		t.Errorf("body missing humidity threshold render; got: %s", body)
+	if !strings.Contains(string(body), `data-threshold-cell="humidity"`) {
+		t.Errorf("body missing humidity threshold cell; got: %s", body)
 	}
 }
 
@@ -890,8 +896,14 @@ func TestUIScheduleGet_Edit(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, `hx-put="/ui/devices/alpha/schedule"`) {
-		t.Errorf("body missing form hx-put: %s", bs)
+	if !strings.Contains(bs, "event: datastar-patch-elements") {
+		t.Errorf("body missing SSE event: %s", bs)
+	}
+	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
+		t.Errorf("body missing form @put target: %s", bs)
+	}
+	if !strings.Contains(bs, "data-on-submit__prevent=") {
+		t.Errorf("body missing data-on-submit attribute: %s", bs)
 	}
 	if !strings.Contains(bs, `name="at"`) {
 		t.Errorf("body missing at input: %s", bs)
@@ -1094,9 +1106,12 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	// Edit variant rendered with error message.
-	if !strings.Contains(bs, `hx-put="/ui/devices/alpha/schedule"`) {
+	// Edit variant rendered with error message via SSE.
+	if !strings.Contains(bs, "data-on-submit__prevent=") {
 		t.Errorf("body missing edit form: %s", bs)
+	}
+	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
+		t.Errorf("body missing schedule URL: %s", bs)
 	}
 }
 

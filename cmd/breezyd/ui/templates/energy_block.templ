@@ -6,13 +6,16 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
-// EnergyBlock renders the collapsible ENERGY <details> block.
-// When ev is nil, renders nothing. The name argument seeds a stable id
-// so layout.templ's toggle-state JS can persist user open/closed choices
-// across the 5s htmx swap.
-templ EnergyBlock(name string, ev *ui.EnergyView, open bool) {
+// EnergyBlock renders the collapsible ENERGY <details> block. When ev
+// is nil, renders nothing. Open state is driven client-side by the
+// card-level $detailsOpen.energy signal via data-attr-open.
+templ EnergyBlock(name string, ev *ui.EnergyView) {
 	if ev != nil {
-		<details id={ "energy-" + name } class="block energy" if open { open }>
+		<details
+			id={ "energy-" + name }
+			class="block energy"
+			data-attr-open="$detailsOpen.energy"
+		>
 			<summary><h3>ENERGY</h3></summary>
 			if ev.Error != "" {
 				<div class="warn">{ ev.Error }</div>

@@ -5,10 +5,16 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
-// SensorsBlock renders the collapsible Sensors <details> block.
-// open is the cookie-derived + force-open state from DeviceView.DetailsOpen["sensors"].
-templ SensorsBlock(name string, s ui.SensorsView, open bool) {
-	<details id={ "sensors-" + name } class="block sensors" if open { open }>
+// SensorsBlock renders the collapsible Sensors <details>. Open state is
+// driven client-side by the card-level $detailsOpen.sensors signal via
+// data-attr-open. Server-rendered HTML defaults closed; datastar opens
+// it before paint when the seeded signal is true.
+templ SensorsBlock(name string, s ui.SensorsView) {
+	<details
+		id={ "sensors-" + name }
+		class={ "block", "sensors", templ.KV("alert", s.AlertActive) }
+		data-attr-open="$detailsOpen.sensors"
+	>
 		<summary><h3>Sensors</h3></summary>
 		@sensorsGrid(name, s)
 	</details>

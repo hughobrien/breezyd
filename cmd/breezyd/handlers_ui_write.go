@@ -34,37 +34,36 @@ import (
 
 // ---------- schedule editor ----------
 
-// scheduleReadFrag renders the read variant of the schedule block as an HTML fragment.
-func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := templates.ScheduleBlock(name, view.Schedule, view.Stale, view.DetailsOpen["schedule"]).Render(r.Context(), w); err != nil {
-		slog.Error("render ScheduleBlock read", "err", err)
-	}
+// scheduleSelector targets a device card's schedule details element.
+func scheduleSelector(name string) string {
+	return fmt.Sprintf(`.card[data-device=%q] details.block.schedule`, name)
 }
 
-// scheduleEditFrag renders the edit variant of the schedule block as an HTML fragment.
-// A non-empty errMsg signals a validation failure and produces a 422 response;
-// otherwise the response is the implicit 200 (used for the initial GET).
-func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
-	view, ok := h.viewFor(r, name)
+// scheduleReadFrag emits a datastar-patch-elements event with the
+// read-variant schedule block, replacing the device's schedule details
+// element.
+func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
+	view, ok := h.viewFor(name)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlock(name, view.Schedule, view.Stale))
+}
+
+// scheduleEditFrag emits a datastar-patch-elements event with the
+// edit-variant schedule block. A non-empty errMsg signals a validation
+// failure and produces a 422 response.
+func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	if errMsg != "" {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}
-	if err := templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg).Render(r.Context(), w); err != nil {
-		slog.Error("render ScheduleBlockEdit", "err", err)
-	}
+	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg))
 }
 
 // getUIScheduleRead serves the read variant of the schedule block.
@@ -72,7 +71,7 @@ func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name,
 // GET /ui/devices/{name}/schedule
 func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(r, name); !ok {
+	if _, ok := h.viewFor(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -84,14 +83,15 @@ func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 // GET /ui/devices/{name}/schedule/edit
 func (h *Handler) getUIScheduleEdit(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(r, name); !ok {
+	if _, ok := h.viewFor(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
 	h.scheduleEditFrag(w, r, name, "")
 }
 
-// getUIScheduleNewRow serves a single empty edit row, appended by the + button.
+// getUIScheduleNewRow appends an empty edit row to the schedule editor
+// table body via a datastar-patch-elements event with mode=append.
 //
 // GET /ui/devices/{name}/schedule/new-row
 func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
@@ -100,11 +100,21 @@ func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "keep-alive")
+	}
+	sse := datastar.NewSSE(w, r)
 	empty := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
-	if err := templates.ScheduleEditRow(empty).Render(r.Context(), w); err != nil {
-		slog.Error("render ScheduleEditRow new", "err", err)
+	if err := sse.PatchElementTempl(
+		templates.ScheduleEditRow(empty),
+		datastar.WithSelectorf(`.card[data-device=%q] tbody.schedule-edit-tbody`, name),
+		// Inner-mode + append-style not needed; we instead append by
+		// targeting tbody and using mode=append.
+		datastar.WithMode(datastar.ElementPatchModeAppend),
+	); err != nil {
+		slog.Debug("schedule new-row: patch failed", "err", err)
 	}
 }
 
@@ -210,6 +220,28 @@ func (h *Handler) notifyAfterWrite(name string) {
 	}
 	if snap, ok := h.State.Get(name); ok {
 		h.PushHub.Notify(name, snap)
+	}
+}
+
+// patchFragmentSSE renders cmp into a datastar-patch-elements event
+// against the given selector + mode (typically "outer"). Status is
+// implicit 200; for validation failures the caller WriteHeader's the
+// error status before calling this. Used by the threshold and schedule
+// fragment endpoints (the dashboard's @get / @put expect SSE event
+// streams, not raw HTML).
+func patchFragmentSSE(w http.ResponseWriter, r *http.Request, selector string, cmp templ.Component) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "keep-alive")
+	}
+	sse := datastar.NewSSE(w, r)
+	if err := sse.PatchElementTempl(
+		cmp,
+		datastar.WithSelector(selector),
+		datastar.WithModeOuter(),
+	); err != nil {
+		slog.Debug("patchFragmentSSE: patch failed", "err", err)
 	}
 }
 
@@ -572,7 +604,33 @@ func renderThresholdEdit(v ui.DeviceView, kind string) templ.Component {
 	return nil
 }
 
-// getUIThresholdRead serves the read variant for a threshold cell.
+// patchThresholdCellSSE emits a datastar-patch-elements event for the
+// kind's cell. We simplify selector matching by emitting a unique id on
+// the cell — see the wrapping <div class="sensor-cell" id=...> below.
+func (h *Handler) patchThresholdCellSSE(w http.ResponseWriter, r *http.Request, name, kind string, edit bool) {
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var cmp templ.Component
+	if edit {
+		cmp = renderThresholdEdit(view, kind)
+	} else {
+		cmp = renderThresholdRead(view, kind)
+	}
+	if cmp == nil {
+		http.NotFound(w, r)
+		return
+	}
+	patchFragmentSSE(w, r,
+		fmt.Sprintf(`.card[data-device=%q] [data-threshold-cell=%q]`, name, kind),
+		cmp,
+	)
+}
+
+// getUIThresholdRead serves the read variant for a threshold cell as an
+// SSE patch event.
 //
 // GET /ui/devices/{name}/threshold/{kind}
 func (h *Handler) getUIThresholdRead(w http.ResponseWriter, r *http.Request) {
@@ -582,19 +640,11 @@ func (h *Handler) getUIThresholdRead(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := renderThresholdRead(view, kind).Render(r.Context(), w); err != nil {
-		slog.Error("render threshold read", "err", err)
-	}
+	h.patchThresholdCellSSE(w, r, name, kind, false)
 }
 
-// getUIThresholdEdit serves the edit variant for a threshold cell.
+// getUIThresholdEdit serves the edit variant for a threshold cell as an
+// SSE patch event.
 //
 // GET /ui/devices/{name}/threshold/{kind}/edit
 func (h *Handler) getUIThresholdEdit(w http.ResponseWriter, r *http.Request) {
@@ -604,16 +654,7 @@ func (h *Handler) getUIThresholdEdit(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := renderThresholdEdit(view, kind).Render(r.Context(), w); err != nil {
-		slog.Error("render threshold edit", "err", err)
-	}
+	h.patchThresholdCellSSE(w, r, name, kind, true)
 }
 
 // putUIThreshold applies a threshold value and/or sensor-enabled flag.
@@ -676,14 +717,6 @@ func (h *Handler) putUIThreshold(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := renderThresholdRead(view, kind).Render(r.Context(), w); err != nil {
-		slog.Error("render threshold read after put", "err", err)
-	}
+	h.notifyAfterWrite(name)
+	h.patchThresholdCellSSE(w, r, name, kind, false)
 }

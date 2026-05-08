@@ -49,7 +49,7 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 
 	sse := datastar.NewSSE(w, r)
 
-	for _, view := range h.collectViews(r) {
+	for _, view := range h.collectViews() {
 		if err := sse.PatchElementTempl(
 			templates.DeviceCard(view),
 			datastar.WithSelectorf(`.card[data-device=%q]`, view.Name),

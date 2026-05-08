@@ -47,13 +47,7 @@ templ controlsBlock(v ui.DeviceView) {
 					<button
 						type="button"
 						class="toggle"
-						data-action="heater"
-						data-name={ v.Name }
-						hx-post={ "/ui/devices/" + v.Name + "/heater" }
-						hx-vals={ fmt.Sprintf(`{"on":%t}`, !v.Heater) }
-						hx-target="closest .card"
-						hx-swap="outerHTML"
-						hx-disabled-elt="this"
+						data-on-click={ postFormExpr(fmt.Sprintf("/ui/devices/%s/heater", v.Name), fmt.Sprintf("on=%t", !v.Heater)) }
 						if v.Stale { disabled }
 						aria-pressed={ boolAttr(v.Heater) }
 					>heater</button>
@@ -66,14 +60,7 @@ templ controlsBlock(v ui.DeviceView) {
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
 		type="button"
-		data-action="preset"
-		data-name={ v.Name }
-		data-value={ fmt.Sprintf("%d", n) }
-		hx-post={ "/ui/devices/" + v.Name + "/speed" }
-		hx-vals={ fmt.Sprintf(`{"preset":%d}`, n) }
-		hx-target="closest .card"
-		hx-swap="outerHTML"
-		hx-disabled-elt="this"
+		data-on-click={ presetChipExpr(v.Name, n) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == fmt.Sprintf("preset%d", n)) }
 	>{ presetLabel(v, n) }</button>
@@ -82,13 +69,7 @@ templ presetBtn(v ui.DeviceView, n int) {
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
-		data-action="manual-speed"
-		data-name={ v.Name }
-		hx-post={ "/ui/devices/" + v.Name + "/speed" }
-		hx-vals={ fmt.Sprintf(`{"manual":%d}`, manualBtnPct(v)) }
-		hx-target="closest .card"
-		hx-swap="outerHTML"
-		hx-disabled-elt="this"
+		data-on-click={ "$editor = 0; " + postFormExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("manual=%d", manualBtnPct(v))) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == "manual") }
 	>manual</button>
@@ -97,14 +78,7 @@ templ manualBtn(v ui.DeviceView) {
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-action="mode"
-		data-name={ v.Name }
-		data-value={ value }
-		hx-post={ "/ui/devices/" + v.Name + "/mode" }
-		hx-vals={ `{"mode":"` + value + `"}` }
-		hx-target="closest .card"
-		hx-swap="outerHTML"
-		hx-disabled-elt="this"
+		data-on-click={ "$editor = 0; " + postFormExpr("/ui/devices/"+v.Name+"/mode", "mode="+value) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.AirflowMode == value) }
 	>{ label }</button>
@@ -113,14 +87,7 @@ templ modeBtn(v ui.DeviceView, label, value string) {
 templ timerBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-action="timer"
-		data-name={ v.Name }
-		data-value={ value }
-		hx-post={ "/ui/devices/" + v.Name + "/timer" }
-		hx-vals={ fmt.Sprintf(`{"mode":%q}`, timerMode(v.SpecialMode, value)) }
-		hx-target="closest .card"
-		hx-swap="outerHTML"
-		hx-disabled-elt="this"
+		data-on-click={ postFormExpr("/ui/devices/"+v.Name+"/timer", "mode="+timerMode(v.SpecialMode, value)) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpecialMode == value) }
 	>{ label }</button>
@@ -146,14 +113,7 @@ templ manualSliderRow(v ui.DeviceView) {
 			max="100"
 			step="1"
 			value={ fmt.Sprintf("%d", v.ManualPct) }
-			data-action="manual-slider"
-			data-name={ v.Name }
-			data-side="manual"
-			hx-post={ "/ui/devices/" + v.Name + "/speed" }
-			hx-trigger="change delay:200ms"
-			hx-target="closest .card"
-			hx-swap="outerHTML"
-			hx-disabled-elt="this"
+			data-on-change__debounce.200ms={ postFormExpr("/ui/devices/"+v.Name+"/speed", "manual=' + evt.target.value + '") }
 		/>
 		<span class="val">{ fmt.Sprintf("%d%%", v.ManualPct) }</span>
 	</div>
@@ -186,58 +146,35 @@ func presetLabel(v ui.DeviceView, n int) string {
 }
 
 // presetEditor renders one of the three SPEED preset edit panels. The
-// hx-include selector below is intentionally document-scoped: with N
-// device cards, a slider POST grabs all 2N range inputs in panels with
-// the same number. The htmx:configRequest handler in layout.templ is
-// device-scoped and overrides supply/extract in the outgoing payload,
-// so the duplicate keys never reach the server. Don't tighten this
-// selector without also reworking the configRequest handler.
+// panel is shown when the card-level $editor signal equals n; closed
+// otherwise. Sliders dispatch through window.dashboard.presetSliderChange
+// so the snap / match-speeds / implied-mode logic stays out of inline
+// expressions.
 templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 	<div
 		class="preset-editor"
 		data-preset-editor={ fmt.Sprintf("%d", n) }
-		data-name={ v.Name }
-		if v.EditingPreset != n { hidden }
+		data-show={ fmt.Sprintf("$editor === %d", n) }
 	>
 		<label class="match-speeds">
-			<input
-				type="checkbox"
-				data-action="automode-toggle"
-				data-name={ v.Name }
-				if v.Automode { checked }
-				if v.Stale { disabled }
-			/>
+			<input type="checkbox" data-bind-automode if v.Stale { disabled }/>
 			automode
 		</label>
 		<label class="match-speeds">
-			<input
-				type="checkbox"
-				data-action="match-speeds-toggle"
-				data-name={ v.Name }
-				if v.MatchSpeeds { checked }
-				if v.Stale { disabled }
-			/>
+			<input type="checkbox" data-bind-match-speeds if v.Stale { disabled }/>
 			match speeds
 		</label>
 		<div class="slider-row">
 			<span class="val-label">supply</span>
 			<input
 				type="range"
-				name="supply"
 				min="0"
 				max="100"
 				step="1"
 				value={ presetSliderValue(p.Supply) }
-				data-action="preset-supply-slider"
-				data-name={ v.Name }
+				data-side="supply"
 				data-preset={ fmt.Sprintf("%d", n) }
-				hx-post={ "/ui/devices/" + v.Name + "/preset" }
-				hx-trigger="change delay:200ms"
-				hx-target="closest .card"
-				hx-swap="outerHTML"
-				hx-vals={ fmt.Sprintf(`{"preset":%d}`, n) }
-				hx-include={ fmt.Sprintf(`[data-preset-editor="%d"] input[type="range"]`, n) }
-				hx-disabled-elt="this"
+				data-on-change__debounce.200ms={ presetSliderExpr(v.Name, n, "supply") }
 				if v.Stale { disabled }
 			/>
 			<span class="val">{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Supply)) }</span>
@@ -246,26 +183,53 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 			<span class="val-label">exhaust</span>
 			<input
 				type="range"
-				name="extract"
 				min="0"
 				max="100"
 				step="1"
 				value={ presetSliderValue(p.Extract) }
-				data-action="preset-extract-slider"
-				data-name={ v.Name }
+				data-side="extract"
 				data-preset={ fmt.Sprintf("%d", n) }
-				hx-post={ "/ui/devices/" + v.Name + "/preset" }
-				hx-trigger="change delay:200ms"
-				hx-target="closest .card"
-				hx-swap="outerHTML"
-				hx-vals={ fmt.Sprintf(`{"preset":%d}`, n) }
-				hx-include={ fmt.Sprintf(`[data-preset-editor="%d"] input[type="range"]`, n) }
-				hx-disabled-elt="this"
+				data-on-change__debounce.200ms={ presetSliderExpr(v.Name, n, "extract") }
 				if v.Stale { disabled }
 			/>
 			<span class="val">{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Extract)) }</span>
 		</div>
 	</div>
+}
+
+// postFormExpr builds a datastar expression that performs a
+// form-encoded fetch POST and returns the promise. Action handlers
+// don't depend on the response body for success (the SSE push channel
+// updates the card); the explicit fetch keeps signal-as-JSON-body
+// semantics from leaking into our handlers.
+//
+// `body` is a literal form-encoded string. For dynamic values, callers
+// embed JS expression fragments enclosed in single quotes — see the
+// manual slider row.
+func postFormExpr(url, body string) string {
+	return fmt.Sprintf(
+		`fetch('%s', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '%s', credentials: 'same-origin' })`,
+		url, body,
+	)
+}
+
+// presetChipExpr toggles the per-card $editor signal for chip n and
+// fires the speed-preset POST. Re-clicking the same chip closes the
+// editor.
+func presetChipExpr(name string, n int) string {
+	post := postFormExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("preset=%d", n))
+	return fmt.Sprintf("$editor = $editor === %d ? 0 : %d; %s", n, n, post)
+}
+
+// presetSliderExpr builds the data-on-change expression for a preset
+// editor slider. Dispatches to window.dashboard.presetSliderChange,
+// which performs the snap / match-speeds / implied-mode logic and the
+// resulting POSTs.
+func presetSliderExpr(name string, n int, side string) string {
+	return fmt.Sprintf(
+		`window.dashboard.presetSliderChange(evt.target.closest('.card'), %q, %d, %q, evt.target.value, { automode: $automode, matchSpeeds: $matchSpeeds })`,
+		name, n, side,
+	)
 }
 
 // presetSliderValue returns the slider's value attribute, treating the

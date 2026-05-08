@@ -137,11 +137,10 @@ func run(parent context.Context) error {
 		ClientFactory: makeClientFactory(devices),
 	}
 	// Render closure captures handler so PushHub can build a DeviceCard for
-	// any (name, snap) tuple. The closure runs without an HTTP request, so
-	// viewFor is called with r=nil; uistate.Parse tolerates that. The
-	// nil-tolerance goes away in Task 4 when uistate is removed.
+	// any (name, snap) tuple — both the poll path and the post-write path
+	// drive it.
 	handler.PushHub = NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
-		view, ok := handler.viewFor(nil, name)
+		view, ok := handler.viewFor(name)
 		if !ok {
 			return nil, fmt.Errorf("no snapshot for %s", name)
 		}
@@ -159,13 +158,18 @@ func run(parent context.Context) error {
 		handler.SyncHomekit(name, snap)
 		handler.PushHub.Notify(name, snap)
 	}
-	pollers, schedulers, pollersWg := startPollers(
+	pollers, schedulers, pollersWg, startPollerGoroutines := startPollers(
 		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
 		stateDir, state, metrics, onPoll,
 		handler.scheduleDial,
 	)
+	// Set the maps on the handler BEFORE spawning the goroutines so the
+	// onPoll → PushHub.Notify → buildView path always sees populated
+	// Pollers/Schedulers. Without this ordering, the race detector
+	// fires on the first tick.
 	handler.Pollers = pollers
 	handler.Schedulers = schedulers
+	startPollerGoroutines()
 
 	// Periodic discovery: parse "periodic:<duration>" and tick a goroutine
 	// that refreshes IPs when devices move on the network. on-start is
@@ -334,10 +338,11 @@ func startPollers(
 	metrics *Metrics,
 	onPoll func(name string, snap Snapshot),
 	scheduleDialFor func(name string) func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error),
-) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup) {
+) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup, func()) {
 	pollers := map[string]*Poller{}
 	schedulers := map[string]*Scheduler{}
 	wg := &sync.WaitGroup{}
+	var startFns []func()
 
 	for name, d := range devices {
 		if d.IP == "" {
@@ -379,12 +384,19 @@ func startPollers(
 		sch.Load() // always returns nil; missing/malformed handled internally with slog.Warn
 		schedulers[devName] = sch
 
-		wg.Add(2)
-		go func() { defer wg.Done(); p.Run(parent) }()
-		go func() { defer wg.Done(); sch.Run(parent) }()
+		startFns = append(startFns, func() {
+			wg.Add(2)
+			go func() { defer wg.Done(); p.Run(parent) }()
+			go func() { defer wg.Done(); sch.Run(parent) }()
+		})
 	}
 
-	return pollers, schedulers, wg
+	start := func() {
+		for _, fn := range startFns {
+			fn()
+		}
+	}
+	return pollers, schedulers, wg, start
 }
 
 // makeClientFactory returns the ClientFactory the HTTP handler hands
