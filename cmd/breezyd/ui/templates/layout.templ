@@ -115,6 +115,166 @@ document.body.addEventListener('click', function(ev) {
     s.details[d.id] = !d.open;
   });
 });
+
+// Preset chip click: toggle the per-device preset[name].open state.
+// The htmx POST to /ui/devices/{name}/speed (preset=N activation) still
+// fires; our listener only updates the cookie so the next swap renders
+// the editor.
+// Use capture phase (true) so the cookie is written before htmx's
+// bubble-phase listener reads it for the outgoing XHR.
+document.addEventListener('click', function(ev) {
+  var btn = ev.target instanceof Element ? ev.target.closest('[data-action="preset"]') : null;
+  if (!btn) return;
+  var name = btn.getAttribute('data-name');
+  var n = parseInt(btn.getAttribute('data-value'), 10);
+  setUIState(function(s) {
+    if (!s.preset[name]) s.preset[name] = { open: 0, automode: false, match: true };
+    if (s.preset[name].open === n) {
+      s.preset[name].open = 0; // re-click same preset closes editor
+    } else {
+      s.preset[name].open = n;
+      // One editor open across the grid: clear other devices' open editors.
+      Object.keys(s.preset).forEach(function(other) {
+        if (other !== name && s.preset[other]) s.preset[other].open = 0;
+      });
+    }
+  });
+}, true); // capture: true ensures cookie is written before htmx's bubble-phase XHR
+
+// Manual / mode / manual-slider clicks all close the editor.
+function closePresetEditor(name) {
+  setUIState(function(s) {
+    if (s.preset[name]) s.preset[name].open = 0;
+  });
+}
+document.body.addEventListener('click', function(ev) {
+  var t = ev.target instanceof Element ? ev.target : null;
+  if (!t) return;
+  var manual = t.closest('[data-action="manual-speed"]');
+  var mode = t.closest('[data-action="mode"]');
+  if (manual) closePresetEditor(manual.getAttribute('data-name'));
+  if (mode) closePresetEditor(mode.getAttribute('data-name'));
+});
+document.body.addEventListener('change', function(ev) {
+  var t = ev.target instanceof Element ? ev.target : null;
+  if (!t) return;
+  if (t.matches('[data-action="manual-slider"]')) {
+    closePresetEditor(t.getAttribute('data-name'));
+  }
+});
+
+// Automode checkbox change: update cookie. If transition was
+// checked → unchecked AND device's speed_mode is the open preset AND
+// both sliders show ≥ 10, fire a regen mode write so the user sees
+// the change without bumping a slider (#46.2).
+document.body.addEventListener('change', function(ev) {
+  var t = ev.target instanceof Element ? ev.target : null;
+  if (!t || !t.matches('[data-action="automode-toggle"]')) return;
+  var name = t.getAttribute('data-name');
+  var nowOn = t.checked;
+  setUIState(function(s) {
+    if (!s.preset[name]) s.preset[name] = { open: 0, automode: false, match: true };
+    s.preset[name].automode = nowOn;
+  });
+  if (nowOn) return; // only the on→off transition triggers a write
+
+  var card = t.closest('.card');
+  if (!card) return;
+  var openEditor = card.querySelector('[data-preset-editor]:not([hidden])');
+  if (!openEditor) return;
+  var openPreset = parseInt(openEditor.getAttribute('data-preset-editor') || '0', 10);
+  if (!openPreset) return;
+  if (card.getAttribute('data-speed-mode') !== 'preset' + openPreset) return;
+  var supplyEl = card.querySelector(
+    '[data-action="preset-supply-slider"][data-preset="' + openPreset + '"]');
+  var extractEl = card.querySelector(
+    '[data-action="preset-extract-slider"][data-preset="' + openPreset + '"]');
+  var sup = supplyEl ? parseInt(supplyEl.value || '0', 10) : 0;
+  var ext = extractEl ? parseInt(extractEl.value || '0', 10) : 0;
+  if (sup < 10 || ext < 10) return;
+  if (card.getAttribute('data-airflow-mode') === 'regeneration') return;
+  htmx.ajax('POST', '/ui/devices/' + name + '/mode',
+            { values: { mode: 'regeneration' }, target: card, swap: 'outerHTML' });
+});
+
+// Match-speeds checkbox change: cookie only.
+document.body.addEventListener('change', function(ev) {
+  var t = ev.target instanceof Element ? ev.target : null;
+  if (!t || !t.matches('[data-action="match-speeds-toggle"]')) return;
+  var name = t.getAttribute('data-name');
+  setUIState(function(s) {
+    if (!s.preset[name]) s.preset[name] = { open: 0, automode: false, match: true };
+    s.preset[name].match = t.checked;
+  });
+});
+
+// Slider drag pre-flight: snap 1..9 to 0, sync sibling when match-speeds
+// is on. Mutates both DOM and outgoing request parameters. Also fires an
+// implied-mode write per the spec's table (both cases: POST proceeds and
+// POST cancelled by sub-10 snap).
+document.body.addEventListener('htmx:configRequest', function(ev) {
+  var el = ev.detail.elt;
+  if (!(el instanceof HTMLInputElement)) return;
+  if (!el.matches('[data-action="preset-supply-slider"], [data-action="preset-extract-slider"]')) return;
+
+  var name = el.getAttribute('data-name');
+  var preset = el.getAttribute('data-preset');
+  var isSupply = el.getAttribute('data-action') === 'preset-supply-slider';
+
+  var raw = parseInt(el.value, 10);
+  var snapped = (raw > 0 && raw < 10) ? 0 : raw;
+  if (snapped !== raw) el.value = String(snapped);
+
+  var sibling = document.querySelector(
+    '[data-action="' + (isSupply ? 'preset-extract-slider' : 'preset-supply-slider') + '"]' +
+    '[data-name="' + name + '"][data-preset="' + preset + '"]');
+
+  var s = readUIState();
+  var matchOn = !s.preset || !s.preset[name] || s.preset[name].match !== false;
+
+  var supply, extract;
+  if (matchOn) {
+    if (sibling) sibling.value = String(snapped);
+    supply = snapped;
+    extract = snapped;
+  } else if (isSupply) {
+    supply = snapped;
+    extract = sibling ? parseInt(sibling.value, 10) : snapped;
+  } else {
+    supply = sibling ? parseInt(sibling.value, 10) : snapped;
+    extract = snapped;
+  }
+
+  ev.detail.parameters['supply'] = String(supply);
+  ev.detail.parameters['extract'] = String(extract);
+  ev.detail.parameters['preset'] = preset;
+
+  if (supply < 10 || extract < 10) {
+    ev.preventDefault(); // skip the /preset POST; firmware can't store sub-10
+  }
+
+  // Implied-mode write: fire immediately so it works even when the /preset
+  // POST is cancelled above. At configRequest time the element is still in
+  // the DOM and the card's data attributes reflect current state.
+  var card = el.closest('.card');
+  if (card && card.getAttribute('data-speed-mode') === 'preset' + preset) {
+    var automode = s.preset && s.preset[name] && s.preset[name].automode === true;
+    var implied;
+    if (automode) {
+      implied = 'ventilation';
+    } else if (supply >= 10 && extract >= 10) {
+      implied = 'regeneration';
+    } else if (supply === 0 && extract >= 10) {
+      implied = 'extract';
+    } else if (supply >= 10 && extract === 0) {
+      implied = 'supply';
+    }
+    if (implied && card.getAttribute('data-airflow-mode') !== implied) {
+      htmx.ajax('POST', '/ui/devices/' + name + '/mode',
+                { values: { mode: implied }, target: card, swap: 'outerHTML' });
+    }
+  }
+});
 			</script>
 		</body>
 	</html>
