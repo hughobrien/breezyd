@@ -4,10 +4,14 @@ package templates
 
 // LayoutData carries runtime-computed values injected into the page shell.
 type LayoutData struct {
-	StyleHash   string // hex hash suffix of the versioned CSS file
-	HTMXVersion string // e.g. "2.0.4"
+	StyleHash       string // hex hash suffix of the versioned CSS file
+	DatastarVersion string // e.g. "1.0.1"
 }
 
+// Layout renders the page shell. The body opens an SSE connection to
+// /ui/sse on load (data-on-load); the daemon emits one
+// datastar-patch-elements event per configured device on connect, then
+// streams updates from the poller. There is no client-side polling.
 templ Layout(d LayoutData) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -22,25 +26,13 @@ templ Layout(d LayoutData) {
 				}
 			</script>
 			<link rel="stylesheet" href={ "/ui/style-" + d.StyleHash + ".css" }/>
-			<script src={ "/ui/vendor/htmx-" + d.HTMXVersion + ".min.js" }></script>
-			<script src={ "/ui/vendor/htmx-response-targets-" + d.HTMXVersion + ".min.js" }></script>
+			<script type="module" src={ "/ui/vendor/datastar-" + d.DatastarVersion + ".min.js" }></script>
+			<script src="/ui/vendor/dashboard.js"></script>
 		</head>
-		<body
-			hx-ext="response-targets"
-			hx-target-401="#global-error-banner"
-			hx-target-404="#global-error-banner"
-			hx-target-5xx="#global-error-banner"
-			hx-target-422="closest .card"
-		>
+		<body data-on-load="@get('/ui/sse')">
 			@ThemePicker()
 			<div id="global-error-banner" aria-live="polite"></div>
-			<div
-				id="device-list"
-				class="grid"
-				hx-get="/ui/devices"
-				hx-trigger="load, every 5s[document.visibilityState === 'visible' && !document.querySelector('details.block.schedule form')]"
-				hx-swap="innerHTML"
-			></div>
+			<div id="device-list" class="grid"></div>
 			<script>
 (function() {
   var picker = document.querySelector('.theme-picker');
@@ -68,213 +60,6 @@ templ Layout(d LayoutData) {
     }
   });
 })();
-
-// breezy-ui cookie helpers. Source of truth for dashboard UI state
-// (which <details> are open, which preset editor is visible, automode
-// + match-speeds toggles). The server reads this cookie on every render
-// and emits the right markup directly — no JS reapply pass, no flicker.
-//
-// The cookie is JSON, URL-encoded, path=/, samesite=lax, max-age=1y.
-// See internal/uistate for the schema.
-function readUIState() {
-  var raw = document.cookie.split('; ')
-    .find(function(c) { return c.indexOf('breezy-ui=') === 0; });
-  if (!raw) return {};
-  try {
-    return JSON.parse(decodeURIComponent(raw.slice('breezy-ui='.length)));
-  } catch (e) {
-    return {};
-  }
-}
-
-function writeUIState(state) {
-  document.cookie = 'breezy-ui=' +
-    encodeURIComponent(JSON.stringify(state)) +
-    '; path=/; max-age=31536000; samesite=lax';
-}
-
-function setUIState(mut) {
-  var s = readUIState();
-  if (!s.details) s.details = {};
-  if (!s.preset) s.preset = {};
-  mut(s);
-  writeUIState(s);
-}
-
-// <summary> click → toggle details[id] in the cookie. Listening on the
-// click (not the toggle event) lets us record state synchronously
-// before any htmx request fires. The browser's native <details> click
-// will flip el.open AFTER our handler runs, so el.open here is the
-// PRE-toggle state — invert it to record the new state.
-document.body.addEventListener('click', function(ev) {
-  var summary = ev.target instanceof Element ? ev.target.closest('summary') : null;
-  if (!summary) return;
-  var d = summary.parentElement;
-  if (!(d instanceof HTMLDetailsElement) || !d.id) return;
-  setUIState(function(s) {
-    s.details[d.id] = !d.open;
-  });
-});
-
-// Preset chip click: toggle the per-device preset[name].open state.
-// The htmx POST to /ui/devices/{name}/speed (preset=N activation) still
-// fires; our listener only updates the cookie so the next swap renders
-// the editor.
-// Use capture phase (true) so the cookie is written before htmx's
-// bubble-phase listener reads it for the outgoing XHR.
-document.addEventListener('click', function(ev) {
-  var btn = ev.target instanceof Element ? ev.target.closest('[data-action="preset"]') : null;
-  if (!btn) return;
-  var name = btn.getAttribute('data-name');
-  var n = parseInt(btn.getAttribute('data-value'), 10);
-  setUIState(function(s) {
-    if (!s.preset[name]) s.preset[name] = { open: 0, automode: false, match: true };
-    if (s.preset[name].open === n) {
-      s.preset[name].open = 0; // re-click same preset closes editor
-    } else {
-      s.preset[name].open = n;
-      // One editor open across the grid: clear other devices' open editors.
-      Object.keys(s.preset).forEach(function(other) {
-        if (other !== name && s.preset[other]) s.preset[other].open = 0;
-      });
-    }
-  });
-}, true); // capture: true ensures cookie is written before htmx's bubble-phase XHR
-
-// Manual / mode / manual-slider clicks all close the editor.
-function closePresetEditor(name) {
-  setUIState(function(s) {
-    if (s.preset[name]) s.preset[name].open = 0;
-  });
-}
-document.body.addEventListener('click', function(ev) {
-  var t = ev.target instanceof Element ? ev.target : null;
-  if (!t) return;
-  var manual = t.closest('[data-action="manual-speed"]');
-  var mode = t.closest('[data-action="mode"]');
-  if (manual) closePresetEditor(manual.getAttribute('data-name'));
-  if (mode) closePresetEditor(mode.getAttribute('data-name'));
-});
-document.body.addEventListener('change', function(ev) {
-  var t = ev.target instanceof Element ? ev.target : null;
-  if (!t) return;
-  if (t.matches('[data-action="manual-slider"]')) {
-    closePresetEditor(t.getAttribute('data-name'));
-  }
-});
-
-// Automode checkbox change: update cookie. If transition was
-// checked → unchecked AND device's speed_mode is the open preset AND
-// both sliders show ≥ 10, fire a regen mode write so the user sees
-// the change without bumping a slider (#46.2).
-document.body.addEventListener('change', function(ev) {
-  var t = ev.target instanceof Element ? ev.target : null;
-  if (!t || !t.matches('[data-action="automode-toggle"]')) return;
-  var name = t.getAttribute('data-name');
-  var nowOn = t.checked;
-  setUIState(function(s) {
-    if (!s.preset[name]) s.preset[name] = { open: 0, automode: false, match: true };
-    s.preset[name].automode = nowOn;
-  });
-  if (nowOn) return; // only the on→off transition triggers a write
-
-  var card = t.closest('.card');
-  if (!card) return;
-  var openEditor = card.querySelector('[data-preset-editor]:not([hidden])');
-  if (!openEditor) return;
-  var openPreset = parseInt(openEditor.getAttribute('data-preset-editor') || '0', 10);
-  if (!openPreset) return;
-  if (card.getAttribute('data-speed-mode') !== 'preset' + openPreset) return;
-  var supplyEl = card.querySelector(
-    '[data-action="preset-supply-slider"][data-preset="' + openPreset + '"]');
-  var extractEl = card.querySelector(
-    '[data-action="preset-extract-slider"][data-preset="' + openPreset + '"]');
-  var sup = supplyEl ? parseInt(supplyEl.value || '0', 10) : 0;
-  var ext = extractEl ? parseInt(extractEl.value || '0', 10) : 0;
-  if (sup < 10 || ext < 10) return;
-  if (card.getAttribute('data-airflow-mode') === 'regeneration') return;
-  htmx.ajax('POST', '/ui/devices/' + name + '/mode',
-            { values: { mode: 'regeneration' }, target: card, swap: 'outerHTML' });
-});
-
-// Match-speeds checkbox change: cookie only.
-document.body.addEventListener('change', function(ev) {
-  var t = ev.target instanceof Element ? ev.target : null;
-  if (!t || !t.matches('[data-action="match-speeds-toggle"]')) return;
-  var name = t.getAttribute('data-name');
-  setUIState(function(s) {
-    if (!s.preset[name]) s.preset[name] = { open: 0, automode: false, match: true };
-    s.preset[name].match = t.checked;
-  });
-});
-
-// Slider drag pre-flight: snap 1..9 to 0, sync sibling when match-speeds
-// is on. Mutates both DOM and outgoing request parameters. Also fires an
-// implied-mode write per the spec's table (both cases: POST proceeds and
-// POST cancelled by sub-10 snap).
-document.body.addEventListener('htmx:configRequest', function(ev) {
-  var el = ev.detail.elt;
-  if (!(el instanceof HTMLInputElement)) return;
-  if (!el.matches('[data-action="preset-supply-slider"], [data-action="preset-extract-slider"]')) return;
-
-  var name = el.getAttribute('data-name');
-  var preset = el.getAttribute('data-preset');
-  var isSupply = el.getAttribute('data-action') === 'preset-supply-slider';
-
-  var raw = parseInt(el.value, 10);
-  var snapped = (raw > 0 && raw < 10) ? 0 : raw;
-  if (snapped !== raw) el.value = String(snapped);
-
-  var sibling = document.querySelector(
-    '[data-action="' + (isSupply ? 'preset-extract-slider' : 'preset-supply-slider') + '"]' +
-    '[data-name="' + name + '"][data-preset="' + preset + '"]');
-
-  var s = readUIState();
-  var matchOn = !s.preset || !s.preset[name] || s.preset[name].match !== false;
-
-  var supply, extract;
-  if (matchOn) {
-    if (sibling) sibling.value = String(snapped);
-    supply = snapped;
-    extract = snapped;
-  } else if (isSupply) {
-    supply = snapped;
-    extract = sibling ? parseInt(sibling.value, 10) : snapped;
-  } else {
-    supply = sibling ? parseInt(sibling.value, 10) : snapped;
-    extract = snapped;
-  }
-
-  ev.detail.parameters['supply'] = String(supply);
-  ev.detail.parameters['extract'] = String(extract);
-  ev.detail.parameters['preset'] = preset;
-
-  if (supply < 10 || extract < 10) {
-    ev.preventDefault(); // skip the /preset POST; firmware can't store sub-10
-  }
-
-  // Implied-mode write: fire immediately so it works even when the /preset
-  // POST is cancelled above. At configRequest time the element is still in
-  // the DOM and the card's data attributes reflect current state.
-  var card = el.closest('.card');
-  if (card && card.getAttribute('data-speed-mode') === 'preset' + preset) {
-    var automode = s.preset && s.preset[name] && s.preset[name].automode === true;
-    var implied;
-    if (automode) {
-      implied = 'ventilation';
-    } else if (supply >= 10 && extract >= 10) {
-      implied = 'regeneration';
-    } else if (supply === 0 && extract >= 10) {
-      implied = 'extract';
-    } else if (supply >= 10 && extract === 0) {
-      implied = 'supply';
-    }
-    if (implied && card.getAttribute('data-airflow-mode') !== implied) {
-      htmx.ajax('POST', '/ui/devices/' + name + '/mode',
-                { values: { mode: implied }, target: card, swap: 'outerHTML' });
-    }
-  }
-});
 			</script>
 		</body>
 	</html>

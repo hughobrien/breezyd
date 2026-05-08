@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// HTML-fragment write endpoints under /ui/devices/{name}/...
-// Each handler:
+// Datastar action endpoints under /ui/devices/{name}/...
+// Each action handler:
 //  1. Resolves the device (404 if unknown).
-//  2. Parses form params (422 + DeviceCard with PostError on validation failure).
+//  2. Parses form params (422 + SSE banner on validation failure).
 //  3. Calls the existing breezy write path via dialRecording.
-//  4. On success: 200 + rendered DeviceCard.
-//  5. On breezy.ErrAuth: 401 + error_banner.
-//  6. On other backend error: 502 + error_banner.
+//  4. On success: 200 + empty body, plus PushHub.Notify so subscribed
+//     /ui/sse streams refresh the card immediately.
+//  5. On breezy.ErrAuth: 401 + datastar-patch-elements event into
+//     #global-error-banner.
+//  6. On other backend error: 502 + datastar-patch-elements event.
+//
+// Threshold and schedule fragment endpoints still emit HTML; they get
+// converted to SSE in Task 5.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -23,41 +29,41 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/starfederation/datastar-go/datastar"
 )
 
 // ---------- schedule editor ----------
 
-// scheduleReadFrag renders the read variant of the schedule block as an HTML fragment.
-func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := templates.ScheduleBlock(name, view.Schedule, view.Stale, view.DetailsOpen["schedule"]).Render(r.Context(), w); err != nil {
-		slog.Error("render ScheduleBlock read", "err", err)
-	}
+// scheduleSelector targets a device card's schedule details element.
+func scheduleSelector(name string) string {
+	return fmt.Sprintf(`.card[data-device=%q] details.block.schedule`, name)
 }
 
-// scheduleEditFrag renders the edit variant of the schedule block as an HTML fragment.
-// A non-empty errMsg signals a validation failure and produces a 422 response;
-// otherwise the response is the implicit 200 (used for the initial GET).
-func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
-	view, ok := h.viewFor(r, name)
+// scheduleReadFrag emits a datastar-patch-elements event with the
+// read-variant schedule block, replacing the device's schedule details
+// element.
+func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
+	view, ok := h.viewFor(name)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlock(name, view.Schedule, view.Stale))
+}
+
+// scheduleEditFrag emits a datastar-patch-elements event with the
+// edit-variant schedule block. A non-empty errMsg signals a validation
+// failure and produces a 422 response.
+func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	if errMsg != "" {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}
-	if err := templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg).Render(r.Context(), w); err != nil {
-		slog.Error("render ScheduleBlockEdit", "err", err)
-	}
+	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg))
 }
 
 // getUIScheduleRead serves the read variant of the schedule block.
@@ -65,7 +71,7 @@ func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name,
 // GET /ui/devices/{name}/schedule
 func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(r, name); !ok {
+	if _, ok := h.viewFor(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -77,14 +83,15 @@ func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 // GET /ui/devices/{name}/schedule/edit
 func (h *Handler) getUIScheduleEdit(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(r, name); !ok {
+	if _, ok := h.viewFor(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
 	h.scheduleEditFrag(w, r, name, "")
 }
 
-// getUIScheduleNewRow serves a single empty edit row, appended by the + button.
+// getUIScheduleNewRow appends an empty edit row to the schedule editor
+// table body via a datastar-patch-elements event with mode=append.
 //
 // GET /ui/devices/{name}/schedule/new-row
 func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
@@ -93,11 +100,21 @@ func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "keep-alive")
+	}
+	sse := datastar.NewSSE(w, r)
 	empty := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
-	if err := templates.ScheduleEditRow(empty).Render(r.Context(), w); err != nil {
-		slog.Error("render ScheduleEditRow new", "err", err)
+	if err := sse.PatchElementTempl(
+		templates.ScheduleEditRow(empty),
+		datastar.WithSelectorf(`.card[data-device=%q] tbody.schedule-edit-tbody`, name),
+		// Inner-mode + append-style not needed; we instead append by
+		// targeting tbody and using mode=append.
+		datastar.WithMode(datastar.ElementPatchModeAppend),
+	); err != nil {
+		slog.Debug("schedule new-row: patch failed", "err", err)
 	}
 }
 
@@ -173,43 +190,81 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 	h.scheduleReadFrag(w, r, name)
 }
 
-// uiWriteError translates a backend write error into an HTTP status + error_banner.
-// Caller should return after this returns.
+// uiWriteError emits a datastar-patch-elements event into
+// #global-error-banner with the error message and the matching HTTP
+// status (401 for auth, 502 otherwise). Caller should return after this.
 func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	switch {
 	case errors.Is(err, breezy.ErrAuth):
-		w.WriteHeader(http.StatusUnauthorized)
-		_ = templates.ErrorBanner("device authentication failed").Render(r.Context(), w)
+		errorBannerSSE(w, r, http.StatusUnauthorized, "device authentication failed")
 	default:
-		w.WriteHeader(http.StatusBadGateway)
-		_ = templates.ErrorBanner(err.Error()).Render(r.Context(), w)
+		errorBannerSSE(w, r, http.StatusBadGateway, err.Error())
 	}
 }
 
-// uiRenderCard renders the DeviceCard for a successful write. Re-fetches the
-// snapshot from cache (the breezy ops will have updated it via WriteThrough).
-func (h *Handler) uiRenderCard(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = templates.DeviceCard(view).Render(r.Context(), w)
+// uiValidationError emits a 422 + datastar-patch-elements event with the
+// human-readable validation message. The `name` parameter is unused now
+// (errors go to a global banner, not a per-card one), but kept for
+// symmetry with existing call sites.
+func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, _ /*name*/ string, msg string) {
+	errorBannerSSE(w, r, http.StatusUnprocessableEntity, msg)
 }
 
-// uiValidationError renders the DeviceCard with PostError set, status 422.
-func (h *Handler) uiValidationError(w http.ResponseWriter, r *http.Request, name, msg string) {
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
+// notifyAfterWrite reads the post-write Snapshot from the cache and fans
+// it out to /ui/sse subscribers. Called from every successful action
+// handler. The Snapshot was just refreshed by the breezy package's
+// WriteThrough hook, so subscribers see the new value within one event.
+func (h *Handler) notifyAfterWrite(name string) {
+	if h.PushHub == nil || h.State == nil {
 		return
 	}
-	view.PostError = msg
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusUnprocessableEntity)
-	_ = templates.DeviceCard(view).Render(r.Context(), w)
+	if snap, ok := h.State.Get(name); ok {
+		h.PushHub.Notify(name, snap)
+	}
+}
+
+// patchFragmentSSE renders cmp into a datastar-patch-elements event
+// against the given selector + mode (typically "outer"). Status is
+// implicit 200; for validation failures the caller WriteHeader's the
+// error status before calling this. Used by the threshold and schedule
+// fragment endpoints (the dashboard's @get / @put expect SSE event
+// streams, not raw HTML).
+func patchFragmentSSE(w http.ResponseWriter, r *http.Request, selector string, cmp templ.Component) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "keep-alive")
+	}
+	sse := datastar.NewSSE(w, r)
+	if err := sse.PatchElementTempl(
+		cmp,
+		datastar.WithSelector(selector),
+		datastar.WithModeOuter(),
+	); err != nil {
+		slog.Debug("patchFragmentSSE: patch failed", "err", err)
+	}
+}
+
+// errorBannerSSE writes a datastar-patch-elements event targeting
+// #global-error-banner. Status is set first; the SDK's NewSSE then
+// streams the event body — its header-sets are no-ops by then but its
+// Send/PatchElements path writes the wire format correctly.
+func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.ProtoMajor == 1 {
+		w.Header().Set("Connection", "keep-alive")
+	}
+	w.WriteHeader(status)
+	sse := datastar.NewSSE(w, r)
+	htmlFragment := `<div class="err-banner" role="alert">` + html.EscapeString(msg) + `</div>`
+	if err := sse.PatchElements(
+		htmlFragment,
+		datastar.WithSelector("#global-error-banner"),
+		datastar.WithModeInner(),
+	); err != nil {
+		slog.Debug("errorBannerSSE: patch failed", "err", err)
+	}
 }
 
 // postUIMode sets the airflow mode.
@@ -247,7 +302,8 @@ func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIPreset writes the per-preset supply/extract percentages.
@@ -292,7 +348,8 @@ func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUISpeed sets the fan speed (manual percentage or preset).
@@ -347,7 +404,8 @@ func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, opErr)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIHeater toggles the heater.
@@ -383,7 +441,8 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUITimer toggles a special-mode timer.
@@ -425,7 +484,8 @@ func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIResetFilter resets the filter-clogged counter. No form body needed.
@@ -448,7 +508,8 @@ func (h *Handler) postUIResetFilter(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIResetFaults clears the active fault list. No form body needed.
@@ -471,7 +532,8 @@ func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // postUIPower toggles a device on/off.
@@ -507,7 +569,8 @@ func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.uiRenderCard(w, r, name)
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
 }
 
 // ---------- threshold inline editor ----------
@@ -541,7 +604,33 @@ func renderThresholdEdit(v ui.DeviceView, kind string) templ.Component {
 	return nil
 }
 
-// getUIThresholdRead serves the read variant for a threshold cell.
+// patchThresholdCellSSE emits a datastar-patch-elements event for the
+// kind's cell. We simplify selector matching by emitting a unique id on
+// the cell — see the wrapping <div class="sensor-cell" id=...> below.
+func (h *Handler) patchThresholdCellSSE(w http.ResponseWriter, r *http.Request, name, kind string, edit bool) {
+	view, ok := h.viewFor(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var cmp templ.Component
+	if edit {
+		cmp = renderThresholdEdit(view, kind)
+	} else {
+		cmp = renderThresholdRead(view, kind)
+	}
+	if cmp == nil {
+		http.NotFound(w, r)
+		return
+	}
+	patchFragmentSSE(w, r,
+		fmt.Sprintf(`.card[data-device=%q] [data-threshold-cell=%q]`, name, kind),
+		cmp,
+	)
+}
+
+// getUIThresholdRead serves the read variant for a threshold cell as an
+// SSE patch event.
 //
 // GET /ui/devices/{name}/threshold/{kind}
 func (h *Handler) getUIThresholdRead(w http.ResponseWriter, r *http.Request) {
@@ -551,19 +640,11 @@ func (h *Handler) getUIThresholdRead(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := renderThresholdRead(view, kind).Render(r.Context(), w); err != nil {
-		slog.Error("render threshold read", "err", err)
-	}
+	h.patchThresholdCellSSE(w, r, name, kind, false)
 }
 
-// getUIThresholdEdit serves the edit variant for a threshold cell.
+// getUIThresholdEdit serves the edit variant for a threshold cell as an
+// SSE patch event.
 //
 // GET /ui/devices/{name}/threshold/{kind}/edit
 func (h *Handler) getUIThresholdEdit(w http.ResponseWriter, r *http.Request) {
@@ -573,16 +654,7 @@ func (h *Handler) getUIThresholdEdit(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := renderThresholdEdit(view, kind).Render(r.Context(), w); err != nil {
-		slog.Error("render threshold edit", "err", err)
-	}
+	h.patchThresholdCellSSE(w, r, name, kind, true)
 }
 
 // putUIThreshold applies a threshold value and/or sensor-enabled flag.
@@ -645,14 +717,6 @@ func (h *Handler) putUIThreshold(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-
-	view, ok := h.viewFor(r, name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := renderThresholdRead(view, kind).Render(r.Context(), w); err != nil {
-		slog.Error("render threshold read after put", "err", err)
-	}
+	h.notifyAfterWrite(name)
+	h.patchThresholdCellSSE(w, r, name, kind, false)
 }

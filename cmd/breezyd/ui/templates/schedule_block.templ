@@ -3,14 +3,20 @@ package templates
 import (
 	"fmt"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+	"github.com/starfederation/datastar-go/datastar"
 )
 
-// ScheduleBlock renders the collapsible SCHEDULE <details> block (read variant).
-// When s.Present is false, renders nothing. The open parameter is computed by
-// computeDetailsOpen (which already folds in s.Alert) and passed from device_card.templ.
-templ ScheduleBlock(name string, s ui.ScheduleView, stale bool, open bool) {
+// ScheduleBlock renders the collapsible SCHEDULE <details> block (read
+// variant). When s.Present is false, renders nothing. The .alert class
+// fires the visual cue when s.Alert is true; the user's open/closed
+// choice is preserved (no force-open).
+templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 	if s.Present {
-		<details id={ "schedule-" + name } class="block schedule" if open { open }>
+		<details
+			id={ "schedule-" + name }
+			class={ "block", "schedule", templ.KV("alert", s.Alert) }
+			data-attr-open="$detailsOpen.schedule"
+		>
 			<summary><h3>SCHEDULE</h3></summary>
 			<div class="schedule-toolbar">
 				<label>
@@ -24,9 +30,8 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool, open bool) {
 				</label>
 				<span class="grow"></span>
 				<button
-					hx-get={ "/ui/devices/" + name + "/schedule/edit" }
-					hx-target="closest .schedule"
-					hx-swap="outerHTML"
+					type="button"
+					data-on-click={ datastar.GetSSE("/ui/devices/%s/schedule/edit", name) }
 					if stale { disabled }
 				>edit schedule</button>
 			</div>
@@ -76,9 +81,7 @@ templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg strin
 	<details class="block schedule" open>
 		<summary><h3>SCHEDULE</h3></summary>
 		<form
-			hx-put={ "/ui/devices/" + name + "/schedule" }
-			hx-target="closest .schedule"
-			hx-swap="outerHTML"
+			data-on-submit__prevent={ scheduleSubmitExpr(name) }
 		>
 			<div class="schedule-toolbar">
 				<label>
@@ -86,22 +89,18 @@ templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg strin
 						type="checkbox"
 						name="enabled"
 						value="true"
-						if s.Enabled { checked }
 					/>
+					<input type="hidden" name="enabled" value="false"/>
 					enabled
 				</label>
 				<span class="grow"></span>
 				<button
 					type="button"
-					hx-get={ "/ui/devices/" + name + "/schedule/new-row" }
-					hx-target=".schedule-edit-tbody"
-					hx-swap="beforeend"
+					data-on-click={ datastar.GetSSE("/ui/devices/%s/schedule/new-row", name) }
 				>+ add row</button>
 				<button
 					type="button"
-					hx-get={ "/ui/devices/" + name + "/schedule" }
-					hx-target="closest .schedule"
-					hx-swap="outerHTML"
+					data-on-click={ datastar.GetSSE("/ui/devices/%s/schedule", name) }
 				>cancel</button>
 				<button type="submit">save</button>
 			</div>
@@ -156,7 +155,7 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 			<button
 				type="button"
 				class="del"
-				hx-on:click="this.closest('tr').remove()"
+				data-on-click="evt.target.closest('tr').remove()"
 			>×</button>
 		</td>
 	</tr>
@@ -164,6 +163,15 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 
 templ scheduleActionOption(value, label, current string) {
 	<option value={ value } if value == current { selected }>{ label }</option>
+}
+
+// scheduleSubmitExpr builds the data-on-submit expression for the
+// schedule editor form: PUT the form, then GET the read variant. The
+// PUT response is itself a patch (read or edit-with-error), so the
+// follow-up GET is only needed when the PUT 422s — but datastar
+// processes both events in order, and the read patch is idempotent.
+func scheduleSubmitExpr(name string) string {
+	return datastar.PutSSE("/ui/devices/%s/schedule", name)
 }
 
 // schedulePctValue returns the value attribute for the pct input.

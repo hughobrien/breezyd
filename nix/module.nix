@@ -342,11 +342,28 @@ EOF
     # services.nginx.enable, attach a proxy_pass location to the named
     # virtual host. The daemon's listen address stays loopback-bound;
     # nginx is the network-facing piece.
+    #
+    # extraConfig sets the SSE-friendly directives the dashboard's
+    # /ui/sse stream needs through a reverse proxy:
+    #   - proxy_buffering off: events flush immediately, no batching.
+    #   - proxy_cache off:     SSE streams must never be cached.
+    #   - proxy_http_version 1.1 + Connection "": opts into the keep-alive
+    #     pool that lets long-lived streams stay open.
+    #   - proxy_read_timeout 1d: SSE connections idle for the full
+    #     keepalive interval (30s); upstream send-loop must not be
+    #     terminated by nginx's default 60s read timeout.
     services.nginx.virtualHosts = lib.mkIf cfg.nginx.enable {
       ${cfg.nginx.virtualHost} = {
         locations."/" = {
           proxyPass = "http://${cfg.settings.daemon.listen or "127.0.0.1:9876"}";
           basicAuthFile = cfg.nginx.basicAuthFile;
+          extraConfig = ''
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_read_timeout 1d;
+          '';
         };
       };
     };

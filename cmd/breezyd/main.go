@@ -32,6 +32,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/a-h/templ"
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 	"github.com/hughobrien/breezyd/internal/config"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/prometheus/client_golang/prometheus"
@@ -134,18 +136,40 @@ func run(parent context.Context) error {
 		Devices:       devices,
 		ClientFactory: makeClientFactory(devices),
 	}
+	// Render closure captures handler so PushHub can build a DeviceCard for
+	// any (name, snap) tuple — both the poll path and the post-write path
+	// drive it.
+	handler.PushHub = NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
+		view, ok := handler.viewFor(name)
+		if !ok {
+			return nil, fmt.Errorf("no snapshot for %s", name)
+		}
+		return templates.DeviceCard(view), nil
+	})
 
 	stateDir, err := daemonStateDir()
 	if err != nil {
 		slog.Warn("energy: could not create state dir; energy tracking will not persist", "err", err)
 	}
-	pollers, schedulers, pollersWg := startPollers(
+	// Compose poll-side fan-out: HomeKit characteristics first, then the
+	// browser push hub. Both are independent and idempotent; either firing
+	// in isolation is safe.
+	onPoll := func(name string, snap Snapshot) {
+		handler.SyncHomekit(name, snap)
+		handler.PushHub.Notify(name, snap)
+	}
+	pollers, schedulers, pollersWg, startPollerGoroutines := startPollers(
 		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
-		stateDir, state, metrics, handler.SyncHomekit,
+		stateDir, state, metrics, onPoll,
 		handler.scheduleDial,
 	)
+	// Set the maps on the handler BEFORE spawning the goroutines so the
+	// onPoll → PushHub.Notify → buildView path always sees populated
+	// Pollers/Schedulers. Without this ordering, the race detector
+	// fires on the first tick.
 	handler.Pollers = pollers
 	handler.Schedulers = schedulers
+	startPollerGoroutines()
 
 	// Periodic discovery: parse "periodic:<duration>" and tick a goroutine
 	// that refreshes IPs when devices move on the network. on-start is
@@ -314,10 +338,11 @@ func startPollers(
 	metrics *Metrics,
 	onPoll func(name string, snap Snapshot),
 	scheduleDialFor func(name string) func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error),
-) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup) {
+) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup, func()) {
 	pollers := map[string]*Poller{}
 	schedulers := map[string]*Scheduler{}
 	wg := &sync.WaitGroup{}
+	var startFns []func()
 
 	for name, d := range devices {
 		if d.IP == "" {
@@ -359,12 +384,19 @@ func startPollers(
 		sch.Load() // always returns nil; missing/malformed handled internally with slog.Warn
 		schedulers[devName] = sch
 
-		wg.Add(2)
-		go func() { defer wg.Done(); p.Run(parent) }()
-		go func() { defer wg.Done(); sch.Run(parent) }()
+		startFns = append(startFns, func() {
+			wg.Add(2)
+			go func() { defer wg.Done(); p.Run(parent) }()
+			go func() { defer wg.Done(); sch.Run(parent) }()
+		})
 	}
 
-	return pollers, schedulers, wg
+	start := func() {
+		for _, fn := range startFns {
+			fn()
+		}
+	}
+	return pollers, schedulers, wg, start
 }
 
 // makeClientFactory returns the ClientFactory the HTTP handler hands
