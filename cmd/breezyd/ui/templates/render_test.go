@@ -70,30 +70,67 @@ func TestLayout(t *testing.T) {
 	}
 }
 
-// TestScheduleEditRow pins two behaviors that were issue regressions:
+// TestScheduleEditRow pins behaviors that were issue regressions:
 //
 //   - #42: the 'at' input is a native timepicker (type="time"), not a
 //     free text field.
-//   - #44: when the action is "off", the pct input has no value (an
-//     empty fan percent is the truthful read for an off row, and the
-//     handler accepts empty pct iff action=="off").
+//   - #44 (handler): when the action is "off", the pct input has no
+//     value (an empty fan percent is the truthful read for an off row,
+//     and the handler accepts empty pct iff action=="off").
+//   - #44 (editor sync): the action <select> carries an inline
+//     data-on:change handler that mirrors value/readonly/class on the
+//     pct <input> when the user toggles action, and every pct input
+//     stashes a sane fallback in data-orig-pct so toggling back from
+//     "off" restores a valid value.
+//
+// Note on attribute escaping: templ HTML-escapes single quotes in
+// dynamic attribute values to &#39; (string-interpolated values via
+// `data-on:change={ expr }`). Static literal attributes like
+// `data-on:click="evt.target.closest('tr').remove()"` are emitted
+// verbatim. We pin the &#39;-escaped form for the change handler.
 func TestScheduleEditRow(t *testing.T) {
+	// wantChangeExpr is the exact escaped JS string templ emits for the
+	// data-on:change attribute on the action <select>. Pinning the
+	// literal guards against accidental edits to scheduleActionChangeExpr
+	// or to templ's escaping behavior on dynamic attribute interpolation.
+	const wantChangeExpr = `data-on:change="const pct = evt.target.closest(&#39;tr&#39;).querySelector(&#39;input[name=pct]&#39;); if (evt.target.value === &#39;off&#39;) { pct.value = &#39;&#39;; pct.setAttribute(&#39;readonly&#39;, &#39;&#39;); pct.classList.add(&#39;pct-disabled&#39;); } else { pct.value = pct.dataset.origPct; pct.removeAttribute(&#39;readonly&#39;); pct.classList.remove(&#39;pct-disabled&#39;); }"`
+
 	cases := []struct {
-		name       string
-		entry      ui.ScheduleEntryView
-		wantValueP string
-		notWant    []string
+		name        string
+		entry       ui.ScheduleEntryView
+		wantValueP  string
+		wantOrigPct string // expected data-orig-pct attribute value
+		notWant     []string
 	}{
 		{
-			name:       "regen row keeps pct value",
-			entry:      ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60},
-			wantValueP: `value="60"`,
+			name:        "regen row keeps pct value",
+			entry:       ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60},
+			wantValueP:  `value="60"`,
+			wantOrigPct: `data-orig-pct="60"`,
 		},
 		{
-			name:       "off row has empty pct value",
-			entry:      ui.ScheduleEntryView{At: "23:00", Action: "off", Pct: 60},
-			wantValueP: `value=""`,
-			notWant:    []string{`value="60"`},
+			name:        "off row has empty pct value but stashes 50 fallback",
+			entry:       ui.ScheduleEntryView{At: "23:00", Action: "off", Pct: 0},
+			wantValueP:  `value=""`,
+			wantOrigPct: `data-orig-pct="50"`,
+		},
+		{
+			name:        "min-range pct rendered as orig-pct",
+			entry:       ui.ScheduleEntryView{At: "06:00", Action: "ventilation", Pct: 10},
+			wantValueP:  `value="10"`,
+			wantOrigPct: `data-orig-pct="10"`,
+		},
+		{
+			name:        "max-range pct rendered as orig-pct",
+			entry:       ui.ScheduleEntryView{At: "12:00", Action: "supply", Pct: 100},
+			wantValueP:  `value="100"`,
+			wantOrigPct: `data-orig-pct="100"`,
+		},
+		{
+			name:        "out-of-range pct falls back to 50 in orig-pct",
+			entry:       ui.ScheduleEntryView{At: "15:00", Action: "regeneration", Pct: 5},
+			wantValueP:  `value="5"`,
+			wantOrigPct: `data-orig-pct="50"`,
 		},
 	}
 	for _, c := range cases {
@@ -109,10 +146,43 @@ func TestScheduleEditRow(t *testing.T) {
 			if !strings.Contains(got, c.wantValueP) {
 				t.Errorf("pct input missing %s\n%s", c.wantValueP, got)
 			}
+			if !strings.Contains(got, c.wantOrigPct) {
+				t.Errorf("pct input missing %s (issue #44 editor-sync regression)\n%s", c.wantOrigPct, got)
+			}
+			if !strings.Contains(got, wantChangeExpr) {
+				t.Errorf("action select missing data-on:change literal (issue #44 editor-sync regression)\nwant: %s\n--- got ---\n%s", wantChangeExpr, got)
+			}
 			for _, n := range c.notWant {
 				if strings.Contains(got, n) {
 					t.Errorf("pct input unexpectedly contains %s (issue #44 regression)\n%s", n, got)
 				}
+			}
+		})
+	}
+}
+
+// TestSchedulePctOrigValue pins the fallback logic feeding data-orig-pct
+// directly. Redundant with TestScheduleEditRow's wantOrigPct cases, but
+// fast and useful when the helper itself changes.
+func TestSchedulePctOrigValue(t *testing.T) {
+	cases := []struct {
+		name string
+		pct  int
+		want string
+	}{
+		{"zero (off-row sentinel)", 0, "50"},
+		{"below min", 5, "50"},
+		{"min boundary", 10, "10"},
+		{"mid range", 60, "60"},
+		{"max boundary", 100, "100"},
+		{"above max", 150, "50"},
+		{"negative", -1, "50"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := schedulePctOrigValue(ui.ScheduleEntryView{Pct: c.pct})
+			if got != c.want {
+				t.Errorf("schedulePctOrigValue(Pct=%d) = %q; want %q", c.pct, got, c.want)
 			}
 		})
 	}
