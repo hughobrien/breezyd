@@ -10,49 +10,49 @@
     {
       "id": 2,
       "subject": "Task 2: Extend DeviceView and wire cookie into buildView",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [1],
       "description": "**Goal:** Add DetailsOpen, EditingPreset, Automode, MatchSpeeds to DeviceView. Drop SensorsView.Expanded. buildView parses the cookie and applies cookie + force-open rules + section defaults.\n\n**Files:**\n- Modify: `cmd/breezyd/ui/view.go`\n- Modify: `cmd/breezyd/ui_view.go`\n- Modify: `cmd/breezyd/handlers_ui_read.go`\n- Modify: `cmd/breezyd/handlers_ui_write.go`\n- Modify: `cmd/breezyd/handlers_ui_read_test.go`\n\n**Verify:** `just generate && go test ./cmd/breezyd/... ./internal/uistate/...`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/view.go\", \"cmd/breezyd/ui_view.go\", \"cmd/breezyd/handlers_ui_read.go\", \"cmd/breezyd/handlers_ui_write.go\", \"cmd/breezyd/handlers_ui_read_test.go\"], \"verifyCommand\": \"just generate && go test ./cmd/breezyd/... ./internal/uistate/...\", \"acceptanceCriteria\": [\"new DeviceView fields populated\", \"SensorsView.Expanded removed\", \"force-open rules applied\"]}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: Update details templates + card data attributes",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** All four `<details>` blocks read open from v.DetailsOpen[…]. Card root gains data-speed-mode + data-airflow-mode. Render goldens regenerated.\n\n**Files:**\n- Modify: `cmd/breezyd/ui/templates/device_card.templ`\n- Modify: `cmd/breezyd/ui/templates/sensors_block.templ`\n- Modify: `cmd/breezyd/ui/templates/energy_block.templ`\n- Modify: `cmd/breezyd/ui/templates/schedule_block.templ`\n- Modify: `cmd/breezyd/handlers_ui_write.go`\n- Modify: `cmd/breezyd/ui/templates/render_test.go` and testdata/golden_*.html\n\n**Verify:** `just generate && just check`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/templates/device_card.templ\", \"cmd/breezyd/ui/templates/sensors_block.templ\", \"cmd/breezyd/ui/templates/energy_block.templ\", \"cmd/breezyd/ui/templates/schedule_block.templ\", \"cmd/breezyd/handlers_ui_write.go\", \"cmd/breezyd/ui/templates/render_test.go\"], \"verifyCommand\": \"just generate && just check\", \"acceptanceCriteria\": [\"details open from DetailsOpen\", \"card root has data-speed-mode/data-airflow-mode\", \"goldens pass\"]}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: Render the preset editor",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [2],
       "description": "**Goal:** controlsBlock emits 3 preset-editor panels per card with hidden driven by v.EditingPreset, automode + match-speeds checkboxes from view fields, sliders wired for htmx POSTs.\n\n**Files:**\n- Modify: `cmd/breezyd/ui/templates/controls_block.templ`\n- Modify: `cmd/breezyd/ui/templates/render_test.go` and testdata/golden_editor_open_preset2.html\n\n**Verify:** `just generate && go test ./cmd/breezyd/ui/templates/...`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/templates/controls_block.templ\", \"cmd/breezyd/ui/templates/render_test.go\", \"cmd/breezyd/ui/templates/testdata/golden_editor_open_preset2.html\"], \"verifyCommand\": \"just generate && go test ./cmd/breezyd/ui/templates/...\", \"acceptanceCriteria\": [\"3 preset-editor panels rendered\", \"checkboxes reflect view\", \"slider POSTs wired\"]}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: POST /ui/devices/{name}/preset shim handler",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4],
       "description": "**Goal:** New htmx-shim endpoint that decodes form-encoded preset/supply/extract, calls breezy.SetPresetSpeed, re-renders the card. Validation errors render DeviceCard with PostError set.\n\n**Files:**\n- Modify: `cmd/breezyd/handlers_ui_write.go`\n- Modify: `cmd/breezyd/server.go`\n- Modify: `cmd/breezyd/handlers_ui_write_test.go`\n\n**Verify:** `go test ./cmd/breezyd/ -run TestPostUIPreset -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_ui_write.go\", \"cmd/breezyd/server.go\", \"cmd/breezyd/handlers_ui_write_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run TestPostUIPreset -v\", \"acceptanceCriteria\": [\"200 on success\", \"422 on validation error\", \"401/502 on backend error\"]}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: layout.templ — cookie helper + #49 retrofit",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [3],
       "description": "**Goal:** Replace the htmx:afterSettle re-apply pass with a setUIState cookie helper and a summary-click handler that writes the cookie. After this task, `<details>` open state survives polls without flicker.\n\n**Files:**\n- Modify: `cmd/breezyd/ui/templates/layout.templ`\n- Modify: `tests/ui/dashboard.spec.ts` (lines 783, 798, 812)\n\n**Verify:** `just test-ui --grep \"open state survives polls\"`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/templates/layout.templ\", \"tests/ui/dashboard.spec.ts\"], \"verifyCommand\": \"just test-ui --grep 'open state survives polls'\", \"acceptanceCriteria\": [\"details shim deleted\", \"cookie helpers in place\", \"no-flicker tests pass\"]}\n```"
     },
     {
       "id": 7,
       "subject": "Task 7: layout.templ — preset chip + checkbox + slider JS",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [4, 5, 6],
       "description": "**Goal:** Wire all preset-editor interactions: chip click, manual/mode/manual-slider close, automode + match-speeds checkbox handlers (#46.2 transition), htmx:configRequest snap-to-zero + match-speeds sync, post-slider implied-mode write.\n\n**Files:**\n- Modify: `cmd/breezyd/ui/templates/layout.templ`\n- Modify: `tests/ui/dashboard.spec.ts` (un-fixme lines 893, 913, 919, 925, 930, 935, 940, 946, 951, 956, 961; add 4 new tests)\n\n**Verify:** `just test-ui`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/templates/layout.templ\", \"tests/ui/dashboard.spec.ts\"], \"verifyCommand\": \"just test-ui\", \"acceptanceCriteria\": [\"preset interactions wired\", \"automode #46.2 fires regen\", \"slider snap + match sync\", \"implied-mode write per spec\", \"11 unfixme'd tests pass\", \"4 new tests pass\"]}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Final Playwright sweep + screenshot",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [7],
       "description": "**Goal:** Confirm full Playwright suite green; regenerate the README screenshot showing the restored editor.\n\n**Files:**\n- Modify: `tests/ui/screenshot.ts`\n- Regenerate: `tests/ui/screenshots/dashboard-3col.png`\n\n**Verify:** `just check-all`\n\n```json:metadata\n{\"files\": [\"tests/ui/screenshot.ts\", \"tests/ui/screenshots/dashboard-3col.png\"], \"verifyCommand\": \"just check-all\", \"acceptanceCriteria\": [\"check-all green\", \"screenshot shows restored editor\", \"issues closed post-merge\"]}\n```"
     }
