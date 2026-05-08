@@ -1,0 +1,26 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-08-handler-doDeviceOp.md",
+  "tasks": [
+    {
+      "id": 9,
+      "subject": "Task 1: Add doDeviceOp + doDeviceRead helpers",
+      "status": "completed",
+      "description": "**Goal:** Two method receivers on `*Handler` that consolidate the dial+ctx+op scaffolding, plus three lock-release tests proving they don't leak the per-device UDP mutex.\n\n**Files:**\n- Modify: cmd/breezyd/server.go\n- Modify: cmd/breezyd/server_test.go\n\n**Verify:** `go test ./cmd/breezyd/ -run 'TestDoDeviceOp|TestDoDeviceRead' -v -race && just check`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/server.go\", \"cmd/breezyd/server_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run 'TestDoDeviceOp|TestDoDeviceRead' -v -race && just check\", \"acceptanceCriteria\": [\"doDeviceOp returns dial err or op err\", \"doDeviceRead analogous with h.dial\", \"lock released on success and on error\", \"just check + race clean\"]}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 2: Migrate /v1/* JSON handlers",
+      "status": "completed",
+      "blockedBy": [9],
+      "description": "**Goal:** Migrate every device-dialing handler in handlers_device.go and handlers_service.go to use doDeviceOp / doDeviceRead. JSON envelope responses unchanged. 12 handlers total.\n\n**Files:**\n- Modify: cmd/breezyd/handlers_device.go\n- Modify: cmd/breezyd/handlers_service.go\n\n**Verify:** `just check && go test -race ./cmd/breezyd/ && grep -n 'h\\.dialRecording\\|context\\.WithTimeout(r\\.Context()' cmd/breezyd/handlers_device.go cmd/breezyd/handlers_service.go` (last grep should be empty)\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_device.go\", \"cmd/breezyd/handlers_service.go\"], \"verifyCommand\": \"just check && go test -race ./cmd/breezyd/\", \"acceptanceCriteria\": [\"12 handlers migrated\", \"no h.dialRecording in these files\", \"no inline context.WithTimeout in these files\", \"existing tests pass unchanged\"]}\n```"
+    },
+    {
+      "id": 11,
+      "subject": "Task 3: Migrate /ui/* SSE handlers",
+      "status": "completed",
+      "blockedBy": [9],
+      "description": "**Goal:** Migrate every device-dialing handler in handlers_ui_write.go to use doDeviceOp. SSE response shapes unchanged. 9 handlers total.\n\n**Files:**\n- Modify: cmd/breezyd/handlers_ui_write.go\n\n**Verify:** `just check && go test -race ./cmd/breezyd/ && grep -n 'h\\.dialRecording\\|context\\.WithTimeout(r\\.Context()' cmd/breezyd/handlers_ui_write.go` (last grep should be empty)\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_ui_write.go\"], \"verifyCommand\": \"just check && go test -race ./cmd/breezyd/\", \"acceptanceCriteria\": [\"9 handlers migrated\", \"no h.dialRecording in handlers_ui_write.go\", \"no inline context.WithTimeout in handlers_ui_write.go\", \"existing tests pass unchanged including fakePushHub assertions\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-08T22:00:00Z"
+}

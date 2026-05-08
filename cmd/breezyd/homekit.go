@@ -230,16 +230,10 @@ func isDigits(s string) bool {
 func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 	// Active (power on/off): HAP Active is int 0=inactive, 1=active.
 	a.AirPurifier.Active.OnValueRemoteUpdate(func(v int) {
-		rc, raw, unlock, err := h.dialRecording(name)
-		if err != nil {
-			slog.Error("homekit power dial", "device", name, "err", err)
-			return
-		}
-		defer unlock()
-		defer func() { _ = raw.Close() }()
-		ctx := context.Background()
-		if err := breezy.Power(ctx, rc, v != 0); err != nil {
-			slog.Error("homekit power write", "device", name, "err", err)
+		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+			return breezy.Power(ctx, rc, v != 0)
+		}); err != nil {
+			slog.Error("homekit power", "device", name, "err", err)
 		}
 	})
 
@@ -251,16 +245,10 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 			// callback drives the actual speed.
 			return
 		}
-		rc, raw, unlock, err := h.dialRecording(name)
-		if err != nil {
-			slog.Error("homekit mode dial", "device", name, "err", err)
-			return
-		}
-		defer unlock()
-		defer func() { _ = raw.Close() }()
-		ctx := context.Background()
-		if err := breezy.SetSpeedPreset(ctx, rc, 1); err != nil {
-			slog.Error("homekit preset write", "device", name, "err", err)
+		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+			return breezy.SetSpeedPreset(ctx, rc, 1)
+		}); err != nil {
+			slog.Error("homekit preset", "device", name, "err", err)
 		}
 	})
 
@@ -273,16 +261,10 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 		if pct > 100 {
 			pct = 100
 		}
-		rc, raw, unlock, err := h.dialRecording(name)
-		if err != nil {
-			slog.Error("homekit speed dial", "device", name, "err", err)
-			return
-		}
-		defer unlock()
-		defer func() { _ = raw.Close() }()
-		ctx := context.Background()
-		if err := breezy.SetSpeedManual(ctx, rc, pct); err != nil {
-			slog.Error("homekit speed write", "device", name, "err", err)
+		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+			return breezy.SetSpeedManual(ctx, rc, pct)
+		}); err != nil {
+			slog.Error("homekit speed", "device", name, "err", err)
 		}
 	})
 
@@ -298,15 +280,10 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 
 	// Heater switch.
 	a.Heater.On.OnValueRemoteUpdate(func(v bool) {
-		rc, raw, unlock, err := h.dialRecording(name)
-		if err != nil {
-			slog.Error("homekit heater dial", "device", name, "err", err)
-			return
-		}
-		defer unlock()
-		defer func() { _ = raw.Close() }()
-		if err := breezy.SetHeater(context.Background(), rc, v); err != nil {
-			slog.Error("homekit heater write", "device", name, "err", err)
+		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+			return breezy.SetHeater(ctx, rc, v)
+		}); err != nil {
+			slog.Error("homekit heater", "device", name, "err", err)
 		}
 	})
 
@@ -329,15 +306,10 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 	// ResetFilter: any remote write means "I changed the filter, reset
 	// the counter." HAP Apple spec writes 1 on the reset gesture.
 	a.ResetFilter.OnValueRemoteUpdate(func(_ int) {
-		rc, raw, unlock, err := h.dialRecording(name)
-		if err != nil {
-			slog.Error("homekit filter-reset dial", "device", name, "err", err)
-			return
-		}
-		defer unlock()
-		defer func() { _ = raw.Close() }()
-		if err := breezy.ResetFilter(context.Background(), rc); err != nil {
-			slog.Error("homekit filter-reset write", "device", name, "err", err)
+		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+			return breezy.ResetFilter(ctx, rc)
+		}); err != nil {
+			slog.Error("homekit filter-reset", "device", name, "err", err)
 		}
 	})
 }
@@ -348,15 +320,10 @@ func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
 func switchTimer(h *Handler, name string, a *homekit.Accessory, mode string) {
 	a.Night.On.SetValue(mode == "night")
 	a.Turbo.On.SetValue(mode == "turbo")
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		slog.Error("homekit timer dial", "device", name, "err", err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	if err := breezy.SetTimer(context.Background(), rc, mode); err != nil {
-		slog.Error("homekit timer write", "device", name, "mode", mode, "err", err)
+	if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetTimer(ctx, rc, mode)
+	}); err != nil {
+		slog.Error("homekit timer", "device", name, "mode", mode, "err", err)
 	}
 }
 
@@ -386,15 +353,9 @@ func switchAirflow(h *Handler, name string, a *homekit.Accessory, supply, extrac
 		a.ExtractOnly.On.SetValue(false)
 	}
 
-	rc, raw, unlock, err := h.dialRecording(name)
-	if err != nil {
-		slog.Error("homekit airflow dial", "device", name, "err", err)
-		return
-	}
-	defer unlock()
-	defer func() { _ = raw.Close() }()
-	ctx := context.Background()
-	if err := breezy.SetMode(ctx, rc, mode); err != nil {
-		slog.Error("homekit airflow write", "device", name, "mode", mode, "err", err)
+	if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+		return breezy.SetMode(ctx, rc, mode)
+	}); err != nil {
+		slog.Error("homekit airflow", "device", name, "mode", mode, "err", err)
 	}
 }
