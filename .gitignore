@@ -27,3 +27,7 @@ tests/ui/node_modules/
 tests/ui/test-results/
 tests/ui/playwright-report/
 
+# Transient task-status files written by the brainstorming/executing-plans skills.
+# Plan .md files are durable and stay tracked; .tasks.json snapshots are not.
+docs/superpowers/plans/*.tasks.json
+
