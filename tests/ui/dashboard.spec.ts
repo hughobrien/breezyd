@@ -74,10 +74,12 @@ test.describe("rendering", () => {
   test("sensor block surfaces live values", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
+    // Sensors defaults open via $detailsOpen.sensors=true signal seed.
+    // Assert rather than defensively toggle — if the default ever flips
+    // to false, this fails loudly here instead of silently masking a
+    // closed-block test elsewhere.
     const sensors = card.locator("details.sensors");
-    if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
-      await sensors.locator("summary").click();
-    }
+    await expect(sensors).toHaveAttribute("open", "");
     await expect(card).toContainText("54%");
     await expect(card).toContainText("1175 ppm");
   });
@@ -176,10 +178,10 @@ test.describe("threshold editor", () => {
   test("click → edit → save → cell re-renders via SSE patch", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
+    // Sensors defaults open via $detailsOpen.sensors=true signal seed; assert
+    // rather than defensively toggle (see #82).
     const sensors = card.locator("details.sensors");
-    if (!(await sensors.evaluate((el) => (el as HTMLDetailsElement).open))) {
-      await sensors.locator("summary").click();
-    }
+    await expect(sensors).toHaveAttribute("open", "");
     const cell = card.locator('[data-threshold-cell="humidity"]');
     await cell.locator(".value-clickable").click();
     const input = cell.locator(".thresh-input");
