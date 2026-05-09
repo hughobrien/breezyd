@@ -220,6 +220,39 @@ func TestDeviceCardGolden(t *testing.T) {
 	}
 }
 
+func TestRenderDeviceCard_ReactiveOuter(t *testing.T) {
+	v := loadView(t, "snapshot_settling")
+	var sb strings.Builder
+	if err := DeviceCard(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	wantContains := []string{
+		`data-class:stale="$stale"`,
+		`data-attr:data-speed-mode="$speedMode"`,
+		`data-attr:data-airflow-mode="$airflowMode"`,
+		`data-show="$stale"`,
+		`&#34;sensorsAlert&#34;`,
+		`&#34;speedMode&#34;`,
+		`data-block="info"`,
+	}
+	wantAbsent := []string{
+		`data-speed-mode="manual"`,
+		`data-speed-mode="preset1"`,
+		`class="card stale"`,
+	}
+	for _, s := range wantContains {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in card render", s)
+		}
+	}
+	for _, s := range wantAbsent {
+		if strings.Contains(got, s) {
+			t.Errorf("unexpected %q in card render", s)
+		}
+	}
+}
+
 func TestCardSignalsFor_JSON(t *testing.T) {
 	v := ui.DeviceView{
 		Stale:       true,
