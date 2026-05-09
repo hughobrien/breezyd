@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// screenshot.ts — generates the README dashboard PNGs by spawning a real
-// breezyd against three fakedevice instances and capturing the templ-
-// rendered dashboard. Mirrors the spawn pattern in tests/ui/global-setup.ts.
+// screenshot.ts — generates the README dashboard PNGs by spawning a single
+// breezyd in memory-backend mode and capturing the templ-rendered dashboard.
+// Mirrors the spawn pattern in tests/ui/global-setup.ts.
 //
 // Run via: just screenshot
 
@@ -19,29 +19,10 @@ const OUT_DIR = resolve(__dirname, "screenshots");
 mkdirSync(OUT_DIR, { recursive: true });
 
 // Cards in 3-col order: bedroom, office, playroom — matching the original
-// screenshot composition. All three speak to identical fakedevices; visual
-// variation between cards is not the goal of this image, layout fidelity is.
+// screenshot composition. All three are seeded from the same snapshot;
+// visual variation between cards is not the goal of this image, layout
+// fidelity is.
 const DEVICES = ["bedroom", "office", "playroom"] as const;
-
-/** Read one complete line from a readable stream, with a timeout. */
-function readFirstLine(stream: NodeJS.ReadableStream, timeoutMs: number): Promise<string> {
-  return new Promise((res, rej) => {
-    let buf = "";
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString();
-      const nl = buf.indexOf("\n");
-      if (nl >= 0) {
-        stream.off("data", onData);
-        res(buf.slice(0, nl).trim());
-      }
-    };
-    stream.on("data", onData);
-    setTimeout(() => {
-      stream.off("data", onData);
-      rej(new Error(`timeout waiting for fakedevice address line after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-}
 
 /** Poll an HTTP URL until it responds non-5xx, or timeout. */
 async function waitForHTTP(url: string, timeoutMs: number): Promise<void> {
@@ -63,8 +44,8 @@ async function waitForHTTP(url: string, timeoutMs: number): Promise<void> {
 /**
  * SIGTERM the process and wait for it to exit. Without the await, Node
  * exits before `go run` forwards SIGTERM to its child binary, leaving an
- * orphan breezyd / fakedevice running on the loopback port until manual
- * cleanup. Mirrors tests/ui/global-teardown.ts::killAndWait.
+ * orphan breezyd running on the loopback port until manual cleanup.
+ * Mirrors tests/ui/global-teardown.ts::killAndWait.
  */
 function killAndWait(p: ChildProcess): Promise<void> {
   if (p.exitCode !== null || p.signalCode !== null) return Promise.resolve();
@@ -91,38 +72,12 @@ function freePort(): Promise<number> {
 async function main() {
   const logDir = join(__dirname, "test-results");
   mkdirSync(logDir, { recursive: true });
-  const fdLog = createWriteStream(join(logDir, "screenshot-fakedevice.log"));
   const bdLog = createWriteStream(join(logDir, "screenshot-breezyd.log"));
-
-  const fdProcs: ChildProcess[] = [];
-  const fdAddrs: string[] = [];
-
-  for (let i = 0; i < DEVICES.length; i++) {
-    const fd = spawn(
-      "go",
-      [
-        "run",
-        "-tags", "fakedevice_admin",
-        "./cmd/fakedevice",
-        "--snapshot", SNAPSHOT,
-        "--id", `BREEZY00000000A${i}`,
-        "--password", "1111",
-      ],
-      { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    fdProcs.push(fd);
-    fd.stderr?.pipe(fdLog);
-    if (!fd.stdout) throw new Error("fakedevice has no stdout");
-    const addrLine = await readFirstLine(fd.stdout, 60_000);
-    fd.stdout.pipe(fdLog);
-    const m = addrLine.match(/udp=(\S+)/);
-    if (!m) throw new Error(`fakedevice ${i} bad address line: ${addrLine}`);
-    fdAddrs.push(m[1]);
-  }
 
   const tmp = mkdtempSync(join(tmpdir(), "breezyd-screenshot-"));
   const cfgPath = join(tmp, "config.toml");
   const httpPort = await freePort();
+  // ip is required by config validation but unused in memory mode.
   const cfg = [
     "[daemon]",
     `listen = "127.0.0.1:${httpPort}"`,
@@ -133,19 +88,24 @@ async function main() {
       `[devices.${name}]`,
       `id = "BREEZY00000000A${i}"`,
       `password = "1111"`,
-      `ip = "${fdAddrs[i]}"`,
+      `ip = "127.0.0.1:0"`,
       "",
     ]),
   ].join("\n");
   writeFileSync(cfgPath, cfg, { mode: 0o600 });
 
+  // Use -tags breezyd_test_admin for build-cache locality with the Playwright
+  // suite (same tag, same binary). The /test/... admin surface is not used
+  // by screenshot.ts but reusing the cached build avoids a full recompile.
   const bd = spawn(
     "go",
     [
       "run",
-      "-tags", "fakedevice_admin",
+      "-tags", "breezyd_test_admin",
       "./cmd/breezyd",
       "--config", cfgPath,
+      "--backend=memory",
+      "--seed", SNAPSHOT,
     ],
     { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -154,8 +114,8 @@ async function main() {
 
   const daemonURL = `http://127.0.0.1:${httpPort}`;
   await waitForHTTP(daemonURL + "/healthz", 60_000);
-  // One poll cycle so all cards have data.
-  await new Promise((r) => setTimeout(r, 1500));
+  // Two poll cycles so all cards have data before screenshot.
+  await new Promise((r) => setTimeout(r, 2 * 1500));
 
   try {
     await captureViewport(daemonURL, 1400, 900, resolve(OUT_DIR, "dashboard-3col.png"), async (page) => {
@@ -163,14 +123,11 @@ async function main() {
       // screenshot shows the editor in its open state. Datastar's
       // data-show toggles based on the card-level $editor signal —
       // clicking the chip flips it to 2.
-      await page
-        .locator('.card:first-of-type .preset-editor[data-preset-editor="2"]')
-        .first()
-        .scrollIntoViewIfNeeded();
       const chip = page
         .locator('.card:first-of-type [data-preset-editor="2"]')
         .locator("xpath=preceding::div[contains(@class,'seg')][1]")
         .locator('button:nth-of-type(2)');
+      await chip.scrollIntoViewIfNeeded();
       await chip.click();
       // data-show is reactive; the editor becomes visible without a
       // server round-trip.
@@ -178,13 +135,14 @@ async function main() {
         '.card:first-of-type [data-preset-editor="2"]:visible',
         { timeout: 5_000 },
       );
+      // Scroll the now-visible editor into view for the screenshot.
+      await page
+        .locator('.card:first-of-type .preset-editor[data-preset-editor="2"]')
+        .scrollIntoViewIfNeeded();
     });
     await captureViewport(daemonURL, 480, 900, resolve(OUT_DIR, "dashboard-1col.png"));
   } finally {
-    // Kill breezyd first so it stops talking UDP to the fakedevices, then
-    // fan out the fakedevice kills in parallel. Awaits prevent orphans.
     await killAndWait(bd);
-    await Promise.all(fdProcs.map(killAndWait));
   }
 }
 
