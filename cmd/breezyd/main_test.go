@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
+	"github.com/matryer/is"
 )
 
 // mainSnapshotPath returns the absolute path to the captured device
@@ -75,15 +76,14 @@ func freeListenAddr(t *testing.T) string {
 
 // TestMainSmoke boots the daemon end-to-end and probes a few endpoints.
 func TestMainSmoke(t *testing.T) {
+	is := is.New(t)
 	const (
 		devID = "TESTID0000000001"
 		pwd   = "1111"
 	)
 
 	srv, err := fakedevice.NewServer(mainSnapshotPath(t), devID, pwd)
-	if err != nil {
-		t.Fatalf("fakedevice.NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	listen := freeListenAddr(t)
@@ -119,39 +119,28 @@ func TestMainSmoke(t *testing.T) {
 	}
 
 	t.Run("v1_devices_lists_playroom", func(t *testing.T) {
+		is := is.New(t)
 		body := mustGet(t, base+"/v1/devices")
-		if !strings.Contains(body, "\"playroom\"") {
-			t.Errorf("v1/devices missing playroom: %s", body)
-		}
+		is.True(strings.Contains(body, "\"playroom\"")) // /v1/devices must list playroom
 	})
 
 	t.Run("metrics_exposes_breezy_up", func(t *testing.T) {
+		is := is.New(t)
 		body := mustGet(t, base+"/metrics")
-		if !strings.Contains(body, "breezy_up{") {
-			t.Errorf("metrics missing breezy_up gauge")
-		}
-		if !strings.Contains(body, "device=\"playroom\"") {
-			t.Errorf("metrics missing device=\"playroom\" label")
-		}
-		// Confirm a representative non-trivial gauge has rendered too.
-		if !strings.Contains(body, "breezy_temperature_celsius") {
-			t.Errorf("metrics missing breezy_temperature_celsius")
-		}
+		is.True(strings.Contains(body, "breezy_up{"))                 // metrics must expose breezy_up gauge
+		is.True(strings.Contains(body, "device=\"playroom\""))        // metrics must label by device
+		is.True(strings.Contains(body, "breezy_temperature_celsius")) // representative non-trivial gauge must render
 	})
 
 	t.Run("post_power_returns_ok", func(t *testing.T) {
+		is := is.New(t)
 		req, _ := http.NewRequest("POST", base+"/v1/devices/playroom/power",
 			strings.NewReader(`{"on": true}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("POST: %v", err)
-		}
+		is.NoErr(err)
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			b, _ := io.ReadAll(resp.Body)
-			t.Errorf("POST status = %d, body = %s", resp.StatusCode, b)
-		}
+		is.Equal(resp.StatusCode, 200)
 	})
 
 	cancel()
@@ -213,41 +202,33 @@ func TestMainMemoryBackend(t *testing.T) {
 	}
 
 	t.Run("v1_devices_lists_playroom", func(t *testing.T) {
+		is := is.New(t)
 		body := mustGet(t, base+"/v1/devices")
-		if !strings.Contains(body, "\"playroom\"") {
-			t.Errorf("v1/devices missing playroom: %s", body)
-		}
+		is.True(strings.Contains(body, "\"playroom\"")) // /v1/devices must list playroom
 	})
 
 	t.Run("v1_device_snapshot_populated", func(t *testing.T) {
+		is := is.New(t)
 		body := mustGet(t, base+"/v1/devices/playroom")
 		// snapshot_148.json has a real device ID and non-zero temperature data;
 		// the snapshot should decode to a populated struct with at least one
 		// temperature field set.
-		if !strings.Contains(body, "last_poll") {
-			t.Errorf("snapshot missing last_poll: %s", body)
-		}
+		is.True(strings.Contains(body, "last_poll")) // snapshot must include last_poll
 		// Accept any of the various serialisations of a no-error last_err.
 		// Don't fail hard on last_err presence — any populated snapshot is fine.
 		// Confirm at least some device data came through (non-trivial snapshot).
-		if strings.TrimSpace(body) == "{}" || !strings.Contains(body, "last_poll") {
-			t.Errorf("snapshot appears empty or unpopulated: %s", body)
-		}
+		is.True(strings.TrimSpace(body) != "{}" && strings.Contains(body, "last_poll")) // snapshot must not be empty
 	})
 
 	t.Run("post_power_returns_ok", func(t *testing.T) {
+		is := is.New(t)
 		req, _ := http.NewRequest("POST", base+"/v1/devices/playroom/power",
 			strings.NewReader(`{"on": true}`))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("POST: %v", err)
-		}
+		is.NoErr(err)
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			b, _ := io.ReadAll(resp.Body)
-			t.Errorf("POST status = %d, body = %s", resp.StatusCode, b)
-		}
+		is.Equal(resp.StatusCode, 200)
 	})
 
 	cancel()
@@ -269,6 +250,7 @@ func TestMainBackendFlagValidation(t *testing.T) {
 	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", "TESTID0000000003", "1111")
 
 	t.Run("seed_without_memory_backend", func(t *testing.T) {
+		is := is.New(t)
 		*flagConfig = cfgPath
 		*flagAddr = ""
 		*flagLogLevel = "warn"
@@ -279,12 +261,12 @@ func TestMainBackendFlagValidation(t *testing.T) {
 			*flagSeed = ""
 		})
 		err := run(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "--seed is only valid with --backend=memory") {
-			t.Errorf("expected --seed validation error, got: %v", err)
-		}
+		is.True(err != nil)                                                                  // run must reject --seed without --backend=memory
+		is.True(strings.Contains(err.Error(), "--seed is only valid with --backend=memory")) // error must explain --seed gate
 	})
 
 	t.Run("unknown_backend_value", func(t *testing.T) {
+		is := is.New(t)
 		*flagConfig = cfgPath
 		*flagAddr = ""
 		*flagLogLevel = "warn"
@@ -295,9 +277,8 @@ func TestMainBackendFlagValidation(t *testing.T) {
 			*flagSeed = ""
 		})
 		err := run(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "--backend: unknown value") {
-			t.Errorf("expected --backend unknown value error, got: %v", err)
-		}
+		is.True(err != nil)                                                // run must reject unknown --backend value
+		is.True(strings.Contains(err.Error(), "--backend: unknown value")) // error must explain --backend gate
 	})
 }
 

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/matryer/is"
 )
 
 func TestVendorAssets(t *testing.T) {
@@ -28,23 +30,16 @@ func TestVendorAssets(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
+			is := is.New(t)
 			resp, err := http.Get(srv.URL + tc.path)
-			if err != nil {
-				t.Fatal(err)
-			}
+			is.NoErr(err)
 			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode != tc.wantStatus {
-				t.Fatalf("status: got %d, want %d", resp.StatusCode, tc.wantStatus)
-			}
+			is.Equal(resp.StatusCode, tc.wantStatus) // HTTP status
 			if tc.wantStatus == 200 {
-				if got := resp.Header.Get("Content-Type"); got != tc.wantCT {
-					t.Errorf("content-type: got %q, want %q", got, tc.wantCT)
-				}
+				is.Equal(resp.Header.Get("Content-Type"), tc.wantCT) // Content-Type
 				// Versioned/hashed assets are immutable; favicon is short-cached.
 				if strings.HasPrefix(tc.path, "/ui/") {
-					if got := resp.Header.Get("Cache-Control"); !strings.Contains(got, "immutable") {
-						t.Errorf("cache-control missing immutable: %q", got)
-					}
+					is.True(strings.Contains(resp.Header.Get("Cache-Control"), "immutable")) // Cache-Control must include immutable
 				}
 			}
 		})

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 // postJSON POSTs the given body as application/json and returns the
@@ -114,6 +115,7 @@ func newUIWriteTestHandler(t *testing.T) *Handler {
 }
 
 func TestUIWritePower_Happy(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
@@ -121,25 +123,23 @@ func TestUIWritePower_Happy(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWritePower_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/nope/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIWritePower_BadForm(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -147,37 +147,29 @@ func TestUIWritePower_BadForm(t *testing.T) {
 	// Missing 'on' field — form value is absent, so onStr == "".
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	// errorBannerSSE writes the X-Accel-Buffering: no header inline, before
 	// its explicit WriteHeader(StatusOK). This asserts that path.
-	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
-		t.Errorf("X-Accel-Buffering: %q, want %q", got, "no")
-	}
+	is.Equal(resp.Header.Get("X-Accel-Buffering"), "no")
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "missing")
 }
 
 func TestUIScheduleNewRow_XAccelBufferingHeader(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/new-row")
-	if err != nil {
-		t.Fatalf("GET schedule/new-row: %v", err)
-	}
+	is.NoErr(err) // GET schedule/new-row
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
-		t.Errorf("X-Accel-Buffering: %q, want %q", got, "no")
-	}
+	is.Equal(resp.StatusCode, 200)
+	is.Equal(resp.Header.Get("X-Accel-Buffering"), "no")
 }
 
 func TestUIWritePower_BackendError(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	// 192.0.2.0/24 is the TEST-NET-1 range — guaranteed unreachable.
 	h.Devices.Set("alpha", DeviceConfig{
@@ -190,14 +182,13 @@ func TestUIWritePower_BackendError(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200, semantic error in body
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "err-banner")
 }
 
 func TestUIWritePower_AuthError(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	// Keep the real device address but use the wrong password.
 	addr, _ := h.Devices.Get("alpha")
@@ -211,9 +202,7 @@ func TestUIWritePower_AuthError(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "auth")
 }
@@ -221,6 +210,7 @@ func TestUIWritePower_AuthError(t *testing.T) {
 // ---------- postUIMode tests ----------
 
 func TestUIWriteMode_Happy(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
@@ -230,28 +220,24 @@ func TestUIWriteMode_Happy(t *testing.T) {
 	for _, mode := range modes {
 		resp := postJSON(t, srv.URL+"/ui/devices/alpha/mode", map[string]any{"mode": mode})
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 200) // each mode write must succeed
 	}
-	if got := len(notifies.calls()); got != len(modes) {
-		t.Errorf("PushHub.Notify count: got %d, want %d", got, len(modes))
-	}
+	is.Equal(len(notifies.calls()), len(modes)) // one notify per successful write
 }
 
 func TestUIWriteMode_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/nope/mode", map[string]any{"mode": "regeneration"})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIWriteMode_BadForm(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -259,9 +245,7 @@ func TestUIWriteMode_BadForm(t *testing.T) {
 	// Invalid mode value.
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/mode", map[string]any{"mode": "auto"})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "ventilation/regeneration/supply/extract")
 }
@@ -269,6 +253,7 @@ func TestUIWriteMode_BadForm(t *testing.T) {
 // ---------- postUISpeed tests ----------
 
 func TestUIWriteSpeed_HappyManual(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
@@ -276,13 +261,12 @@ func TestUIWriteSpeed_HappyManual(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"manual": 50})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWriteSpeed_HappyPreset(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -290,53 +274,47 @@ func TestUIWriteSpeed_HappyPreset(t *testing.T) {
 	for _, preset := range []int{1, 2, 3} {
 		resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"preset": preset})
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			t.Fatalf("preset=%d: status=%d, want 200", preset, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 200) // every preset value must round-trip
 	}
 }
 
 func TestUIWriteSpeed_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/nope/speed", map[string]any{"manual": 50})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIWriteSpeed_BadForm_NeitherField(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "exactly one") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	is.True(strings.Contains(string(body), "exactly one")) // body should describe the constraint
 }
 
 func TestUIWriteSpeed_BadForm_BothFields(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"manual": 50, "preset": 2})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 }
 
 func TestUIWriteSpeed_BadForm_InvalidManual(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -344,12 +322,11 @@ func TestUIWriteSpeed_BadForm_InvalidManual(t *testing.T) {
 	// Out of range (5 < 10).
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"manual": 5})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 }
 
 func TestUIWriteSpeed_BadForm_InvalidPreset(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -357,14 +334,13 @@ func TestUIWriteSpeed_BadForm_InvalidPreset(t *testing.T) {
 	// Out of range (4 > 3).
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/speed", map[string]any{"preset": 4})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 }
 
 // ---------- postUIHeater tests ----------
 
 func TestUIWriteHeater_Happy(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
@@ -374,28 +350,24 @@ func TestUIWriteHeater_Happy(t *testing.T) {
 	for _, on := range values {
 		resp := postJSON(t, srv.URL+"/ui/devices/alpha/heater", map[string]any{"on": on})
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			t.Fatalf("on=%t: status=%d, want 200", on, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 200) // each heater toggle must succeed
 	}
-	if got := len(notifies.calls()); got != len(values) {
-		t.Errorf("PushHub.Notify count: got %d, want %d", got, len(values))
-	}
+	is.Equal(len(notifies.calls()), len(values)) // one notify per successful write
 }
 
 func TestUIWriteHeater_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/nope/heater", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIWriteHeater_BadForm(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -403,9 +375,7 @@ func TestUIWriteHeater_BadForm(t *testing.T) {
 	// Missing 'on' field.
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/heater", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "missing")
 }
@@ -413,74 +383,63 @@ func TestUIWriteHeater_BadForm(t *testing.T) {
 // ---------- postUIResetFilter tests ----------
 
 func TestUIWriteResetFilter_Happy(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/ui/devices/alpha/reset-filter", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWriteResetFilter_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/ui/devices/nope/reset-filter", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 // ---------- postUIResetFaults tests ----------
 
 func TestUIWriteResetFaults_Happy(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/ui/devices/alpha/reset-faults", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestUIWriteResetFaults_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/ui/devices/nope/reset-faults", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 // ---------- postUITimer tests ----------
 
 func TestUIWriteTimer_Happy(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
@@ -490,28 +449,24 @@ func TestUIWriteTimer_Happy(t *testing.T) {
 	for _, mode := range modes {
 		resp := postJSON(t, srv.URL+"/ui/devices/alpha/timer", map[string]any{"mode": mode})
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			t.Fatalf("mode=%s: status=%d, want 200", mode, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 200) // every timer mode must succeed
 	}
-	if got := len(notifies.calls()); got != len(modes) {
-		t.Errorf("PushHub.Notify count: got %d, want %d", got, len(modes))
-	}
+	is.Equal(len(notifies.calls()), len(modes)) // one notify per successful write
 }
 
 func TestUIWriteTimer_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/nope/timer", map[string]any{"mode": "night"})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIWriteTimer_BadForm(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -519,9 +474,7 @@ func TestUIWriteTimer_BadForm(t *testing.T) {
 	// Missing 'mode' field.
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/timer", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "mode must be")
 }
@@ -546,60 +499,43 @@ func putUIThreshold(t *testing.T, base, name string, vals url.Values) *http.Resp
 }
 
 func TestUIThresholdGet_Read(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	for _, kind := range []string{"humidity", "co2", "voc"} {
 		resp, err := http.Get(srv.URL + "/ui/devices/alpha/threshold/" + kind)
-		if err != nil {
-			t.Fatalf("kind=%s: %v", kind, err)
-		}
+		is.NoErr(err) // GET threshold for kind
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 200) // each kind must render
 		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), "event: datastar-patch-elements") {
-			t.Errorf("kind=%s: body missing SSE event: %s", kind, string(body))
-		}
-		if !strings.Contains(string(body), `data-threshold-cell="`+kind+`"`) {
-			t.Errorf("kind=%s: body missing data-threshold-cell: %s", kind, string(body))
-		}
-		if !strings.Contains(string(body), "/threshold/"+kind+"/edit") {
-			t.Errorf("kind=%s: body missing edit link target: %s", kind, string(body))
-		}
+		is.True(strings.Contains(string(body), "event: datastar-patch-elements")) // body has SSE event
+		is.True(strings.Contains(string(body), `data-threshold-cell="`+kind+`"`)) // body has threshold cell marker for kind
+		is.True(strings.Contains(string(body), "/threshold/"+kind+"/edit"))       // body has edit link target
 	}
 }
 
 func TestUIThresholdGet_Edit(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	for _, kind := range []string{"humidity", "co2", "voc"} {
 		resp, err := http.Get(srv.URL + "/ui/devices/alpha/threshold/" + kind + "/edit")
-		if err != nil {
-			t.Fatalf("kind=%s: %v", kind, err)
-		}
+		is.NoErr(err) // GET edit form for kind
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
-			t.Fatalf("kind=%s: status=%d, want 200", kind, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 200) // each kind's edit form renders
 		body, _ := io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), "event: datastar-patch-elements") {
-			t.Errorf("kind=%s: body missing SSE event: %s", kind, string(body))
-		}
-		if !strings.Contains(string(body), `class="thresh-input"`) {
-			t.Errorf("kind=%s: body missing thresh-input: %s", kind, string(body))
-		}
-		if !strings.Contains(string(body), `<button type="submit"`) {
-			t.Errorf("kind=%s: body missing submit button: %s", kind, string(body))
-		}
+		is.True(strings.Contains(string(body), "event: datastar-patch-elements")) // body has SSE event
+		is.True(strings.Contains(string(body), `class="thresh-input"`))           // body has input element
+		is.True(strings.Contains(string(body), `<button type="submit"`))          // body has submit button
 	}
 }
 
 func TestUIThresholdGet_BadKind(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -609,17 +545,14 @@ func TestUIThresholdGet_BadKind(t *testing.T) {
 		"/ui/devices/alpha/threshold/bad/edit",
 	} {
 		resp, err := http.Get(srv.URL + path)
-		if err != nil {
-			t.Fatalf("%s: %v", path, err)
-		}
+		is.NoErr(err) // GET bad kind path
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 404 {
-			t.Fatalf("%s: status=%d, want 404", path, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 404) // unknown kind must 404
 	}
 }
 
 func TestUIThresholdGet_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -629,17 +562,14 @@ func TestUIThresholdGet_NotFound(t *testing.T) {
 		"/ui/devices/nope/threshold/humidity/edit",
 	} {
 		resp, err := http.Get(srv.URL + path)
-		if err != nil {
-			t.Fatalf("%s: %v", path, err)
-		}
+		is.NoErr(err) // GET unknown device threshold
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 404 {
-			t.Fatalf("%s: status=%d, want 404", path, resp.StatusCode)
-		}
+		is.Equal(resp.StatusCode, 404) // unknown device must 404
 	}
 }
 
 func TestUIThresholdPut_HappyValue(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -649,17 +579,14 @@ func TestUIThresholdPut_HappyValue(t *testing.T) {
 		"value": {"65"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	body, _ := io.ReadAll(resp.Body)
 	// Returns the read-variant sensor cell, not the whole card.
-	if !strings.Contains(string(body), `class="sensor-cell"`) {
-		t.Errorf("body missing sensor-cell: %s", string(body))
-	}
+	is.True(strings.Contains(string(body), `class="sensor-cell"`)) // body returns sensor-cell read variant
 }
 
 func TestUIThresholdPut_HappyEnabled(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -669,12 +596,11 @@ func TestUIThresholdPut_HappyEnabled(t *testing.T) {
 		"enabled": {"false"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 }
 
 func TestUIThresholdPut_HappyBoth(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -685,9 +611,7 @@ func TestUIThresholdPut_HappyBoth(t *testing.T) {
 		"enabled": {"true"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 }
 
 // TestUIThresholdPut_BrowserCheckbox reproduces the actual browser form
@@ -697,6 +621,7 @@ func TestUIThresholdPut_HappyBoth(t *testing.T) {
 // handler must use r.Form["enabled"] and read the LAST value to honour
 // the checkbox state.
 func TestUIThresholdPut_BrowserCheckbox(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -710,20 +635,17 @@ func TestUIThresholdPut_BrowserCheckbox(t *testing.T) {
 
 	resp := putUIThreshold(t, srv.URL, "alpha", v)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	// Sanity: confirm the read variant we render afterwards reflects "auto fan ON"
 	// by checking that the body contains the read variant of the humidity cell
 	// (not an error banner). The render path goes through buildView, which would
 	// pick up the WriteThrough'd enabled=true.
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `data-threshold-cell="humidity"`) {
-		t.Errorf("body missing humidity threshold cell; got: %s", body)
-	}
+	is.True(strings.Contains(string(body), `data-threshold-cell="humidity"`)) // body must render humidity read variant
 }
 
 func TestUIThresholdPut_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -733,12 +655,11 @@ func TestUIThresholdPut_NotFound(t *testing.T) {
 		"value": {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIThresholdPut_BadForm_MissingKind(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -747,12 +668,11 @@ func TestUIThresholdPut_BadForm_MissingKind(t *testing.T) {
 		"value": {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 }
 
 func TestUIThresholdPut_BadForm_InvalidKind(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -762,16 +682,13 @@ func TestUIThresholdPut_BadForm_InvalidKind(t *testing.T) {
 		"value": {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "invalid") {
-		t.Errorf("body missing error message: %s", string(body))
-	}
+	is.True(strings.Contains(string(body), "invalid")) // body should describe the failure
 }
 
 func TestUIThresholdPut_BadForm_NeitherValueNorEnabled(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -780,9 +697,7 @@ func TestUIThresholdPut_BadForm_NeitherValueNorEnabled(t *testing.T) {
 		"kind": {"humidity"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 }
 
 // ---------- schedule endpoint tests ----------
@@ -817,44 +732,35 @@ func putUIScheduleForm(t *testing.T, base, name string, vals url.Values) *http.R
 }
 
 func TestUIScheduleGet_Read(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, `class="block schedule"`) {
-		t.Errorf("body missing schedule block: %s", bs)
-	}
-	if !strings.Contains(bs, `no entries`) {
-		t.Errorf("body missing 'no entries' text: %s", bs)
-	}
+	is.True(strings.Contains(bs, `class="block schedule"`)) // body must contain schedule block
+	is.True(strings.Contains(bs, `no entries`))             // empty scheduler renders 'no entries' text
 }
 
 func TestUIScheduleGet_Read_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIScheduleGet_Edit(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	// Pre-load an entry so we can verify it renders in edit form.
 	sch := h.Schedulers["alpha"]
@@ -865,92 +771,62 @@ func TestUIScheduleGet_Edit(t *testing.T) {
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/edit")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, "event: datastar-patch-elements") {
-		t.Errorf("body missing SSE event: %s", bs)
-	}
-	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
-		t.Errorf("body missing form @put target: %s", bs)
-	}
-	if !strings.Contains(bs, "data-on:submit__prevent=") {
-		t.Errorf("body missing data-on-submit attribute: %s", bs)
-	}
-	if !strings.Contains(bs, `name="at"`) {
-		t.Errorf("body missing at input: %s", bs)
-	}
-	if !strings.Contains(bs, `name="action"`) {
-		t.Errorf("body missing action select: %s", bs)
-	}
+	is.True(strings.Contains(bs, "event: datastar-patch-elements")) // body has SSE event
+	is.True(strings.Contains(bs, "/ui/devices/alpha/schedule"))     // body has form @put target
+	is.True(strings.Contains(bs, "data-on:submit__prevent="))       // body has data-on-submit attribute
+	is.True(strings.Contains(bs, `name="at"`))                      // body has at input
+	is.True(strings.Contains(bs, `name="action"`))                  // body has action select
 }
 
 func TestUIScheduleGet_Edit_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule/edit")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUIScheduleGet_NewRow(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/new-row")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, `<tr>`) {
-		t.Errorf("body missing <tr>: %s", bs)
-	}
-	if !strings.Contains(bs, `name="at"`) {
-		t.Errorf("body missing at input: %s", bs)
-	}
-	if !strings.Contains(bs, `name="action"`) {
-		t.Errorf("body missing action select: %s", bs)
-	}
-	if !strings.Contains(bs, `name="pct"`) {
-		t.Errorf("body missing pct input: %s", bs)
-	}
+	is.True(strings.Contains(bs, `<tr>`))          // body has <tr>
+	is.True(strings.Contains(bs, `name="at"`))     // body has at input
+	is.True(strings.Contains(bs, `name="action"`)) // body has action select
+	is.True(strings.Contains(bs, `name="pct"`))    // body has pct input
 }
 
 func TestUIScheduleGet_NewRow_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule/new-row")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUISchedulePut_Happy(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -962,27 +838,19 @@ func TestUISchedulePut_Happy(t *testing.T) {
 		"pct":     {"60", "10"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
-	}
+	is.Equal(resp.StatusCode, 200)
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
 	// Returns read variant — should show schedule block with rows.
-	if !strings.Contains(bs, `class="block schedule"`) {
-		t.Errorf("body missing schedule block: %s", bs)
-	}
+	is.True(strings.Contains(bs, `class="block schedule"`)) // body has schedule block
 	// Verify the scheduler was actually updated.
 	snap := h.Schedulers["alpha"].Snapshot()
-	if !snap.Enabled {
-		t.Errorf("scheduler not enabled after PUT")
-	}
-	if len(snap.Entries) != 2 {
-		t.Errorf("entry count: got %d, want 2", len(snap.Entries))
-	}
+	is.True(snap.Enabled)          // scheduler must be enabled after PUT
+	is.Equal(len(snap.Entries), 2) // both entries persisted
 }
 
 func TestUISchedulePut_Empty(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	// Pre-load entries so we can verify they get cleared.
 	sch := h.Schedulers["alpha"]
@@ -997,17 +865,13 @@ func TestUISchedulePut_Empty(t *testing.T) {
 		"enabled": {"true"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, body: %s", resp.StatusCode, body)
-	}
+	is.Equal(resp.StatusCode, 200)
 	snap := h.Schedulers["alpha"].Snapshot()
-	if len(snap.Entries) != 0 {
-		t.Errorf("entry count after empty PUT: got %d, want 0", len(snap.Entries))
-	}
+	is.Equal(len(snap.Entries), 0) // PUT with no rows clears the schedule
 }
 
 func TestUISchedulePut_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -1016,12 +880,11 @@ func TestUISchedulePut_NotFound(t *testing.T) {
 		"enabled": {"true"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestUISchedulePut_BadForm_InvalidTime(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -1035,21 +898,15 @@ func TestUISchedulePut_BadForm_InvalidTime(t *testing.T) {
 	// Body must be 200 so datastar processes the SSE patch (datastar's
 	// @put discards non-2xx response bodies). Semantic 422 is preserved in
 	// the Datastar-Status response header for observability. See #70.
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, want 200, body: %s", resp.StatusCode, body)
-	}
-	if got := resp.Header.Get("Datastar-Status"); got != "422" {
-		t.Errorf("Datastar-Status: %q, want %q", got, "422")
-	}
+	is.Equal(resp.StatusCode, http.StatusOK)            // 200 so datastar processes the SSE patch
+	is.Equal(resp.Header.Get("Datastar-Status"), "422") // semantic status preserved in header
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, "invalid") {
-		t.Errorf("body missing error message: %s", bs)
-	}
+	is.True(strings.Contains(bs, "invalid")) // body explains the validation failure
 }
 
 func TestUISchedulePut_BadForm_InvalidAction(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -1060,21 +917,15 @@ func TestUISchedulePut_BadForm_InvalidAction(t *testing.T) {
 		"pct":    {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, want 200, body: %s", resp.StatusCode, body)
-	}
-	if got := resp.Header.Get("Datastar-Status"); got != "422" {
-		t.Errorf("Datastar-Status: %q, want %q", got, "422")
-	}
+	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.Header.Get("Datastar-Status"), "422")
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, "invalid action") {
-		t.Errorf("body missing invalid action error: %s", bs)
-	}
+	is.True(strings.Contains(bs, "invalid action")) // body explains the action failure
 }
 
 func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
+	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -1086,27 +937,19 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 		"pct":    {"60", "10"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, want 200, body: %s", resp.StatusCode, body)
-	}
-	if got := resp.Header.Get("Datastar-Status"); got != "422" {
-		t.Errorf("Datastar-Status: %q, want %q", got, "422")
-	}
+	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.Header.Get("Datastar-Status"), "422")
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
 	// Edit variant rendered with error message via SSE.
-	if !strings.Contains(bs, "data-on:submit__prevent=") {
-		t.Errorf("body missing edit form: %s", bs)
-	}
-	if !strings.Contains(bs, "/ui/devices/alpha/schedule") {
-		t.Errorf("body missing schedule URL: %s", bs)
-	}
+	is.True(strings.Contains(bs, "data-on:submit__prevent="))   // body has edit form
+	is.True(strings.Contains(bs, "/ui/devices/alpha/schedule")) // body has schedule URL
 }
 
 // ---------- postUIPreset tests ----------
 
 func TestPostUIPreset_Success(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	notifies := attachFakePushHub(h)
 	srv := httptest.NewServer(h.mux())
@@ -1114,39 +957,36 @@ func TestPostUIPreset_Success(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 2, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200)
 	notifies.assertCalledFor(t, "alpha")
 }
 
 func TestPostUIPreset_NotFound(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/nope/preset", map[string]any{"preset": 1, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 404 {
-		t.Fatalf("status: %d, want 404", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 404)
 }
 
 func TestPostUIPreset_BadPreset(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 4, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "preset must be")
 }
 
 func TestPostUIPreset_BadSupply(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -1154,14 +994,13 @@ func TestPostUIPreset_BadSupply(t *testing.T) {
 	// supply=5 is below the minimum of 10.
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 5, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "supply must be")
 }
 
 func TestPostUIPreset_BadExtract(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -1169,14 +1008,13 @@ func TestPostUIPreset_BadExtract(t *testing.T) {
 	// extract=5 is below the minimum of 10.
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 40, "extract": 5})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "extract must be")
 }
 
 func TestPostUIPreset_MissingFields(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -1184,12 +1022,11 @@ func TestPostUIPreset_MissingFields(t *testing.T) {
 	// Empty form: all fields missing → first validation fails (preset).
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 }
 
 func TestPostUIPreset_AuthError(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	// Keep the real device address but use the wrong password.
 	addr, _ := h.Devices.Get("alpha")
@@ -1203,14 +1040,13 @@ func TestPostUIPreset_AuthError(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "auth")
 }
 
 func TestPostUIPreset_BackendError(t *testing.T) {
+	is := is.New(t)
 	h := newUIWriteTestHandler(t)
 	// 192.0.2.0/24 is TEST-NET-1 — guaranteed unreachable.
 	h.Devices.Set("alpha", DeviceConfig{
@@ -1223,9 +1059,7 @@ func TestPostUIPreset_BackendError(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/preset", map[string]any{"preset": 1, "supply": 40, "extract": 45})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d, want 200", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "err-banner")
 }
