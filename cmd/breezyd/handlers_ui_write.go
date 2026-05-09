@@ -55,7 +55,10 @@ func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name 
 
 // scheduleEditFrag emits a datastar-patch-elements event with the
 // edit-variant schedule block. A non-empty errMsg signals a validation
-// failure and produces a 422 response.
+// failure; the body must still be 200 because datastar's @get/@put/@post
+// helpers discard non-2xx response bodies (see #70). The semantic 422
+// surfaces as a custom Datastar-Status header — same convention as
+// errorBannerSSE — for observability and tooling.
 func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
 	view, ok := h.viewFor(name)
 	if !ok {
@@ -63,7 +66,7 @@ func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name,
 		return
 	}
 	if errMsg != "" {
-		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.Header().Set("Datastar-Status", strconv.Itoa(http.StatusUnprocessableEntity))
 	}
 	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg))
 }

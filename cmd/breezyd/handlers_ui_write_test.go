@@ -1032,10 +1032,15 @@ func TestUISchedulePut_BadForm_InvalidTime(t *testing.T) {
 		"pct":    {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	// Returns edit variant with error message at 422 status.
-	if resp.StatusCode != http.StatusUnprocessableEntity {
+	// Body must be 200 so datastar processes the SSE patch (datastar's
+	// @put discards non-2xx response bodies). Semantic 422 is preserved in
+	// the Datastar-Status response header for observability. See #70.
+	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, want 422, body: %s", resp.StatusCode, body)
+		t.Fatalf("status: %d, want 200, body: %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Datastar-Status"); got != "422" {
+		t.Errorf("Datastar-Status: %q, want %q", got, "422")
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
@@ -1055,9 +1060,12 @@ func TestUISchedulePut_BadForm_InvalidAction(t *testing.T) {
 		"pct":    {"60"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusUnprocessableEntity {
+	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, want 422, body: %s", resp.StatusCode, body)
+		t.Fatalf("status: %d, want 200, body: %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Datastar-Status"); got != "422" {
+		t.Errorf("Datastar-Status: %q, want %q", got, "422")
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
@@ -1078,9 +1086,12 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 		"pct":    {"60", "10"},
 	})
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusUnprocessableEntity {
+	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: %d, want 422, body: %s", resp.StatusCode, body)
+		t.Fatalf("status: %d, want 200, body: %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Datastar-Status"); got != "422" {
+		t.Errorf("Datastar-Status: %q, want %q", got, "422")
 	}
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
