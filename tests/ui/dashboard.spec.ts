@@ -39,6 +39,32 @@ async function loadCard(page: Page, name = DEVICE): Promise<Locator> {
 // fakedevice mutation.
 const POLL_PUSH_TIMEOUT = 4_000;
 
+// assertStableAcrossPolls samples `invariants` across a 3+ second window
+// (covers ≥3 poll cycles at the test daemon's 1s interval). Each iteration
+// asserts the invariants with a short per-call timeout, so a regression that
+// breaks any of them fails inside ~200ms rather than going unnoticed for the
+// whole window. Used by the editor-preservation tests; see #81 for why a
+// per-poll deterministic signal isn't tractable in Playwright (datastar's
+// long-lived SSE delivers events the test framework can't observe at event
+// granularity).
+async function assertStableAcrossPolls(
+  page: Page,
+  invariants: () => Promise<void>,
+): Promise<void> {
+  const samples = 6;
+  const intervalMs = 500;
+  for (let i = 0; i < samples; i++) {
+    await invariants();
+    if (i < samples - 1) {
+      // Bounded inter-sample sleep — the assertions above and below this
+      // line catch a regression within one sample, so this is not a
+      // "wait for state to settle" timeout (which the playwright skill
+      // rightly forbids); it's a "verify state stays settled" sample step.
+      await page.waitForTimeout(intervalMs);
+    }
+  }
+}
+
 test.describe("rendering", () => {
   test("@smoke card renders for the configured device", async ({ page }) => {
     await reset(DEVICE);
@@ -285,13 +311,17 @@ test.describe("editor preservation across polls (#65)", () => {
     await expect(pctInput).toBeVisible();
     await pctInput.fill("77");
 
-    // Wait through 3 poll intervals (3s). The per-block patch uses
-    // :not([data-edit]) so an open editor must not be replaced.
-    await page.waitForTimeout(3_000);
-
-    // Form and typed value must still be present.
-    await expect(editDetails).toBeVisible();
-    await expect(pctInput).toHaveValue("77");
+    // Sample the invariant across a 3+ second window. Each iteration
+    // asserts the editor + typed value are still present; a regression
+    // (block clobbered by a poll-driven patch) fails inside ~200ms
+    // rather than going unnoticed for the whole wait. The 500ms between
+    // samples is bounded by the in-loop assertion above. See #81 for why
+    // a strict event-counted alternative isn't tractable (per-poll signals
+    // aren't visible to Playwright at event granularity).
+    await assertStableAcrossPolls(page, async () => {
+      await expect(editDetails).toBeVisible({ timeout: 200 });
+      await expect(pctInput).toHaveValue("77", { timeout: 200 });
+    });
   });
 
   test("threshold editor (co2) survives multiple polls with typed value intact", async ({ page }) => {
@@ -317,13 +347,12 @@ test.describe("editor preservation across polls (#65)", () => {
     const editCell = card.locator('[data-threshold-cell="co2"][data-edit="true"]');
     await expect(editCell).toBeVisible();
 
-    // Wait through 3 poll intervals (3s). The sensor-cell patch uses
-    // :not([data-edit]) so an open threshold editor must not be replaced.
-    await page.waitForTimeout(3_000);
-
-    // The edit cell and typed value must still be present.
-    await expect(editCell).toBeVisible();
-    await expect(input).toHaveValue("1234");
+    // Same continuously-asserted-invariant pattern as the schedule case;
+    // see the comment there and #81 for the rationale.
+    await assertStableAcrossPolls(page, async () => {
+      await expect(editCell).toBeVisible({ timeout: 200 });
+      await expect(input).toHaveValue("1234", { timeout: 200 });
+    });
   });
 
   test("preset editor slider value survives multiple polls", async ({ page }) => {
@@ -354,14 +383,12 @@ test.describe("editor preservation across polls (#65)", () => {
     // Confirm the JS set took effect before the wait.
     await expect(supplySlider).toHaveValue("85");
 
-    // Wait through 3 poll intervals (3s). The controls block is guarded by
-    // data-attr:data-edit="$editor !== 0 ? 'true' : null"; the per-block SSE
-    // selector excludes [data-edit] from replacement.
-    await page.waitForTimeout(3_000);
-
-    // Editor still visible; slider value preserved.
-    await expect(editor2).toBeVisible();
-    await expect(supplySlider).toHaveValue("85");
+    // Same continuously-asserted-invariant pattern as the schedule case;
+    // see the comment there and #81 for the rationale.
+    await assertStableAcrossPolls(page, async () => {
+      await expect(editor2).toBeVisible({ timeout: 200 });
+      await expect(supplySlider).toHaveValue("85", { timeout: 200 });
+    });
   });
 
   // Skipped: requires stale threshold <90s. The daemon hardcodes 90s
