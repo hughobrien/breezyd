@@ -204,6 +204,17 @@ func (p *Poller) tick(ctx context.Context) {
 		}
 	}
 
+	// If every read in this tick failed, preserve the last successful
+	// Snapshot's Values so the dashboard keeps showing last-known-good
+	// (marked stale by LastErr) rather than dropping to unreachable.
+	// This matters most for the in-process MemClient backend, where a
+	// forced ErrTimeout returns instantly and would otherwise overwrite
+	// good state on the very first failed tick.
+	if lastErr != nil && len(values) == 0 {
+		if prev, ok := p.State.Get(p.Name); ok && len(prev.Values) > 0 {
+			values = prev.Values
+		}
+	}
 	snap := Snapshot{
 		IP:       p.IP,
 		Values:   values,
