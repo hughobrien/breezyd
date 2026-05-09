@@ -13,6 +13,7 @@ import (
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
+	"github.com/matryer/is"
 )
 
 // discoverySnapshotPath returns the absolute path to the shared snapshot
@@ -48,6 +49,7 @@ func newDiscoveryServer(t *testing.T, deviceID, password string) *fakedevice.Ser
 // 0x007C; the snapshot just happens to have a hard-coded one from the
 // device the capture was taken from.)
 func TestDiscoverAt_TwoFakes(t *testing.T) {
+	is := is.New(t)
 	const idA = "0025AAAAAAAAAAAA"
 	const idB = "0025BBBBBBBBBBBB"
 
@@ -57,38 +59,25 @@ func TestDiscoverAt_TwoFakes(t *testing.T) {
 	// The shared snapshot has a fixed 0x007C; overwrite each fake's so it
 	// echoes the ID it was configured with. This mirrors real hardware,
 	// where 0x007C reports the device's actual ID.
-	if err := writeServerParam(t, a, idA, "1111", 0x007C, []byte(idA)); err != nil {
-		t.Fatalf("override 007C on A: %v", err)
-	}
-	if err := writeServerParam(t, b, idB, "2222", 0x007C, []byte(idB)); err != nil {
-		t.Fatalf("override 007C on B: %v", err)
-	}
+	is.NoErr(writeServerParam(t, a, idA, "1111", 0x007C, []byte(idA))) // override 007C on A
+	is.NoErr(writeServerParam(t, b, idB, "2222", 0x007C, []byte(idB))) // override 007C on B
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	found, err := breezy.DiscoverAt(ctx, []string{a.Addr(), b.Addr()})
-	if err != nil {
-		t.Fatalf("DiscoverAt: %v", err)
-	}
-	if len(found) != 2 {
-		t.Fatalf("expected 2 found, got %d: %+v", len(found), found)
-	}
+	is.NoErr(err)
+	is.Equal(len(found), 2) // expected 2 found
 
 	gotIDs := make([]string, 0, 2)
 	for _, f := range found {
 		gotIDs = append(gotIDs, f.DeviceID)
-		if f.IP != "127.0.0.1" {
-			t.Errorf("expected IP 127.0.0.1, got %q for %+v", f.IP, f)
-		}
-		if f.UnitType != 17 { // snapshot value: 0x1100 LE = 17
-			t.Errorf("expected UnitType 17, got %d for %+v", f.UnitType, f)
-		}
+		is.Equal(f.IP, "127.0.0.1")      // expected IP 127.0.0.1
+		is.Equal(f.UnitType, uint16(17)) // snapshot value: 0x1100 LE = 17
 	}
 	sort.Strings(gotIDs)
-	if gotIDs[0] != idA || gotIDs[1] != idB {
-		t.Fatalf("wrong device IDs: got %v want [%q %q]", gotIDs, idA, idB)
-	}
+	is.Equal(gotIDs[0], idA)
+	is.Equal(gotIDs[1], idB)
 }
 
 // TestDiscoverAt_AnyPasswordAccepted verifies the discovery wildcard is
@@ -97,29 +86,26 @@ func TestDiscoverAt_TwoFakes(t *testing.T) {
 // (This is also implicitly tested in TestDiscoverAt_TwoFakes via fake B,
 // but a focused test makes the intent explicit.)
 func TestDiscoverAt_AnyPasswordAccepted(t *testing.T) {
+	is := is.New(t)
 	const id = "0025DDDDDDDDDDDD"
 	const pw = "secretpw"
 	srv := newDiscoveryServer(t, id, pw)
-	if err := writeServerParam(t, srv, id, pw, 0x007C, []byte(id)); err != nil {
-		t.Fatalf("override 007C: %v", err)
-	}
+	is.NoErr(writeServerParam(t, srv, id, pw, 0x007C, []byte(id)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	found, err := breezy.DiscoverAt(ctx, []string{srv.Addr()})
-	if err != nil {
-		t.Fatalf("DiscoverAt: %v", err)
-	}
-	if len(found) != 1 || found[0].DeviceID != id {
-		t.Fatalf("want one device with ID %q, got %+v", id, found)
-	}
+	is.NoErr(err)
+	is.Equal(len(found), 1)
+	is.Equal(found[0].DeviceID, id)
 }
 
 // TestDiscoverAt_NoResponders confirms that pointing the probe at a
 // blackhole address (nothing listening) returns a clean (nil err, empty
 // slice) result after the listen deadline elapses, not an error.
 func TestDiscoverAt_NoResponders(t *testing.T) {
+	is := is.New(t)
 	// Use a context with a short deadline to keep the test fast — the
 	// caller's deadline shortens the listen loop.
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -129,17 +115,14 @@ func TestDiscoverAt_NoResponders(t *testing.T) {
 	// 200ms ctx deadline means ctx.Err() is likely DeadlineExceeded by
 	// the time we return; with no responders, len(out) == 0 so the
 	// implementation surfaces ctx.Err() to the caller.
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected nil or DeadlineExceeded, got %v", err)
-	}
-	if len(found) != 0 {
-		t.Fatalf("expected empty slice, got %+v", found)
-	}
+	is.True(err == nil || errors.Is(err, context.DeadlineExceeded)) // expected nil or DeadlineExceeded
+	is.Equal(len(found), 0)                                         // expected empty slice
 }
 
 // TestDiscoverAt_ContextCancel verifies that canceling ctx mid-listen
 // unblocks the Read promptly instead of waiting out the 2s deadline.
 func TestDiscoverAt_ContextCancel(t *testing.T) {
+	is := is.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
@@ -154,12 +137,8 @@ func TestDiscoverAt_ContextCancel(t *testing.T) {
 	_, err := breezy.DiscoverAt(ctx, []string{"127.0.0.1:1"})
 	elapsed := time.Since(start)
 
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-	if elapsed > 1*time.Second {
-		t.Fatalf("cancel didn't abort listen promptly: elapsed %v", elapsed)
-	}
+	is.True(errors.Is(err, context.Canceled)) // expected context.Canceled
+	is.True(elapsed <= 1*time.Second)         // cancel aborted listen promptly
 }
 
 // TestDiscoverAt_Concurrent calls DiscoverAt from multiple goroutines
@@ -167,11 +146,10 @@ func TestDiscoverAt_ContextCancel(t *testing.T) {
 // not interfere with the others. We check that every call gets exactly
 // the one expected device back.
 func TestDiscoverAt_Concurrent(t *testing.T) {
+	is := is.New(t)
 	const id = "0025CCCCCCCCCCCC"
 	srv := newDiscoveryServer(t, id, "1111")
-	if err := writeServerParam(t, srv, id, "1111", 0x007C, []byte(id)); err != nil {
-		t.Fatalf("override 007C: %v", err)
-	}
+	is.NoErr(writeServerParam(t, srv, id, "1111", 0x007C, []byte(id)))
 
 	const goroutines = 8
 	var wg sync.WaitGroup
@@ -227,6 +205,7 @@ func writeServerParam(t *testing.T, srv *fakedevice.Server, deviceID, password s
 }
 
 func TestUnitTypeName(t *testing.T) {
+	is := is.New(t)
 	cases := map[uint16]string{
 		17: "Breezy 160",
 		20: "Breezy Eco 160",
@@ -236,8 +215,6 @@ func TestUnitTypeName(t *testing.T) {
 		99: "unknown(99)",
 	}
 	for code, want := range cases {
-		if got := breezy.UnitTypeName(code); got != want {
-			t.Errorf("UnitTypeName(%d) = %q, want %q", code, got, want)
-		}
+		is.Equal(breezy.UnitTypeName(code), want)
 	}
 }
