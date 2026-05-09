@@ -27,7 +27,7 @@ templ SensorThresholdEdit(name, kind, label string, min, max, step, threshold in
 		<div class="sensor-label">{ label }</div>
 		<form
 			class="thresh-edit-inline"
-			data-on:submit__prevent={ datastar.PutSSE("/ui/devices/%s/threshold", name) }
+			data-on:submit__prevent={ fmt.Sprintf("@put('/ui/devices/%s/threshold', {contentType: 'form'})", name) }
 		>
 			<input type="hidden" name="kind" value={ kind }/>
 			<input

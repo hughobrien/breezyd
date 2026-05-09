@@ -64,7 +64,7 @@ templ presetBtn(v ui.DeviceView, n int) {
 		type="button"
 		data-on:click={ presetChipExpr(v.Name, n) }
 		if v.Stale { disabled }
-		aria-pressed={ boolAttr(v.SpeedMode == fmt.Sprintf("preset%d", n)) }
+		data-attr:aria-pressed={ fmt.Sprintf("$speedMode === 'preset%d' ? 'true' : 'false'", n) }
 	>{ presetLabel(v, n) }</button>
 }
 
