@@ -360,6 +360,71 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 	}
 }
 
+// TestRenderBlocks_DetailsOpenBinding pins that every collapsible
+// <details> block in the card carries `data-attr:open="$detailsOpen.<key>"`.
+// The binding is what makes user-toggled and signal-driven open state
+// survive an SSE patch that re-renders the block: the patched HTML
+// must re-emit the same binding so datastar can re-attach the signal.
+//
+// Catalog B-28 (#36) — regressed once during the htmx → datastar
+// migration; pinning here keeps it caught at unit-test speed.
+func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
+	v := loadView(t, "snapshot_settling")
+	cases := []struct {
+		block    string
+		wantAttr string
+		render   func() (string, error)
+	}{
+		{
+			block:    "info",
+			wantAttr: `data-attr:open="$detailsOpen.info"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := InfoDetails(v).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+		{
+			block:    "sensors",
+			wantAttr: `data-attr:open="$detailsOpen.sensors"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := SensorsBlock(v.Name, v.Sensors).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+		{
+			block:    "energy",
+			wantAttr: `data-attr:open="$detailsOpen.energy"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := EnergyBlock(v.Name, v.Energy).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+		{
+			block:    "schedule",
+			wantAttr: `data-attr:open="$detailsOpen.schedule"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := ScheduleBlock(v.Name, v.Schedule, v.Stale).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.block, func(t *testing.T) {
+			got, err := c.render()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(got, c.wantAttr) {
+				t.Errorf("%s block missing %q\n%s", c.block, c.wantAttr, got)
+			}
+		})
+	}
+}
+
 func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
 	var sb strings.Builder
 	sv := ui.ScheduleView{Present: true}
