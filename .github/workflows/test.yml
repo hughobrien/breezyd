@@ -73,8 +73,8 @@ jobs:
           # (e.g. v2.1.6) are built with go1.24 and refuse to load configs
           # targeting a newer Go (matches the project's go.mod). v2.11.4
           # is the version verified to work locally and against this code.
+          # Linter set + timeout live in .golangci.yml at the repo root.
           version: v2.11.4
-          args: --timeout=5m
 
   # Address sanitizer = `just test-asan`. Catches OOB / use-after-free,
   # primarily relevant for cgo. Skips pkg/homekit because Go 1.26 + ASan
