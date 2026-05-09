@@ -135,20 +135,22 @@ func powerButtonExpr(v ui.DeviceView) string {
 // SSE arrives; subsequent pushes update only the runtime fields via
 // datastar-patch-signals.
 //
-// manualPct and preset.<n>.{supply,extract} are also seeded so the manual
-// slider and preset-editor sliders' data-bind targets find numeric (not
-// string) signals at first render — datastar's type-preservation then keeps
-// the bound values numeric across user drags. The preset map is reseeded on
-// every card render, matching manualPct's "server is source of truth"
-// model — the cost is a thumb that jumps to the server's value if a poll
-// lands mid-drag, the gain is that an external change to the preset on the
-// device panel is reflected in the dashboard without refresh.
+// preset.<n>.{supply,extract} is also seeded so the preset-editor sliders'
+// data-bind targets find numeric (not string) signals at first render —
+// datastar's type-preservation then keeps the bound values numeric across
+// user drags. The preset map is reseeded on every card render — the cost
+// is a thumb that jumps to the server's value if a poll lands mid-drag,
+// the gain is that an external change to the preset on the device panel
+// is reflected in the dashboard without refresh.
+//
+// The manual slider does NOT seed a $manualPct signal; the input's value
+// attribute is the source of truth, and the @post expression reads
+// evt.target.valueAsNumber directly. See #116.
 func initialCardSignals(v ui.DeviceView) string {
 	s := map[string]any{
 		"automode":    false,
 		"matchSpeeds": true,
 		"editor":      0,
-		"manualPct":   v.ManualPct,
 		"preset":      presetSeed(v),
 		"detailsOpen": map[string]bool{
 			"info":     false,

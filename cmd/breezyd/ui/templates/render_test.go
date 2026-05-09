@@ -437,6 +437,56 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 	}
 }
 
+// TestRenderControls_NoColonFormDataBind pins the controls block against
+// the lowercase trap of colon-keyed `data-bind:<camelCaseKey>`: HTML
+// attribute names are lowercased by the parser, so `data-bind:manualPct`
+// is parsed as `data-bind:manualpct` — a key that doesn't auto-camelCase
+// (no hyphens to flip) — and datastar autocreates a separate
+// `$manualpct` signal. Expressions that read the camelCase signal see
+// the stale initial seed. See #116.
+//
+// The boolean checkboxes (automode, matchSpeeds) use value-form
+// `data-bind="<key>"`, which preserves casing in the value position.
+// The manual slider doesn't bind to a signal at all — its @post reads
+// evt.target.valueAsNumber directly, sidestepping the value-form
+// "signal-wins overrides server-rendered value" issue when a poll
+// re-renders the card with a fresh value attribute.
+func TestRenderControls_NoColonFormDataBind(t *testing.T) {
+	v := loadView(t, "snapshot_manual")
+	var sb strings.Builder
+	if err := ControlsBlock(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	wantContains := []string{
+		// Booleans use value-form data-bind.
+		`data-bind="automode"`,
+		`data-bind="matchSpeeds"`,
+		// Manual slider reads input value directly via evt.target — no bind.
+		`{manual: evt.target.valueAsNumber}`,
+	}
+	wantAbsent := []string{
+		// Colon-form for any camelCase signal silently lowercases the key.
+		`data-bind:manualPct`,
+		`data-bind:matchSpeeds`,
+		`data-bind:automode`,
+		// Manual slider must not bind to $manualPct — that would re-introduce
+		// the signal-wins clobber on outer re-renders.
+		`data-bind="manualPct"`,
+		`{manual: $manualPct}`,
+	}
+	for _, s := range wantContains {
+		if !strings.Contains(got, s) {
+			t.Errorf("controls render missing %q", s)
+		}
+	}
+	for _, s := range wantAbsent {
+		if strings.Contains(got, s) {
+			t.Errorf("controls render has forbidden form %q", s)
+		}
+	}
+}
+
 func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
 	var sb strings.Builder
 	sv := ui.ScheduleView{Present: true}
