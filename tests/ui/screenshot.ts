@@ -122,23 +122,20 @@ async function main() {
       // Open preset 2's editor on the bedroom card so the README
       // screenshot shows the editor in its open state. Datastar's
       // data-show toggles based on the card-level $editor signal —
-      // clicking the chip flips it to 2.
+      // clicking the chip flips it to 2. The editor itself starts
+      // display:none (so it doesn't flash on first paint), so we
+      // click first, then scroll once it's visible.
       const chip = page
         .locator('.card:first-of-type [data-preset-editor="2"]')
         .locator("xpath=preceding::div[contains(@class,'seg')][1]")
         .locator('button:nth-of-type(2)');
       await chip.scrollIntoViewIfNeeded();
       await chip.click();
-      // data-show is reactive; the editor becomes visible without a
-      // server round-trip.
-      await page.waitForSelector(
-        '.card:first-of-type [data-preset-editor="2"]:visible',
-        { timeout: 5_000 },
-      );
-      // Scroll the now-visible editor into view for the screenshot.
-      await page
+      const editor = page
         .locator('.card:first-of-type .preset-editor[data-preset-editor="2"]')
-        .scrollIntoViewIfNeeded();
+        .first();
+      await editor.waitFor({ state: "visible", timeout: 5_000 });
+      await editor.scrollIntoViewIfNeeded();
     });
     await captureViewport(daemonURL, 480, 900, resolve(OUT_DIR, "dashboard-1col.png"));
   } finally {
