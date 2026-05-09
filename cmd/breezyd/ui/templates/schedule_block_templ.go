@@ -494,7 +494,7 @@ func ScheduleEditRow(e ui.ScheduleEntryView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\" class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "\" data-on:change=\"evt.target.dataset.origPct = evt.target.value\" class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -553,7 +553,7 @@ func scheduleActionOption(value, label, current string) templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/schedule_block.templ`, Line: 167, Col: 22}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/schedule_block.templ`, Line: 168, Col: 22}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
@@ -576,7 +576,7 @@ func scheduleActionOption(value, label, current string) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/schedule_block.templ`, Line: 167, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/schedule_block.templ`, Line: 168, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 		if templ_7745c5c3_Err != nil {
@@ -610,10 +610,13 @@ func schedulePctValue(e ui.ScheduleEntryView) string {
 	return fmt.Sprintf("%d", e.Pct)
 }
 
-// schedulePctOrigValue is the value to restore into the pct <input> when
-// the user toggles action away from "off". Pct's valid range is [10..100],
-// so 0 (or anything out of range) is treated as the "no value" sentinel
-// and falls back to a sensible default of 50.
+// schedulePctOrigValue is the INITIAL value to restore into the pct
+// <input> when the user toggles action away from "off". The pct input
+// also carries a `data-on:change` handler that updates data-orig-pct on
+// every commit, so subsequent off→on toggles restore the user's
+// last-edited value rather than the server-render original. Pct's valid
+// range is [10..100]; 0 (or anything out of range) is the "no value"
+// sentinel and falls back to a sensible default of 50.
 func schedulePctOrigValue(e ui.ScheduleEntryView) string {
 	if e.Pct >= 10 && e.Pct <= 100 {
 		return fmt.Sprintf("%d", e.Pct)

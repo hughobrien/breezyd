@@ -149,6 +149,7 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 				max="100"
 				value={ schedulePctValue(e) }
 				data-orig-pct={ schedulePctOrigValue(e) }
+				data-on:change="evt.target.dataset.origPct = evt.target.value"
 				class={ templ.KV("pct-disabled", e.Action == "off") }
 				if e.Action == "off" { readonly }
 			/>
@@ -187,10 +188,13 @@ func schedulePctValue(e ui.ScheduleEntryView) string {
 	return fmt.Sprintf("%d", e.Pct)
 }
 
-// schedulePctOrigValue is the value to restore into the pct <input> when
-// the user toggles action away from "off". Pct's valid range is [10..100],
-// so 0 (or anything out of range) is treated as the "no value" sentinel
-// and falls back to a sensible default of 50.
+// schedulePctOrigValue is the INITIAL value to restore into the pct
+// <input> when the user toggles action away from "off". The pct input
+// also carries a `data-on:change` handler that updates data-orig-pct on
+// every commit, so subsequent off→on toggles restore the user's
+// last-edited value rather than the server-render original. Pct's valid
+// range is [10..100]; 0 (or anything out of range) is the "no value"
+// sentinel and falls back to a sensible default of 50.
 func schedulePctOrigValue(e ui.ScheduleEntryView) string {
 	if e.Pct >= 10 && e.Pct <= 100 {
 		return fmt.Sprintf("%d", e.Pct)
