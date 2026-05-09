@@ -9,8 +9,8 @@
 // The dashboard is fully SSE-driven: opening the page makes a single
 // long-lived GET /ui/sse, the daemon emits one datastar-patch-elements
 // event per device on connect, then streams updates from the poller.
-// Tests therefore wait for the card to *change* rather than for an
-// htmx swap to complete.
+// Tests therefore wait for the card to *change* rather than for a
+// specific request/response cycle to complete.
 //
 // Device name: "alpha" (sole device in the test config).
 // baseURL: process.env.BREEZYD_URL (set by global-setup).

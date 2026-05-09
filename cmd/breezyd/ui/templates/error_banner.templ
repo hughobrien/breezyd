@@ -1,7 +1,7 @@
 package templates
 
-// ErrorBanner renders a full-width error banner. Used for daemon-unreachable
-// and 5xx target-swap errors. msg must be non-empty.
+// ErrorBanner renders a full-width error banner. Used for
+// daemon-unreachable and 5xx errors. msg must be non-empty.
 templ ErrorBanner(msg string) {
 	<div class="err-banner" role="alert">{ msg }</div>
 }
