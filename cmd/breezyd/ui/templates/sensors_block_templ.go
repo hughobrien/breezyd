@@ -50,7 +50,7 @@ func SensorsBlock(name string, s ui.SensorsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"block sensors\" data-block=\"sensors\" data-class:alert=\"$sensorsAlert\" data-attr:open=\"$detailsOpen.sensors\"><summary><h3>Sensors</h3></summary>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"block sensors\" data-block=\"sensors\" data-class:alert=\"$sensorsAlert\" data-attr:open=\"$detailsOpen.sensors\"><summary data-on:click=\"$detailsOpen.sensors = !$detailsOpen.sensors\"><h3>Sensors</h3></summary>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

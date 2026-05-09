@@ -109,6 +109,26 @@ test.describe("rendering", () => {
     await expect(card).toContainText("54%");
     await expect(card).toContainText("1175 ppm");
   });
+
+  // Pins #118: clicking a <details> summary must toggle the open state and
+  // keep the toggled state across datastar's reactive cycle. Before the fix,
+  // data-attr:open enforced the (still-false) signal one-way, so the open
+  // attribute got reverted by the next pass and clicks no-op'd. The fix is
+  // a data-on:toggle handler that writes evt.target.open back into the
+  // signal so signal and DOM stay reconciled.
+  test("details summary click toggles open state (round-trip)", async ({ page }) => {
+    await reset(DEVICE);
+    const card = await loadCard(page);
+    const info = card.locator('details[data-block="info"]');
+    // Defaults closed (initialCardSignals seeds detailsOpen.info=false).
+    await expect(info).not.toHaveAttribute("open", "");
+
+    await info.locator("summary").click();
+    await expect(info).toHaveAttribute("open", "");
+
+    await info.locator("summary").click();
+    await expect(info).not.toHaveAttribute("open", "");
+  });
 });
 
 test.describe("SSE push", () => {
@@ -283,16 +303,10 @@ test.describe("editor preservation across polls (#65)", () => {
     });
     const card = await loadCard(page);
 
-    // Open the schedule <details> by updating the datastar signal directly.
-    // A summary click alone would toggle `open`, but the MutationObserver
-    // bound by data-attr:open="$detailsOpen.schedule" immediately re-evaluates
-    // the (still-false) signal and removes the open attribute again.
-    // Importing the module and calling mergePaths updates the reactive store,
-    // so the binding re-evaluates to true and keeps the details open.
-    await page.evaluate(async () => {
-      const { mergePaths } = await import("/ui/vendor/datastar-1.0.1.min.js");
-      mergePaths([["detailsOpen.schedule", true]]);
-    });
+    // Open the schedule <details> via a real summary click — the
+    // data-on:toggle handler writes the new open state back into
+    // $detailsOpen.schedule, keeping the binding consistent (see #118).
+    await card.locator('details[data-block="schedule"] > summary').click();
 
     // Click "edit schedule" to enter edit mode.
     const editBtn = card.getByRole("button", { name: "edit schedule" });

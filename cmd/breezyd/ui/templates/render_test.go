@@ -361,23 +361,29 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 }
 
 // TestRenderBlocks_DetailsOpenBinding pins that every collapsible
-// <details> block in the card carries `data-attr:open="$detailsOpen.<key>"`.
-// The binding is what makes user-toggled and signal-driven open state
-// survive an SSE patch that re-renders the block: the patched HTML
-// must re-emit the same binding so datastar can re-attach the signal.
+// <details> block in the card pairs `data-attr:open="$detailsOpen.<key>"`
+// on the <details> with `data-on:click="$detailsOpen.<key> = !$detailsOpen.<key>"`
+// on its <summary>. The pair makes user-toggled and signal-driven open state
+// consistent: the click flips the signal, the browser also toggles the open
+// attribute, and data-attr:open re-applies the (now-matching) signal so
+// nothing reverts. A `data-on:toggle` writeback would not work because
+// datastar's MutationObserver-driven re-evaluation runs before the toggle
+// event fires (see #118).
 //
 // Catalog B-28 (#36) — regressed once during the htmx → datastar
 // migration; pinning here keeps it caught at unit-test speed.
 func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 	v := loadView(t, "snapshot_settling")
 	cases := []struct {
-		block    string
-		wantAttr string
-		render   func() (string, error)
+		block      string
+		wantAttr   string
+		wantToggle string
+		render     func() (string, error)
 	}{
 		{
-			block:    "info",
-			wantAttr: `data-attr:open="$detailsOpen.info"`,
+			block:      "info",
+			wantAttr:   `data-attr:open="$detailsOpen.info"`,
+			wantToggle: `data-on:click="$detailsOpen.info = !$detailsOpen.info"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := InfoDetails(v).Render(context.Background(), &sb)
@@ -385,8 +391,9 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 			},
 		},
 		{
-			block:    "sensors",
-			wantAttr: `data-attr:open="$detailsOpen.sensors"`,
+			block:      "sensors",
+			wantAttr:   `data-attr:open="$detailsOpen.sensors"`,
+			wantToggle: `data-on:click="$detailsOpen.sensors = !$detailsOpen.sensors"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := SensorsBlock(v.Name, v.Sensors).Render(context.Background(), &sb)
@@ -394,8 +401,9 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 			},
 		},
 		{
-			block:    "energy",
-			wantAttr: `data-attr:open="$detailsOpen.energy"`,
+			block:      "energy",
+			wantAttr:   `data-attr:open="$detailsOpen.energy"`,
+			wantToggle: `data-on:click="$detailsOpen.energy = !$detailsOpen.energy"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := EnergyBlock(v.Name, v.Energy).Render(context.Background(), &sb)
@@ -403,8 +411,9 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 			},
 		},
 		{
-			block:    "schedule",
-			wantAttr: `data-attr:open="$detailsOpen.schedule"`,
+			block:      "schedule",
+			wantAttr:   `data-attr:open="$detailsOpen.schedule"`,
+			wantToggle: `data-on:click="$detailsOpen.schedule = !$detailsOpen.schedule"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := ScheduleBlock(v.Name, v.Schedule, v.Stale).Render(context.Background(), &sb)
@@ -420,6 +429,9 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 			}
 			if !strings.Contains(got, c.wantAttr) {
 				t.Errorf("%s block missing %q\n%s", c.block, c.wantAttr, got)
+			}
+			if !strings.Contains(got, c.wantToggle) {
+				t.Errorf("%s block missing %q\n%s", c.block, c.wantToggle, got)
 			}
 		})
 	}
