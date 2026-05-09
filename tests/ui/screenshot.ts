@@ -6,7 +6,7 @@
 //
 // Run via: just screenshot
 
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import { spawn, ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
@@ -134,7 +134,7 @@ async function main() {
       // The data-preset-editor="2" attribute is unique within a card; combined
       // with .card:first-of-type, the locator resolves to exactly one element.
       const editor = page.locator('.card:first-of-type .preset-editor[data-preset-editor="2"]');
-      await editor.waitFor({ state: "visible", timeout: 5_000 });
+      await expect(editor).toBeVisible({ timeout: 5_000 });
       await editor.scrollIntoViewIfNeeded();
     });
     await captureViewport(daemonURL, 480, 900, resolve(OUT_DIR, "dashboard-1col.png"));
@@ -162,15 +162,23 @@ async function captureViewport(
     });
 
     await page.goto(daemonURL + "/");
-    // Wait for the SSE-driven initial-state pass to populate every card.
+    // Wait for the SSE-driven initial-state pass to populate every card and
+    // for datastar to apply data-attr:* bindings — data-airflow-mode is
+    // populated reactively from the $airflowMode signal once the first
+    // patch-signals event lands. This is a deterministic substitute for the
+    // earlier "brief pause" — when every card has the attribute, signals
+    // are seeded and the screenshot won't race a mid-poll repaint.
     await page.waitForFunction(
-      (n) => document.querySelectorAll(".card").length >= n,
+      (n) => {
+        const cards = document.querySelectorAll(".card");
+        return (
+          cards.length >= n &&
+          Array.from(cards).every((c) => c.hasAttribute("data-airflow-mode"))
+        );
+      },
       DEVICES.length,
       { timeout: 10_000 },
     );
-    // Brief pause so any follow-up patch (next poll tick) has a chance
-    // to land before the screenshot.
-    await page.waitForTimeout(500);
     if (beforeShot) await beforeShot(page);
     await page.screenshot({ path: outFile, fullPage: true });
 
