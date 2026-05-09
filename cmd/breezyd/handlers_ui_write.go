@@ -11,8 +11,9 @@
 //     #global-error-banner.
 //  6. On other backend error: 502 + datastar-patch-elements event.
 //
-// Threshold and schedule fragment endpoints still emit HTML; they get
-// converted to SSE in Task 5.
+// The threshold and schedule fragment endpoints emit datastar-patch-elements
+// SSE events via patchFragmentSSE (the dashboard's @get / @put expect SSE
+// streams, not raw HTML).
 package main
 
 import (
