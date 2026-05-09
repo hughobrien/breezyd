@@ -9,98 +9,81 @@ import (
 	"testing"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 func TestMemClient_RoundTrip(t *testing.T) {
+	is := is.New(t)
 	c := breezy.NewMemClient(map[breezy.ParamID][]byte{
 		0x0001: {0x00},
 	})
 	ctx := context.Background()
-	if err := c.WriteParams(ctx, []breezy.ParamWrite{{ID: 0x0001, Value: []byte{0x42}}}); err != nil {
-		t.Fatalf("write: %v", err)
-	}
+	is.NoErr(c.WriteParams(ctx, []breezy.ParamWrite{{ID: 0x0001, Value: []byte{0x42}}}))
 	got, err := c.ReadParams(ctx, []breezy.ParamID{0x0001})
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if string(got[0x0001]) != "\x42" {
-		t.Fatalf("got %x want 42", got[0x0001])
-	}
+	is.NoErr(err)
+	is.Equal(string(got[0x0001]), "\x42")
 }
 
 func TestMemClient_WriteNewParam(t *testing.T) {
+	is := is.New(t)
 	// Write to a param that wasn't in the seed — should be stored and readable.
 	c := breezy.NewMemClient(nil)
 	ctx := context.Background()
-	if err := c.WriteParams(ctx, []breezy.ParamWrite{{ID: 0x0001, Value: []byte{0x01, 0x00}}}); err != nil {
-		t.Fatalf("write: %v", err)
-	}
+	is.NoErr(c.WriteParams(ctx, []breezy.ParamWrite{{ID: 0x0001, Value: []byte{0x01, 0x00}}}))
 	got, err := c.ReadParams(ctx, []breezy.ParamID{0x0001})
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
+	is.NoErr(err)
 	want := []byte{0x01, 0x00}
-	if string(got[0x0001]) != string(want) {
-		t.Fatalf("got %x want %x", got[0x0001], want)
-	}
+	is.Equal(string(got[0x0001]), string(want))
 }
 
 func TestMemClient_AbsentParamOmittedFromResult(t *testing.T) {
+	is := is.New(t)
 	c := breezy.NewMemClient(nil)
 	got, err := c.ReadParams(context.Background(), []breezy.ParamID{0x0001})
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if _, ok := got[0x0001]; ok {
-		t.Fatal("absent param should be missing from result map")
-	}
+	is.NoErr(err)
+	_, ok := got[0x0001]
+	is.True(!ok) // absent param should be missing from result map
 }
 
 func TestMemClient_IsLocal(t *testing.T) {
+	is := is.New(t)
 	c := breezy.NewMemClient(nil)
-	if !c.IsLocal() {
-		t.Fatal("MemClient.IsLocal should be true")
-	}
+	is.True(c.IsLocal()) // MemClient.IsLocal should be true
 }
 
 func TestMemClient_AuthFault(t *testing.T) {
+	is := is.New(t)
 	c := breezy.NewMemClient(nil)
 	c.SetAuthFailureMode(true)
 	_, err := c.ReadParams(context.Background(), []breezy.ParamID{0x0001})
-	if !errors.Is(err, breezy.ErrAuth) {
-		t.Fatalf("got %v want ErrAuth", err)
-	}
+	is.True(errors.Is(err, breezy.ErrAuth))
 	// Also affects writes.
 	werr := c.WriteParams(context.Background(), []breezy.ParamWrite{{ID: 0x0001, Value: []byte{0x00}}})
-	if !errors.Is(werr, breezy.ErrAuth) {
-		t.Fatalf("write: got %v want ErrAuth", werr)
-	}
+	is.True(errors.Is(werr, breezy.ErrAuth))
 }
 
 func TestMemClient_TimeoutFault(t *testing.T) {
+	is := is.New(t)
 	c := breezy.NewMemClient(nil)
 	c.SetTimeoutMode(true)
 	err := c.WriteParams(context.Background(), []breezy.ParamWrite{{ID: 0x0001, Value: []byte{0x00}}})
-	if !errors.Is(err, breezy.ErrTimeout) {
-		t.Fatalf("got %v want ErrTimeout", err)
-	}
+	is.True(errors.Is(err, breezy.ErrTimeout))
 	// Also affects reads.
 	_, rerr := c.ReadParams(context.Background(), []breezy.ParamID{0x0001})
-	if !errors.Is(rerr, breezy.ErrTimeout) {
-		t.Fatalf("read: got %v want ErrTimeout", rerr)
-	}
+	is.True(errors.Is(rerr, breezy.ErrTimeout))
 }
 
 func TestMemClient_FaultClearable(t *testing.T) {
+	is := is.New(t)
 	c := breezy.NewMemClient(nil)
 	c.SetAuthFailureMode(true)
 	c.SetAuthFailureMode(false)
-	if _, err := c.ReadParams(context.Background(), []breezy.ParamID{0x0001}); err != nil {
-		t.Fatalf("expected no error after clearing fault, got %v", err)
-	}
+	_, err := c.ReadParams(context.Background(), []breezy.ParamID{0x0001})
+	is.NoErr(err) // expected no error after clearing fault
 }
 
 func TestMemClient_Reset(t *testing.T) {
+	is := is.New(t)
 	c := breezy.NewMemClient(map[breezy.ParamID][]byte{0x0001: {0x00}})
 	// Mutate and inject fault.
 	_ = c.WriteParams(context.Background(), []breezy.ParamWrite{{ID: 0x0001, Value: []byte{0xFF}}})
@@ -108,15 +91,12 @@ func TestMemClient_Reset(t *testing.T) {
 	// Reset should restore seed params and clear the fault.
 	c.Reset()
 	got, err := c.ReadParams(context.Background(), []breezy.ParamID{0x0001})
-	if err != nil {
-		t.Fatalf("read after reset: %v", err)
-	}
-	if string(got[0x0001]) != "\x00" {
-		t.Fatalf("reset didn't restore: got %x", got[0x0001])
-	}
+	is.NoErr(err)
+	is.Equal(string(got[0x0001]), "\x00") // reset restored seed
 }
 
 func TestMemClient_ResetDoesNotShareSlices(t *testing.T) {
+	is := is.New(t)
 	// Verify Reset makes independent copies, not aliased slices.
 	seed := map[breezy.ParamID][]byte{0x0001: {0xAA}}
 	c := breezy.NewMemClient(seed)
@@ -125,12 +105,8 @@ func TestMemClient_ResetDoesNotShareSlices(t *testing.T) {
 	// Second reset should still see 0xAA, not 0xBB.
 	c.Reset()
 	got, err := c.ReadParams(context.Background(), []breezy.ParamID{0x0001})
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if got[0x0001][0] != 0xAA {
-		t.Fatalf("after second reset, got %x want AA", got[0x0001])
-	}
+	is.NoErr(err)
+	is.Equal(got[0x0001][0], byte(0xAA)) // second reset restores original seed
 }
 
 func TestMemClient_Concurrency(t *testing.T) {
@@ -151,34 +127,24 @@ func TestMemClient_Concurrency(t *testing.T) {
 }
 
 func TestMemClient_FromFile(t *testing.T) {
+	is := is.New(t)
 	c, err := breezy.NewMemClientFromFile("fakedevice/snapshot_148.json")
-	if err != nil {
-		t.Fatalf("from file: %v", err)
-	}
+	is.NoErr(err)
 	// snapshot_148.json has 0x0001 (power) present.
 	got, err := c.ReadParams(context.Background(), []breezy.ParamID{0x0001})
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if len(got[0x0001]) == 0 {
-		t.Fatal("expected param 0x0001 present in snapshot_148.json")
-	}
+	is.NoErr(err)
+	is.True(len(got[0x0001]) != 0) // expected param 0x0001 present in snapshot_148.json
 }
 
 func TestMemClient_FromFile_LoadsAllParams(t *testing.T) {
+	is := is.New(t)
 	c, err := breezy.NewMemClientFromFile("fakedevice/snapshot_148.json")
-	if err != nil {
-		t.Fatalf("from file: %v", err)
-	}
+	is.NoErr(err)
 	// Request the full status param set to confirm ~120 params loaded.
 	got, err := c.ReadParams(context.Background(), breezy.StatusParamIDs)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
+	is.NoErr(err)
 	// StatusParamIDs has 43 entries; a healthy snapshot should provide most.
-	if len(got) < 30 {
-		t.Fatalf("expected at least 30 params loaded, got %d", len(got))
-	}
+	is.True(len(got) >= 30) // expected at least 30 params loaded
 }
 
 // Compile-time check: *MemClient satisfies breezy.DeviceClient.

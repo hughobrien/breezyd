@@ -6,8 +6,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
-	"reflect"
 	"testing"
+
+	"github.com/matryer/is"
 )
 
 // ----- helpers -----
@@ -32,38 +33,31 @@ func sumChecksum(b []byte) uint16 {
 // ----- EncodeRequest -----
 
 func TestEncodeRequest_GoldenReadUnitType(t *testing.T) {
+	is := is.New(t)
 	// Read param 0xB9 (unit_type) from the playroom unit with default password.
 	got := EncodeRequest("BREEZY00000000A0", "1111", FuncRead, []byte{0xB9})
 
 	// Hand-computed expected wire bytes:
 	//   FD FD 02 10 <16 ASCII id> 04 31 31 31 31 01 B9 <ck_lo> <ck_hi>
 	want := mustHex(t, "fdfd0210425245455a5930303030303030304130043131313101b95605")
-	if !bytes.Equal(got, want) {
-		t.Fatalf("EncodeRequest mismatch:\n got: %s\nwant: %s", hex.EncodeToString(got), hex.EncodeToString(want))
-	}
+	is.Equal(got, want) // EncodeRequest must match the golden wire bytes
 
 	// Independently verify the checksum: sum of bytes [2:-2] LE-stored at end.
 	cs := sumChecksum(got[2 : len(got)-2])
 	gotCS := uint16(got[len(got)-2]) | uint16(got[len(got)-1])<<8
-	if cs != gotCS {
-		t.Fatalf("checksum self-check: stored 0x%04x sum 0x%04x", gotCS, cs)
-	}
+	is.Equal(cs, gotCS) // checksum self-check
 }
 
 func TestEncodeRequest_EmptyPassword(t *testing.T) {
+	is := is.New(t)
 	got := EncodeRequest("BREEZY00000000A0", "", FuncRead, []byte{0x01})
 	// SIZE_PWD = 0; PWD block is empty; FUNC=0x01 then DATA=0x01.
-	if got[20] != 0x00 {
-		t.Fatalf("expected SIZE_PWD=0, got 0x%02x", got[20])
-	}
-	if got[21] != FuncRead || got[22] != 0x01 {
-		t.Fatalf("expected FUNC=0x01 DATA=0x01, got 0x%02x 0x%02x", got[21], got[22])
-	}
+	is.Equal(got[20], byte(0x00)) // SIZE_PWD must be 0 for empty password
+	is.Equal(got[21], byte(FuncRead))
+	is.Equal(got[22], byte(0x01))
 	cs := sumChecksum(got[2 : len(got)-2])
 	gotCS := uint16(got[len(got)-2]) | uint16(got[len(got)-1])<<8
-	if cs != gotCS {
-		t.Fatalf("checksum mismatch: 0x%04x vs 0x%04x", cs, gotCS)
-	}
+	is.Equal(cs, gotCS)
 }
 
 // ----- DecodeResponse golden -----
@@ -72,99 +66,76 @@ func TestEncodeRequest_EmptyPassword(t *testing.T) {
 // response to "read unit_type". The DATA block is FE 02 B9 11 00, i.e.
 // param 0x00B9 with 2-byte value [0x11, 0x00] (= unit type 17 = Breezy 160).
 func TestDecodeResponse_GoldenReadUnitType(t *testing.T) {
+	is := is.New(t)
 	// Synthesised by encoding a response with the same shape, then
 	// independently checksum-verified against the live capture.
 	frame := EncodeRequest("BREEZY00000000A0", "1111", FuncResponse,
 		mustHex(t, "fe02b91100"))
 	// Sanity: frame should end with stored checksum 0x6c 0x06.
-	if frame[len(frame)-2] != 0x6c || frame[len(frame)-1] != 0x06 {
-		t.Fatalf("unexpected checksum bytes: 0x%02x 0x%02x (frame=%s)",
-			frame[len(frame)-2], frame[len(frame)-1], hex.EncodeToString(frame))
-	}
+	is.Equal(frame[len(frame)-2], byte(0x6c))
+	is.Equal(frame[len(frame)-1], byte(0x06))
 
 	fn, data, err := DecodeResponse(frame, "BREEZY00000000A0", "1111")
-	if err != nil {
-		t.Fatalf("DecodeResponse: %v", err)
-	}
-	if fn != FuncResponse {
-		t.Fatalf("function: got 0x%02x want 0x06", fn)
-	}
+	is.NoErr(err)
+	is.Equal(fn, byte(FuncResponse))
 	want := mustHex(t, "fe02b91100")
-	if !bytes.Equal(data, want) {
-		t.Fatalf("DATA: got %s want %s", hex.EncodeToString(data), hex.EncodeToString(want))
-	}
+	is.Equal(data, want)
 
 	// And ParseDataBlock surfaces the value.
 	pvs, err := ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
-	if len(pvs) != 1 {
-		t.Fatalf("expected 1 entry, got %d (%v)", len(pvs), pvs)
-	}
-	if pvs[0].ID != 0x00B9 {
-		t.Fatalf("ID: got 0x%04x want 0x00B9", pvs[0].ID)
-	}
-	if !bytes.Equal(pvs[0].Value, []byte{0x11, 0x00}) {
-		t.Fatalf("Value: got %x want 1100", pvs[0].Value)
-	}
-	if pvs[0].Unsupported {
-		t.Fatalf("Unsupported should be false")
-	}
+	is.NoErr(err)
+	is.Equal(len(pvs), 1)
+	is.Equal(pvs[0].ID, ParamID(0x00B9))
+	is.Equal(pvs[0].Value, []byte{0x11, 0x00})
+	is.True(!pvs[0].Unsupported) // Unsupported should be false
 }
 
 func TestDecodeResponse_AuthFailure(t *testing.T) {
+	is := is.New(t)
 	// A captured-shape wrong-password response: function 0x07 with
 	// 2-byte payload "01 31".
 	frame := EncodeRequest("BREEZY00000000A0", "1111", FuncAuthFailure, []byte{0x01, 0x31})
 	_, _, err := DecodeResponse(frame, "BREEZY00000000A0", "1111")
-	if !errors.Is(err, ErrAuth) {
-		t.Fatalf("expected ErrAuth, got %v", err)
-	}
+	is.True(errors.Is(err, ErrAuth)) // expected ErrAuth
 }
 
 func TestDecodeResponse_BadHeader(t *testing.T) {
+	is := is.New(t)
 	good := EncodeRequest("BREEZY00000000A0", "1111", FuncResponse, []byte{0x01, 0x02})
 	bad := append([]byte{}, good...)
 	bad[0] = 0xAB
 	_, _, err := DecodeResponse(bad, "BREEZY00000000A0", "1111")
-	if !errors.Is(err, ErrBadHeader) {
-		t.Fatalf("expected ErrBadHeader, got %v", err)
-	}
+	is.True(errors.Is(err, ErrBadHeader)) // expected ErrBadHeader
 }
 
 func TestDecodeResponse_BadChecksum(t *testing.T) {
+	is := is.New(t)
 	good := EncodeRequest("BREEZY00000000A0", "1111", FuncResponse, []byte{0x01, 0x02})
 	bad := append([]byte{}, good...)
 	bad[len(bad)-1] ^= 0xFF
 	_, _, err := DecodeResponse(bad, "BREEZY00000000A0", "1111")
-	if !errors.Is(err, ErrChecksum) {
-		t.Fatalf("expected ErrChecksum, got %v", err)
-	}
+	is.True(errors.Is(err, ErrChecksum)) // expected ErrChecksum
 }
 
 func TestDecodeResponse_IDMismatch(t *testing.T) {
+	is := is.New(t)
 	good := EncodeRequest("BREEZY00000000A0", "1111", FuncResponse, []byte{0x01, 0x02})
 	_, _, err := DecodeResponse(good, "BREEZYNOTTHISONE", "1111")
-	if !errors.Is(err, ErrIDMismatch) {
-		t.Fatalf("expected ErrIDMismatch, got %v", err)
-	}
+	is.True(errors.Is(err, ErrIDMismatch)) // expected ErrIDMismatch
 }
 
 func TestDecodeResponse_PwdMismatch(t *testing.T) {
+	is := is.New(t)
 	good := EncodeRequest("BREEZY00000000A0", "1111", FuncResponse, []byte{0x01, 0x02})
 	_, _, err := DecodeResponse(good, "BREEZY00000000A0", "2222")
-	if !errors.Is(err, ErrPwdMismatch) {
-		t.Fatalf("expected ErrPwdMismatch, got %v", err)
-	}
+	is.True(errors.Is(err, ErrPwdMismatch)) // expected ErrPwdMismatch
 }
 
 func TestDecodeResponse_Truncated(t *testing.T) {
+	is := is.New(t)
 	good := EncodeRequest("BREEZY00000000A0", "1111", FuncResponse, []byte{0x01, 0x02})
 	_, _, err := DecodeResponse(good[:10], "BREEZY00000000A0", "1111")
-	if !errors.Is(err, ErrTruncated) {
-		t.Fatalf("expected ErrTruncated, got %v", err)
-	}
+	is.True(errors.Is(err, ErrTruncated)) // expected ErrTruncated
 }
 
 // TestDecodeDiscoveryResponse_RealWireFormat is a regression test for the
@@ -176,6 +147,7 @@ func TestDecodeResponse_Truncated(t *testing.T) {
 // The strict DecodeResponse rejects such replies with ErrIDMismatch /
 // ErrPwdMismatch. DecodeDiscoveryResponse must accept them.
 func TestDecodeDiscoveryResponse_RealWireFormat(t *testing.T) {
+	is := is.New(t)
 	// Build a frame that mimics what real firmware sent: device ID in
 	// the header is the unit's own ID, password slot is empty, FUNC=
 	// FuncResponse (0x06), DATA carries 0x00B9 (unit type) and 0x007C
@@ -201,19 +173,11 @@ func TestDecodeDiscoveryResponse_RealWireFormat(t *testing.T) {
 	frame := EncodeRequest(realID, "", FuncResponse, dataBlock)
 
 	gotID, fn, body, err := DecodeDiscoveryResponse(frame)
-	if err != nil {
-		t.Fatalf("DecodeDiscoveryResponse: %v", err)
-	}
-	if gotID != realID {
-		t.Errorf("frame ID = %q, want %q", gotID, realID)
-	}
-	if fn != FuncResponse {
-		t.Errorf("function = 0x%02X, want 0x%02X", fn, FuncResponse)
-	}
+	is.NoErr(err)
+	is.Equal(gotID, realID)
+	is.Equal(fn, byte(FuncResponse))
 	parsed, err := ParseDataBlock(body)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
+	is.NoErr(err)
 	var sawID, sawType bool
 	for _, p := range parsed {
 		switch p.ID {
@@ -227,16 +191,12 @@ func TestDecodeDiscoveryResponse_RealWireFormat(t *testing.T) {
 			}
 		}
 	}
-	if !sawID || !sawType {
-		t.Errorf("data block missing 0x007C/0x00B9 (sawID=%v sawType=%v)", sawID, sawType)
-	}
+	is.True(sawID && sawType) // data block must contain 0x007C and 0x00B9
 
 	// Belt-and-braces: confirm the strict DecodeResponse REJECTS the
 	// same frame, so DecodeDiscoveryResponse is the only valid path.
 	_, _, err = DecodeResponse(frame, DefaultDeviceID, "huffpuff")
-	if err == nil {
-		t.Errorf("strict DecodeResponse should have rejected this real-wire frame")
-	}
+	is.True(err != nil) // strict DecodeResponse should have rejected this real-wire frame
 }
 
 // ----- Round-trip property test -----
@@ -256,18 +216,15 @@ func TestRoundTrip_EncodeDecode(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.devID+"/"+c.pwd, func(t *testing.T) {
+			is := is.New(t)
 			pkt := EncodeRequest(c.devID, c.pwd, c.fn, c.data)
 			fn, data, err := DecodeResponse(pkt, c.devID, c.pwd)
-			if err != nil {
-				t.Fatalf("decode: %v", err)
-			}
-			if fn != c.fn {
-				t.Fatalf("function: got 0x%02x want 0x%02x", fn, c.fn)
-			}
+			is.NoErr(err)
+			is.Equal(fn, c.fn)
 			if len(c.data) == 0 && len(data) == 0 {
 				// nil/empty equivalence
-			} else if !bytes.Equal(data, c.data) {
-				t.Fatalf("data: got %x want %x", data, c.data)
+			} else {
+				is.True(bytes.Equal(data, c.data))
 			}
 		})
 	}
@@ -291,11 +248,10 @@ func TestBuildReadDataBlock(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			is := is.New(t)
 			got := BuildReadDataBlock(c.ids)
 			want := mustHex(t, c.want)
-			if !bytes.Equal(got, want) {
-				t.Fatalf("got %s want %s", hex.EncodeToString(got), c.want)
-			}
+			is.True(bytes.Equal(got, want)) // bytes.Equal treats nil and []byte{} as equal; DeepEqual doesn't
 		})
 	}
 }
@@ -347,11 +303,10 @@ func TestBuildWriteDataBlock(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			is := is.New(t)
 			got := BuildWriteDataBlock(c.writes)
 			want := mustHex(t, c.want)
-			if !bytes.Equal(got, want) {
-				t.Fatalf("got %s want %s", hex.EncodeToString(got), c.want)
-			}
+			is.Equal(got, want)
 		})
 	}
 }
@@ -409,24 +364,15 @@ func TestParseDataBlock(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			is := is.New(t)
 			data := mustHex(t, c.data)
 			got, err := ParseDataBlock(data)
-			if err != nil {
-				t.Fatalf("ParseDataBlock: %v", err)
-			}
-			if len(got) != len(c.want) {
-				t.Fatalf("len: got %d want %d (%v)", len(got), len(c.want), got)
-			}
+			is.NoErr(err)
+			is.Equal(len(got), len(c.want))
 			for i := range got {
-				if got[i].ID != c.want[i].ID {
-					t.Errorf("[%d] ID: got 0x%04x want 0x%04x", i, got[i].ID, c.want[i].ID)
-				}
-				if got[i].Unsupported != c.want[i].Unsupported {
-					t.Errorf("[%d] Unsupported: got %v want %v", i, got[i].Unsupported, c.want[i].Unsupported)
-				}
-				if !bytes.Equal(got[i].Value, c.want[i].Value) {
-					t.Errorf("[%d] Value: got %x want %x", i, got[i].Value, c.want[i].Value)
-				}
+				is.Equal(got[i].ID, c.want[i].ID)
+				is.Equal(got[i].Unsupported, c.want[i].Unsupported)
+				is.Equal(got[i].Value, c.want[i].Value)
 			}
 		})
 	}
@@ -445,10 +391,9 @@ func TestParseDataBlock_Errors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			is := is.New(t)
 			_, err := ParseDataBlock(mustHex(t, c.data))
-			if !errors.Is(err, ErrInvalidData) {
-				t.Fatalf("expected ErrInvalidData, got %v", err)
-			}
+			is.True(errors.Is(err, ErrInvalidData)) // expected ErrInvalidData
 		})
 	}
 }
@@ -459,29 +404,24 @@ func TestParseDataBlock_Errors(t *testing.T) {
 // never been observed emitting one; if that ever changes we want to hear
 // about it loudly rather than silently dropping the rest of the packet.
 func TestParseDataBlock_FCMarker(t *testing.T) {
+	is := is.New(t)
 	// 01 02   -> param 0x0001 = 0x02   (one valid entry before FC)
 	// FC 03   -> change FUNC to 0x03   (the unexpected marker)
 	// 04 05   -> would-be param 0x0004 (never reached)
 	out, err := ParseDataBlock(mustHex(t, "0102fc030405"))
-	if !errors.Is(err, ErrUnexpectedFuncChange) {
-		t.Fatalf("expected ErrUnexpectedFuncChange, got %v", err)
-	}
-	if len(out) != 1 || out[0].ID != 0x0001 {
-		t.Fatalf("expected one entry for 0x0001 before the FC marker, got %+v", out)
-	}
-	if !bytes.Equal(out[0].Value, []byte{0x02}) {
-		t.Fatalf("entry value: want [02], got %x", out[0].Value)
-	}
+	is.True(errors.Is(err, ErrUnexpectedFuncChange)) // expected ErrUnexpectedFuncChange
+	is.Equal(len(out), 1)
+	is.Equal(out[0].ID, ParamID(0x0001))
+	is.Equal(out[0].Value, []byte{0x02})
 }
 
 // TestParseDataBlock_FCMarkerTruncated verifies that FC at the very end
 // of a block (without a following byte) still yields an error — but is
 // classified as malformed-data, not as a soft "unexpected FC" notice.
 func TestParseDataBlock_FCMarkerTruncated(t *testing.T) {
+	is := is.New(t)
 	_, err := ParseDataBlock(mustHex(t, "fc"))
-	if !errors.Is(err, ErrInvalidData) {
-		t.Fatalf("expected ErrInvalidData for truncated FC, got %v", err)
-	}
+	is.True(errors.Is(err, ErrInvalidData)) // expected ErrInvalidData for truncated FC
 }
 
 // ----- Reserved low-byte param IDs (panic on FC/FD/FE/FF) -----
@@ -491,18 +431,15 @@ func TestBuildReadDataBlock_PanicsOnReservedID(t *testing.T) {
 	for _, id := range cases {
 		id := id
 		t.Run("read_"+hex.EncodeToString([]byte{byte(id >> 8), byte(id)}), func(t *testing.T) {
+			is := is.New(t)
 			defer func() {
 				r := recover()
-				if r == nil {
-					t.Fatalf("BuildReadDataBlock did not panic on reserved id 0x%04X", uint16(id))
-				}
+				is.True(r != nil) // BuildReadDataBlock must panic on reserved id
 				msg, _ := r.(string)
 				if msg == "" {
 					return
 				}
-				if !bytes.Contains([]byte(msg), []byte("reserved")) {
-					t.Errorf("panic message %q lacks 'reserved'", msg)
-				}
+				is.True(bytes.Contains([]byte(msg), []byte("reserved"))) // panic message should mention 'reserved'
 			}()
 			_ = BuildReadDataBlock([]ParamID{id})
 		})
@@ -510,21 +447,20 @@ func TestBuildReadDataBlock_PanicsOnReservedID(t *testing.T) {
 }
 
 func TestBuildWriteDataBlock_PanicsOnReservedID(t *testing.T) {
+	is := is.New(t)
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatalf("BuildWriteDataBlock did not panic on reserved id")
-		}
+		is.True(r != nil) // BuildWriteDataBlock must panic on reserved id
 	}()
 	_ = BuildWriteDataBlock([]ParamWrite{{ID: 0x00FE, Value: []byte{0x01}}})
 }
 
 func TestBuildDataBlock_NoPanicOnNormalIDs(t *testing.T) {
+	is := is.New(t)
 	// Sanity: high byte FF is fine, only the low byte matters.
 	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("unexpected panic on legal IDs: %v", r)
-		}
+		r := recover()
+		is.True(r == nil) // no panic expected on legal IDs
 	}()
 	_ = BuildReadDataBlock([]ParamID{0xFF00, 0x00FB, 0xFF01})
 	_ = BuildWriteDataBlock([]ParamWrite{{ID: 0xFF00, Value: []byte{0x01}}})
@@ -533,6 +469,7 @@ func TestBuildDataBlock_NoPanicOnNormalIDs(t *testing.T) {
 // ----- Round-trip Build* + ParseDataBlock for write-style data -----
 
 func TestBuildAndParseWriteRoundtrip(t *testing.T) {
+	is := is.New(t)
 	writes := []ParamWrite{
 		{ID: 0x9B, Value: []byte{0x02}},
 		{ID: 0x70, Value: []byte{0x04, 0x85, 0x37, 0x42}},
@@ -540,15 +477,11 @@ func TestBuildAndParseWriteRoundtrip(t *testing.T) {
 	}
 	data := BuildWriteDataBlock(writes)
 	parsed, err := ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
+	is.NoErr(err)
 	want := []ParamValue{
 		{ID: 0x009B, Value: []byte{0x02}},
 		{ID: 0x0070, Value: []byte{0x04, 0x85, 0x37, 0x42}},
 		{ID: 0x0315, Value: []byte{0x00}},
 	}
-	if !reflect.DeepEqual(parsed, want) {
-		t.Fatalf("round-trip mismatch:\n got: %+v\nwant: %+v", parsed, want)
-	}
+	is.Equal(parsed, want) // round-trip Build->Parse must preserve writes
 }
