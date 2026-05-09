@@ -20,11 +20,11 @@ import (
 // Fault-injection knobs (SetAuthFailureMode, SetTimeoutMode, Reset) make
 // MemClient a drop-in for the previous fakedevice.Server admin surface.
 type MemClient struct {
-	mu            sync.RWMutex
-	params        map[ParamID][]byte
-	initial       map[ParamID][]byte // for Reset()
-	forceAuth     bool
-	forceTimeout  bool
+	mu           sync.RWMutex
+	params       map[ParamID][]byte
+	initial      map[ParamID][]byte // for Reset()
+	forceAuth    bool
+	forceTimeout bool
 }
 
 // NewMemClient builds a MemClient with the given initial param bytes.

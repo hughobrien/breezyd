@@ -40,10 +40,6 @@ test-asan:
 test-staticcheck:
 	golangci-lint run --timeout=5m ./...
 
-# Build/test fakedevice with the admin control surface (test-only, build-tagged).
-test-fakedevice-admin:
-	go test -tags fakedevice_admin ./pkg/breezy/fakedevice/...
-
 # Test the breezyd build-tagged /test/devices/... admin surface (memory backend).
 test-test-admin:
 	go test -tags breezyd_test_admin ./cmd/breezyd/ -run TestAdmin
@@ -52,7 +48,7 @@ test-test-admin:
 # Slower than check-all (~3 min sequential locally; CI runs the same set in
 # parallel jobs). Use this when you want to reproduce a CI failure locally
 # without waiting for the next push.
-ci: lint test test-race test-staticcheck test-asan test-msan test-ui test-templ-drift test-fakedevice-admin test-test-admin
+ci: lint test test-race test-staticcheck test-asan test-msan test-ui test-templ-drift test-test-admin
 
 # heavy gate: ci + race-flake. Slow (~5 min); run before tagging a release
 # or after risky concurrency / cgo / unsafe code.

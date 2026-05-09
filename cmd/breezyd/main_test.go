@@ -227,17 +227,8 @@ func TestMainMemoryBackend(t *testing.T) {
 		if !strings.Contains(body, "last_poll") {
 			t.Errorf("snapshot missing last_poll: %s", body)
 		}
-		if strings.Contains(body, `"last_err"`) && strings.Contains(body, `"last_err": null`) {
-			// ok — no error
-		} else if strings.Contains(body, `"last_err":null`) {
-			// ok — no error (compact JSON)
-		} else if strings.Contains(body, `"last_err":""`) {
-			// ok — empty string form
-		} else if strings.Contains(body, `"last_err": ""`) {
-			// ok
-		} else {
-			// Don't fail hard on last_err presence — any populated snapshot is fine.
-		}
+		// Accept any of the various serialisations of a no-error last_err.
+		// Don't fail hard on last_err presence — any populated snapshot is fine.
 		// Confirm at least some device data came through (non-trivial snapshot).
 		if strings.TrimSpace(body) == "{}" || !strings.Contains(body, "last_poll") {
 			t.Errorf("snapshot appears empty or unpopulated: %s", body)

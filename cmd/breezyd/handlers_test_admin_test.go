@@ -370,5 +370,5 @@ func (u *udpStubClient) ReadParams(_ context.Context, _ []breezy.ParamID) (map[b
 	return nil, nil
 }
 func (u *udpStubClient) WriteParams(_ context.Context, _ []breezy.ParamWrite) error { return nil }
-func (u *udpStubClient) IsLocal() bool                                               { return false }
-func (u *udpStubClient) Close() error                                                { return nil }
+func (u *udpStubClient) IsLocal() bool                                              { return false }
+func (u *udpStubClient) Close() error                                               { return nil }

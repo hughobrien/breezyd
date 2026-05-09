@@ -58,10 +58,10 @@ const (
 
 // Errors surfaced by DecodeResponse and the helpers.
 var (
-	ErrBadHeader   = errors.New("breezy: bad header")
-	ErrChecksum    = errors.New("breezy: checksum mismatch")
-	ErrTruncated   = errors.New("breezy: truncated frame")
-	ErrAuth        = errors.New("breezy: authentication failed")
+	ErrBadHeader = errors.New("breezy: bad header")
+	ErrChecksum  = errors.New("breezy: checksum mismatch")
+	ErrTruncated = errors.New("breezy: truncated frame")
+	ErrAuth      = errors.New("breezy: authentication failed")
 	// ErrTimeout is returned by MemClient (and may be returned by other
 	// non-UDP implementations) when a simulated timeout is injected via
 	// SetTimeoutMode. The UDP *Client surfaces context.DeadlineExceeded

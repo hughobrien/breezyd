@@ -273,8 +273,8 @@ func (f *fakeClient) ReadParams(ctx context.Context, ids []breezy.ParamID) (map[
 	return out, nil
 }
 
-func (f *fakeClient) Close() error   { return nil }
-func (f *fakeClient) IsLocal() bool  { return false }
+func (f *fakeClient) Close() error  { return nil }
+func (f *fakeClient) IsLocal() bool { return false }
 
 func (f *fakeClient) seenIDs() []breezy.ParamID {
 	f.mu.Lock()
