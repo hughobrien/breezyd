@@ -1,5 +1,9 @@
 # Test migration: page.route() mocks → real-daemon integration
 
+> **Status: archived.** Originally `tests/ui/MIGRATION.md`, the running tracker
+> during the htmx → datastar migration. Moved here on 2026-05-09 (during the
+> #68 htmx-leftovers scrub) for historical reference.
+
 For PR #14 closing #14. One row per pre-PR1 baseline test.
 
 Baseline: 68 tests (commit `0d335e6`).
