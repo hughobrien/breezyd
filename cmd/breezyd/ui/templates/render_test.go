@@ -219,3 +219,33 @@ func TestDeviceCardGolden(t *testing.T) {
 		})
 	}
 }
+
+func TestCardSignalsFor_JSON(t *testing.T) {
+	v := ui.DeviceView{
+		Stale:       true,
+		SpeedMode:   "manual",
+		AirflowMode: "regeneration",
+		LastPollAge: "12s",
+		Sensors:     ui.SensorsView{AlertActive: true},
+	}
+	got, err := ui.MarshalCardSignals(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(got, &back); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"stale":        true,
+		"speedMode":    "manual",
+		"airflowMode":  "regeneration",
+		"lastPollAge":  "12s",
+		"sensorsAlert": true,
+	}
+	for k, w := range want {
+		if back[k] != w {
+			t.Errorf("field %q: got %v, want %v", k, back[k], w)
+		}
+	}
+}

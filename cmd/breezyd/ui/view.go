@@ -7,6 +7,8 @@
 // package ui without an import cycle.
 package ui
 
+import "encoding/json"
+
 // DeviceView is the decoded, render-ready form of a device snapshot.
 type DeviceView struct {
 	Name string
@@ -132,4 +134,32 @@ type LastApplyView struct {
 	At      string // "HH:MM"
 	Err     string
 	Retries int
+}
+
+// CardSignals is the per-device datastar signal payload that drives
+// card-outer reactive state (stale class, speed-mode and airflow-mode
+// data-attrs, "X ago" stale-row, sensors-block alert class). The card's
+// HTML is never patched after initial render; signals are.
+type CardSignals struct {
+	Stale        bool   `json:"stale"`
+	SpeedMode    string `json:"speedMode"`
+	AirflowMode  string `json:"airflowMode"`
+	LastPollAge  string `json:"lastPollAge"`
+	SensorsAlert bool   `json:"sensorsAlert"`
+}
+
+// CardSignalsFor extracts CardSignals from a DeviceView.
+func CardSignalsFor(v DeviceView) CardSignals {
+	return CardSignals{
+		Stale:        v.Stale,
+		SpeedMode:    v.SpeedMode,
+		AirflowMode:  v.AirflowMode,
+		LastPollAge:  v.LastPollAge,
+		SensorsAlert: v.Sensors.AlertActive,
+	}
+}
+
+// MarshalCardSignals returns the JSON payload for a PatchSignals event.
+func MarshalCardSignals(v DeviceView) ([]byte, error) {
+	return json.Marshal(CardSignalsFor(v))
 }
