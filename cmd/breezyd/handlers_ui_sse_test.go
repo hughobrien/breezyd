@@ -193,6 +193,26 @@ func TestGetUISSE_KeepaliveOnIdleConnection(t *testing.T) {
 	}
 }
 
+func TestGetUISSE_XAccelBufferingHeader(t *testing.T) {
+	h := newSSETestHandler(t, "alpha")
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /ui/sse: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
+		t.Errorf("X-Accel-Buffering: %q, want %q", got, "no")
+	}
+}
+
 func TestGetUISSE_NoPushHub_500(t *testing.T) {
 	h := newUITestHandler(t, "alpha")
 	// PushHub left nil to force the guard.
