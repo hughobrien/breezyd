@@ -9,54 +9,61 @@ import (
 // DeviceCard renders one device card. It composes all sub-block
 // templates. The data-signals attribute seeds the per-card UI state
 // (which <details> are open, the preset editor / automode / matchSpeeds
-// flags) — datastar restores these on initial paint and merges them
-// across SSE patches.
+// flags, plus the runtime CardSignals fields) — datastar restores these
+// on initial paint and merges them across SSE patches. The card outer
+// HTML is never patched after initial render; signals carry the state.
 templ DeviceCard(v ui.DeviceView) {
 	if v.Unreachable {
 		@unreachableCard(v)
 	} else {
 		<div
-			class={ "card", templ.KV("stale", v.Stale) }
+			class="card"
 			data-device={ v.Name }
-			data-speed-mode={ v.SpeedMode }
-			data-airflow-mode={ v.AirflowMode }
-			data-signals={ initialCardSignals() }
+			data-class:stale="$stale"
+			data-attr:data-speed-mode="$speedMode"
+			data-attr:data-airflow-mode="$airflowMode"
+			data-signals={ initialCardSignals(v) }
 		>
-			<details
-				id={ "info-" + v.Name }
-				class={ "device-info", templ.KV("alert", v.NeedsAttention) }
-				data-attr:open="$detailsOpen.info"
-			>
-				<summary>
-					<h2>{ v.Name }</h2>
-					<button
-						type="button"
-						class="toggle toggle-inline"
-						data-on:click={ powerButtonExpr(v) }
-						if v.Stale { disabled }
-						aria-pressed={ boolAttr(v.Power) }
-					>power</button>
-				</summary>
-				@kvRow("ip", v.IP)
-				@kvRow("serial", v.Serial)
-				@kvRow("firmware version", v.FirmwareVersion)
-				@kvRow("firmware date", v.FirmwareDate)
-				@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
-				@kvRow("motor", v.MotorLifetime)
-				@kvRow("RTC", v.RTCBattery)
-				@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
-			</details>
-			if v.Stale && v.LastPollAge != "" {
-				<div class="row"><span class="ts red">{ v.LastPollAge } ago</span></div>
-			} else if v.Stale {
-				<div class="row"><span class="ts red">no poll</span></div>
-			}
+			@InfoDetails(v)
+			<div class="row" data-show="$stale">
+				<span class="ts red"><span data-text="$lastPollAge ? $lastPollAge + ' ago' : 'no poll'"></span></span>
+			</div>
 			@EnergyBlock(v.Name, v.Energy)
 			@SensorsBlock(v.Name, v.Sensors)
 			@ScheduleBlock(v.Name, v.Schedule, v.Stale)
-			@controlsBlock(v)
+			@ControlsBlock(v)
 		</div>
 	}
+}
+
+// InfoDetails renders the device info <details> block. Exported so
+// Task 4's push pipeline can render it independently.
+templ InfoDetails(v ui.DeviceView) {
+	<details
+		id={ "info-" + v.Name }
+		class={ "device-info", templ.KV("alert", v.NeedsAttention) }
+		data-block="info"
+		data-attr:open="$detailsOpen.info"
+	>
+		<summary>
+			<h2>{ v.Name }</h2>
+			<button
+				type="button"
+				class="toggle toggle-inline"
+				data-on:click={ powerButtonExpr(v) }
+				if v.Stale { disabled }
+				aria-pressed={ boolAttr(v.Power) }
+			>power</button>
+		</summary>
+		@kvRow("ip", v.IP)
+		@kvRow("serial", v.Serial)
+		@kvRow("firmware version", v.FirmwareVersion)
+		@kvRow("firmware date", v.FirmwareDate)
+		@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
+		@kvRow("motor", v.MotorLifetime)
+		@kvRow("RTC", v.RTCBattery)
+		@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
+	</details>
 }
 
 // unreachableCard renders a placeholder card for a configured device that
@@ -121,10 +128,12 @@ func powerButtonExpr(v ui.DeviceView) string {
 }
 
 // initialCardSignals returns the per-card datastar signals seed as JSON.
-// Default-open rules: info=closed, sensors=open, energy=closed,
-// schedule=closed. The `alert` CSS class on the <details> handles the
-// "this needs attention" visual cue without forcing the panel open.
-func initialCardSignals() string {
+// Combines the static UI flags (automode / matchSpeeds / editor / detailsOpen)
+// with the runtime CardSignals fields (stale / speedMode / airflowMode /
+// lastPollAge / sensorsAlert). The seed is what datastar shows before any
+// SSE arrives; subsequent pushes update only the runtime fields via
+// datastar-patch-signals.
+func initialCardSignals(v ui.DeviceView) string {
 	s := map[string]any{
 		"automode":    false,
 		"matchSpeeds": true,
@@ -135,6 +144,11 @@ func initialCardSignals() string {
 			"energy":   false,
 			"schedule": false,
 		},
+		"stale":        v.Stale,
+		"speedMode":    v.SpeedMode,
+		"airflowMode":  v.AirflowMode,
+		"lastPollAge":  v.LastPollAge,
+		"sensorsAlert": v.Sensors.AlertActive,
 	}
 	b, _ := json.Marshal(s)
 	return string(b)

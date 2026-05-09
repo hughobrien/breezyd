@@ -14,6 +14,7 @@ templ EnergyBlock(name string, ev *ui.EnergyView) {
 		<details
 			id={ "energy-" + name }
 			class="block energy"
+			data-block="energy"
 			data-attr:open="$detailsOpen.energy"
 		>
 			<summary><h3>ENERGY</h3></summary>

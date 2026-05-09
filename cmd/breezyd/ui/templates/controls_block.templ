@@ -5,8 +5,10 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
-templ controlsBlock(v ui.DeviceView) {
-	<div class="controls">
+// ControlsBlock renders the device controls section. Exported for use
+// from the push render pipeline in package main.
+templ ControlsBlock(v ui.DeviceView) {
+	<div class="controls" data-block="controls" data-attr:data-edit="$editor !== 0 ? 'true' : null">
 		<h3>Controls</h3>
 		<div class="ctrl">
 			<span class="ctrl-label">SPEED</span>
@@ -62,7 +64,7 @@ templ presetBtn(v ui.DeviceView, n int) {
 		type="button"
 		data-on:click={ presetChipExpr(v.Name, n) }
 		if v.Stale { disabled }
-		aria-pressed={ boolAttr(v.SpeedMode == fmt.Sprintf("preset%d", n)) }
+		data-attr:aria-pressed={ fmt.Sprintf("$speedMode === 'preset%d' ? 'true' : 'false'", n) }
 	>{ presetLabel(v, n) }</button>
 }
 

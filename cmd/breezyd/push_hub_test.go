@@ -3,33 +3,26 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/a-h/templ"
 )
 
-// stubComponent renders a fixed string; used as a render-closure stand-in
-// so PushHub tests don't drag in the full templ machinery.
-func stubComponent(s string) templ.Component {
-	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		_, err := w.Write([]byte(s))
-		return err
-	})
-}
-
-// newTestHub returns a PushHub whose render closure produces a stable
+// newTestHub returns a PushHub whose renderBlocks closure produces a stable
 // per-device marker so tests can assert which device a fan-out targets.
 func newTestHub(t *testing.T) *PushHub {
 	t.Helper()
-	return NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
-		return stubComponent(`<div data-device="` + name + `"></div>`), nil
+	return NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
+		return &PushEvent{
+			DeviceName:  name,
+			SignalsJSON: []byte(`{"stale":false}`),
+			Blocks: []BlockPatch{
+				{Selector: `#stub-` + name, HTML: `<div data-device="` + name + `"></div>`},
+			},
+		}, nil
 	})
 }
 
@@ -66,8 +59,10 @@ func TestPushHub_NotifyFansOut(t *testing.T) {
 			if ev.DeviceName != "bedroom" {
 				t.Errorf("subscriber %d: device %q, want %q", i, ev.DeviceName, "bedroom")
 			}
-			if !strings.Contains(ev.HTML, `data-device="bedroom"`) {
-				t.Errorf("subscriber %d: HTML missing device marker: %q", i, ev.HTML)
+			if len(ev.Blocks) == 0 {
+				t.Errorf("subscriber %d: no blocks in event", i)
+			} else if !strings.Contains(ev.Blocks[0].HTML, `data-device="bedroom"`) {
+				t.Errorf("subscriber %d: block HTML missing device marker: %q", i, ev.Blocks[0].HTML)
 			}
 		case <-time.After(100 * time.Millisecond):
 			t.Errorf("subscriber %d: did not receive event", i)
@@ -126,12 +121,18 @@ func TestPushHub_ConcurrentNotifyAndUnsubscribe(t *testing.T) {
 
 func TestPushHub_RenderErrorIsTolerated(t *testing.T) {
 	var renderErrCount atomic.Int32
-	hub := NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
+	hub := NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
 		if name == "broken" {
 			renderErrCount.Add(1)
 			return nil, errors.New("render failed")
 		}
-		return stubComponent(`<div data-device="` + name + `"></div>`), nil
+		return &PushEvent{
+			DeviceName:  name,
+			SignalsJSON: []byte(`{"stale":false}`),
+			Blocks: []BlockPatch{
+				{Selector: `#stub-` + name, HTML: `<div data-device="` + name + `"></div>`},
+			},
+		}, nil
 	})
 	sub := hub.Subscribe()
 	defer hub.Unsubscribe(sub)

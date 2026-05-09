@@ -1,0 +1,54 @@
+{
+  "planPath": "docs/superpowers/plans/2026-05-08-sse-editor-preservation.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Plan Task 1: CardSignals helper and seed shape",
+      "status": "pending",
+      "description": "**Goal:** Define the per-card signal payload shape (stale, speedMode, airflowMode, lastPollAge, sensorsAlert) once, used by both initial render and runtime push.\n\n**Files:**\n- Modify: cmd/breezyd/ui/view.go\n- Test: cmd/breezyd/ui/templates/render_test.go\n\n**Verify:** `go test ./cmd/breezyd/ui/...`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/view.go\", \"cmd/breezyd/ui/templates/render_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ui/...\", \"acceptanceCriteria\": [\"CardSignals struct defined\", \"CardSignalsFor populates from DeviceView\", \"MarshalCardSignals returns JSON bytes\", \"Test asserts JSON shape with all 5 fields\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Plan Task 2: Card-outer reactive shell",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Wire card outer's class=\"stale\", data-speed-mode, data-airflow-mode, \"X ago\" stale row, and seed signal payload to use new CardSignals shape.\n\n**Files:**\n- Modify: cmd/breezyd/ui/templates/device_card.templ\n- Test: cmd/breezyd/ui/templates/render_test.go\n\n**Verify:** `just generate && go test ./cmd/breezyd/ui/templates/ -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/templates/device_card.templ\", \"cmd/breezyd/ui/templates/render_test.go\", \"cmd/breezyd/ui/templates/testdata/\"], \"verifyCommand\": \"just generate && go test ./cmd/breezyd/ui/templates/ -v\", \"acceptanceCriteria\": [\"data-class:stale binding present\", \"data-attr:data-speed-mode binding present\", \"data-attr:data-airflow-mode binding present\", \"Stale row uses data-show + data-text\", \"data-signals JSON includes 5 CardSignals fields\", \"InfoDetails extracted and capitalized\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Plan Task 3: data-block, data-sensor-cell, data-edit markers",
+      "status": "pending",
+      "blockedBy": [2],
+      "description": "**Goal:** Tag every patchable element with markers needed for per-block selectors and edit-mode exclusion.\n\n**Files:** energy_block.templ, sensors_block.templ, sensor_threshold.templ, schedule_block.templ, controls_block.templ, render_test.go\n\n**Verify:** `just generate && go test ./cmd/breezyd/ui/templates/ -v`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/ui/templates/energy_block.templ\", \"cmd/breezyd/ui/templates/sensors_block.templ\", \"cmd/breezyd/ui/templates/sensor_threshold.templ\", \"cmd/breezyd/ui/templates/schedule_block.templ\", \"cmd/breezyd/ui/templates/controls_block.templ\", \"cmd/breezyd/ui/templates/render_test.go\"], \"verifyCommand\": \"just generate && go test ./cmd/breezyd/ui/templates/ -v\", \"acceptanceCriteria\": [\"All 5 blocks carry data-block markers\", \"12 sensor cells have data-sensor-cell\", \"Edit variants carry data-edit\", \"Controls block reactive data-edit on $editor signal\", \"Sensors block uses data-class:alert reactive instead of static class\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Plan Task 4: PushHub structured event (Signals + Blocks)",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Transform PushHub to render and queue a structured PushEvent carrying signals JSON + list of (selector, html) block patches.\n\n**Verify:** `just generate && go test ./cmd/breezyd/ -v && go build ./...`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/push_hub.go\", \"cmd/breezyd/push_render.go\", \"cmd/breezyd/main.go\", \"cmd/breezyd/ui_view.go\", \"cmd/breezyd/ui/format.go\", \"cmd/breezyd/ui/templates/sensors_block.templ\", \"cmd/breezyd/ui/templates/controls_block.templ\", \"cmd/breezyd/ui/templates/device_card.templ\", \"cmd/breezyd/push_hub_test.go\", \"cmd/breezyd/handlers_ui_sse_test.go\"], \"verifyCommand\": \"just generate && go test ./cmd/breezyd/ -v && go build ./...\", \"acceptanceCriteria\": [\"PushEvent + BlockPatch types defined\", \"buildPushEvent produces 16 block patches + signals JSON\", \"Templ symbols capitalized for cross-package use\", \"Format helpers exported\", \"main.go wires new closure\", \"Tests updated and pass\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Plan Task 5: SSE handler — signals + per-block + Last-Event-ID",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** Transform getUISSE to detect cold-load vs reconnect via Last-Event-ID, and emit one datastar-patch-signals + N datastar-patch-elements per push event.\n\n**Verify:** `go test ./cmd/breezyd/ -run GetUISSE -v && go test ./...`\n\n```json:metadata\n{\"files\": [\"cmd/breezyd/handlers_ui_sse.go\", \"cmd/breezyd/handlers_ui_sse_test.go\"], \"verifyCommand\": \"go test ./cmd/breezyd/ -run GetUISSE -v && go test ./...\", \"acceptanceCriteria\": [\"Cold load uses mode=append\", \"Reconnect uses mode=outer\", \"Push event emits PatchSignals + N PatchElements\", \"Each event carries event ID\", \"All SSE tests pass\", \"Manual smoke confirms editor preservation\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Plan Task 6: Playwright e2e editor preservation tests",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**Goal:** Pin acceptance criteria with browser-driven tests for schedule, threshold, preset editors plus stale-via-signal.\n\n**Verify:** `just test-ui`\n\n```json:metadata\n{\"files\": [\"tests/ui/dashboard.spec.ts\"], \"verifyCommand\": \"just test-ui\", \"acceptanceCriteria\": [\"Schedule preservation test passes\", \"Threshold preservation test passes\", \"Preset slider preservation test passes\", \"Stale-via-signal test passes (no card re-render)\", \"No new flakes\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Plan Task 7: CHANGELOG + final verification",
+      "status": "pending",
+      "blockedBy": [6],
+      "description": "**Goal:** Document the architectural change in CHANGELOG and run the full pre-push gate; open and auto-merge PR.\n\n**Verify:** `just check-all`\n\n```json:metadata\n{\"files\": [\"CHANGELOG.md\"], \"verifyCommand\": \"just check-all\", \"acceptanceCriteria\": [\"CHANGELOG updated\", \"just check-all green\", \"Manual smoke confirms acceptance criteria\", \"PR opened and auto-merge enabled\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-05-08T00:00:00Z"
+}

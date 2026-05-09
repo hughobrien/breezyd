@@ -32,8 +32,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/a-h/templ"
-	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 	"github.com/hughobrien/breezyd/internal/config"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/prometheus/client_golang/prometheus"
@@ -136,15 +134,15 @@ func run(parent context.Context) error {
 		Devices:       devices,
 		ClientFactory: makeClientFactory(devices),
 	}
-	// Render closure captures handler so PushHub can build a DeviceCard for
-	// any (name, snap) tuple — both the poll path and the post-write path
-	// drive it.
-	handler.PushHub = NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
+	// Render closure captures handler so PushHub can build a structured
+	// PushEvent for any (name, snap) tuple — both the poll path and the
+	// post-write path drive it.
+	handler.PushHub = NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
 		view, ok := handler.viewFor(name)
 		if !ok {
 			return nil, fmt.Errorf("no snapshot for %s", name)
 		}
-		return templates.DeviceCard(view), nil
+		return buildPushEvent(name, view)
 	})
 
 	stateDir, err := daemonStateDir()
