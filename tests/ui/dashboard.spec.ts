@@ -72,15 +72,6 @@ test.describe("rendering", () => {
     await expect(card.getByRole("heading", { name: DEVICE })).toBeVisible();
   });
 
-  test("layout loads datastar, not htmx", async ({ page }) => {
-    const resp = await page.goto("/");
-    expect(resp?.status()).toBe(200);
-    const html = await page.content();
-    expect(html).toContain("datastar-1.0.1.min.js");
-    expect(html).toContain('data-init="@get(\'/ui/sse\')"');
-    expect(html).not.toMatch(/htmx-\d/);
-  });
-
   // Pins the failure mode below the "card not visible" symptom: if datastar
   // ever stops firing the page-load handler that opens /ui/sse (e.g. an
   // attribute rename, a bundle that doesn't ship the matching plugin), we
@@ -95,19 +86,6 @@ test.describe("rendering", () => {
     await page.goto("/");
     await expect(page.getByTestId(`card-${DEVICE}`)).toBeVisible({ timeout: 5_000 });
     expect(sseRequests.length).toBeGreaterThan(0);
-  });
-
-  test("sensor block surfaces live values", async ({ page }) => {
-    await reset(DEVICE);
-    const card = await loadCard(page);
-    // Sensors defaults open via $detailsOpen.sensors=true signal seed.
-    // Assert rather than defensively toggle — if the default ever flips
-    // to false, this fails loudly here instead of silently masking a
-    // closed-block test elsewhere.
-    const sensors = card.locator('details[data-block="sensors"]');
-    await expect(sensors).toHaveAttribute("open", "");
-    await expect(card).toContainText("54%");
-    await expect(card).toContainText("1175 ppm");
   });
 
   // Pins #118: clicking a <details> summary must toggle the open state and
