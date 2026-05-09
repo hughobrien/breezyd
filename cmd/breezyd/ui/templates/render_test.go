@@ -45,7 +45,6 @@ func TestLayout(t *testing.T) {
 	wantContains := []string{
 		`/ui/style-abc123def0.css`,
 		`/ui/vendor/datastar-1.0.1.min.js`,
-		`/ui/vendor/dashboard.js`,
 		`data-init="@get('/ui/sse')"`,
 		`<summary><h1>breezy</h1></summary>`,
 		`data-theme-set="light"`,
@@ -55,6 +54,7 @@ func TestLayout(t *testing.T) {
 	wantAbsent := []string{
 		`htmx`,
 		`legacy.js`,
+		`dashboard.js`,
 		`every 5s`,
 		`hx-ext`,
 	}

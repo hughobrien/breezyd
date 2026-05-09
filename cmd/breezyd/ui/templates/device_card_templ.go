@@ -511,15 +511,21 @@ func powerButtonExpr(v ui.DeviceView) string {
 // SSE arrives; subsequent pushes update only the runtime fields via
 // datastar-patch-signals.
 //
-// manualPct is also seeded so the manual slider's data-bind:manualPct
-// finds a numeric (not string) signal at first render — datastar's
-// type-preservation then keeps the bound value numeric across user drags.
+// manualPct and preset.<n>.{supply,extract} are also seeded so the manual
+// slider and preset-editor sliders' data-bind targets find numeric (not
+// string) signals at first render — datastar's type-preservation then keeps
+// the bound values numeric across user drags. The preset map is reseeded on
+// every card render, matching manualPct's "server is source of truth"
+// model — the cost is a thumb that jumps to the server's value if a poll
+// lands mid-drag, the gain is that an external change to the preset on the
+// device panel is reflected in the dashboard without refresh.
 func initialCardSignals(v ui.DeviceView) string {
 	s := map[string]any{
 		"automode":    false,
 		"matchSpeeds": true,
 		"editor":      0,
 		"manualPct":   v.ManualPct,
+		"preset":      presetSeed(v),
 		"detailsOpen": map[string]bool{
 			"info":     false,
 			"sensors":  true,
@@ -534,6 +540,27 @@ func initialCardSignals(v ui.DeviceView) string {
 	}
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// presetSeed returns the per-preset signal seed shape. Pre-poll values
+// (-1 sentinel) map to 50 so the slider thumb has a neutral landing spot
+// — same logic as presetSliderValue, kept here in a separate helper so
+// the seed and the value= attribute stay aligned.
+func presetSeed(v ui.DeviceView) map[string]map[string]int {
+	atLeastZero := func(p ui.PresetView) map[string]int {
+		seed := func(pct int) int {
+			if pct < 0 {
+				return 50
+			}
+			return pct
+		}
+		return map[string]int{"supply": seed(p.Supply), "extract": seed(p.Extract)}
+	}
+	return map[string]map[string]int{
+		"1": atLeastZero(v.Preset1),
+		"2": atLeastZero(v.Preset2),
+		"3": atLeastZero(v.Preset3),
+	}
 }
 
 var _ = templruntime.GeneratedTemplate
