@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 const (
@@ -69,110 +70,69 @@ func roundTrip(t *testing.T, conn *net.UDPConn, deviceID, password string, fn by
 }
 
 func TestNewServer_BadSnapshotPath(t *testing.T) {
+	is := is.New(t)
 	_, err := NewServer("/nonexistent/path/snapshot.json", testDeviceID, testPassword)
-	if err == nil {
-		t.Fatal("expected error for missing snapshot, got nil")
-	}
+	is.True(err != nil) // expected error for missing snapshot
 }
 
 func TestServer_AddrAndClose(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	addr := srv.Addr()
-	if addr == "" {
-		t.Fatal("Addr returned empty string")
-	}
+	is.True(addr != "") // Addr returned non-empty
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		t.Fatalf("SplitHostPort(%q): %v", addr, err)
-	}
-	if host != "127.0.0.1" {
-		t.Errorf("expected 127.0.0.1, got %s", host)
-	}
-	if port == "0" {
-		t.Errorf("expected concrete port, got 0")
-	}
-	if err := srv.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
+	is.NoErr(err)
+	is.Equal(host, "127.0.0.1")
+	is.True(port != "0") // expected concrete port
+	is.NoErr(srv.Close())
 	// Multiple closes are safe.
-	if err := srv.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
-	}
+	is.NoErr(srv.Close())
 }
 
 func TestRoundTrip_ReadUnitType(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	// Read 0x00B9: snapshot value is "1100" (LE) = 17.
 	fn, data, err := roundTrip(t, conn, testDeviceID, testPassword,
 		breezy.FuncRead, breezy.BuildReadDataBlock([]breezy.ParamID{0x00B9}))
-	if err != nil {
-		t.Fatalf("roundTrip: %v", err)
-	}
-	if fn != breezy.FuncResponse {
-		t.Fatalf("function: got 0x%02x want 0x06", fn)
-	}
+	is.NoErr(err)
+	is.Equal(fn, breezy.FuncResponse)
 	pvs, err := breezy.ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
-	if len(pvs) != 1 {
-		t.Fatalf("expected 1 entry, got %d (%+v)", len(pvs), pvs)
-	}
-	if pvs[0].ID != 0x00B9 {
-		t.Errorf("ID: got 0x%04x want 0x00B9", pvs[0].ID)
-	}
-	if !bytes.Equal(pvs[0].Value, []byte{0x11, 0x00}) {
-		t.Errorf("Value: got %x want 1100", pvs[0].Value)
-	}
+	is.NoErr(err)
+	is.Equal(len(pvs), 1)
+	is.Equal(pvs[0].ID, breezy.ParamID(0x00B9))
+	is.True(bytes.Equal(pvs[0].Value, []byte{0x11, 0x00}))
 }
 
 func TestRoundTrip_ReadHighPageVOC(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	// Read 0x0320: VOC index = 350 LE = 5E 01.
 	fn, data, err := roundTrip(t, conn, testDeviceID, testPassword,
 		breezy.FuncRead, breezy.BuildReadDataBlock([]breezy.ParamID{0x0320}))
-	if err != nil {
-		t.Fatalf("roundTrip: %v", err)
-	}
-	if fn != breezy.FuncResponse {
-		t.Fatalf("function: got 0x%02x want 0x06", fn)
-	}
+	is.NoErr(err)
+	is.Equal(fn, breezy.FuncResponse)
 	pvs, err := breezy.ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
-	if len(pvs) != 1 {
-		t.Fatalf("expected 1 entry, got %d (%+v)", len(pvs), pvs)
-	}
-	if pvs[0].ID != 0x0320 {
-		t.Errorf("ID: got 0x%04x want 0x0320", pvs[0].ID)
-	}
+	is.NoErr(err)
+	is.Equal(len(pvs), 1)
+	is.Equal(pvs[0].ID, breezy.ParamID(0x0320))
 	got := uint16(pvs[0].Value[0]) | uint16(pvs[0].Value[1])<<8
-	if got != 350 {
-		t.Errorf("VOC: got %d want 350", got)
-	}
+	is.Equal(got, uint16(350))
 }
 
 func TestRoundTrip_WriteWithReply(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
@@ -181,43 +141,30 @@ func TestRoundTrip_WriteWithReply(t *testing.T) {
 		{ID: 0x0001, Value: []byte{0x00}},
 	})
 	fn, data, err := roundTrip(t, conn, testDeviceID, testPassword, breezy.FuncWriteWithReply, wbuf)
-	if err != nil {
-		t.Fatalf("write roundTrip: %v", err)
-	}
-	if fn != breezy.FuncResponse {
-		t.Fatalf("function: got 0x%02x want 0x06", fn)
-	}
+	is.NoErr(err)
+	is.Equal(fn, breezy.FuncResponse)
 	pvs, err := breezy.ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
-	if len(pvs) != 1 || pvs[0].ID != 0x0001 || !bytes.Equal(pvs[0].Value, []byte{0x00}) {
-		t.Fatalf("write reply mismatch: %+v", pvs)
-	}
+	is.NoErr(err)
+	is.Equal(len(pvs), 1)
+	is.Equal(pvs[0].ID, breezy.ParamID(0x0001))
+	is.True(bytes.Equal(pvs[0].Value, []byte{0x00}))
 
 	// Now read back 0x0001; should be 0.
 	fn, data, err = roundTrip(t, conn, testDeviceID, testPassword,
 		breezy.FuncRead, breezy.BuildReadDataBlock([]breezy.ParamID{0x0001}))
-	if err != nil {
-		t.Fatalf("read roundTrip: %v", err)
-	}
-	if fn != breezy.FuncResponse {
-		t.Fatalf("function: got 0x%02x want 0x06", fn)
-	}
+	is.NoErr(err)
+	is.Equal(fn, breezy.FuncResponse)
 	pvs, err = breezy.ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
-	if len(pvs) != 1 || pvs[0].ID != 0x0001 || !bytes.Equal(pvs[0].Value, []byte{0x00}) {
-		t.Fatalf("read mismatch after write: %+v", pvs)
-	}
+	is.NoErr(err)
+	is.Equal(len(pvs), 1)
+	is.Equal(pvs[0].ID, breezy.ParamID(0x0001))
+	is.True(bytes.Equal(pvs[0].Value, []byte{0x00}))
 }
 
 func TestRoundTrip_WriteNoResponse(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
@@ -227,107 +174,78 @@ func TestRoundTrip_WriteNoResponse(t *testing.T) {
 		{ID: 0x0001, Value: []byte{0x00}},
 	})
 	pkt := breezy.EncodeRequest(testDeviceID, testPassword, breezy.FuncWriteNoResponse, wbuf)
-	if _, err := conn.Write(pkt); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
+	_, err = conn.Write(pkt)
+	is.NoErr(err)
 	// Read with short timeout — should time out (no response).
-	if err := conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
+	is.NoErr(conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)))
 	buf := make([]byte, 2048)
-	if _, err := conn.Read(buf); err == nil {
-		t.Fatal("expected timeout; got response")
-	} else if nerr, ok := err.(net.Error); !ok || !nerr.Timeout() {
-		t.Fatalf("expected timeout, got %v", err)
-	}
+	_, err = conn.Read(buf)
+	is.True(err != nil) // expected timeout; got response
+	nerr, ok := err.(net.Error)
+	is.True(ok)             // expected net.Error
+	is.True(nerr.Timeout()) // expected timeout
 
 	// Verify the write was applied by reading back.
 	fn, data, err := roundTrip(t, conn, testDeviceID, testPassword,
 		breezy.FuncRead, breezy.BuildReadDataBlock([]breezy.ParamID{0x0001}))
-	if err != nil {
-		t.Fatalf("read roundTrip: %v", err)
-	}
-	if fn != breezy.FuncResponse {
-		t.Fatalf("function: got 0x%02x want 0x06", fn)
-	}
+	is.NoErr(err)
+	is.Equal(fn, breezy.FuncResponse)
 	pvs, err := breezy.ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
-	if len(pvs) != 1 || pvs[0].ID != 0x0001 || !bytes.Equal(pvs[0].Value, []byte{0x00}) {
-		t.Fatalf("write-no-response not applied: %+v", pvs)
-	}
+	is.NoErr(err)
+	is.Equal(len(pvs), 1)
+	is.Equal(pvs[0].ID, breezy.ParamID(0x0001))
+	is.True(bytes.Equal(pvs[0].Value, []byte{0x00}))
 }
 
 func TestRoundTrip_UnsupportedParam(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	// 0x0003 was FD in the sweep — should be unsupported.
 	fn, data, err := roundTrip(t, conn, testDeviceID, testPassword,
 		breezy.FuncRead, breezy.BuildReadDataBlock([]breezy.ParamID{0x0003}))
-	if err != nil {
-		t.Fatalf("roundTrip: %v", err)
-	}
-	if fn != breezy.FuncResponse {
-		t.Fatalf("function: got 0x%02x want 0x06", fn)
-	}
+	is.NoErr(err)
+	is.Equal(fn, breezy.FuncResponse)
 	pvs, err := breezy.ParseDataBlock(data)
-	if err != nil {
-		t.Fatalf("ParseDataBlock: %v", err)
-	}
-	if len(pvs) != 1 {
-		t.Fatalf("expected 1 entry, got %d (%+v)", len(pvs), pvs)
-	}
-	if pvs[0].ID != 0x0003 {
-		t.Errorf("ID: got 0x%04x want 0x0003", pvs[0].ID)
-	}
-	if !pvs[0].Unsupported {
-		t.Errorf("expected Unsupported=true for missing param")
-	}
+	is.NoErr(err)
+	is.Equal(len(pvs), 1)
+	is.Equal(pvs[0].ID, breezy.ParamID(0x0003))
+	is.True(pvs[0].Unsupported) // expected Unsupported=true for missing param
 }
 
 func TestRoundTrip_WrongPassword(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	_, _, err = roundTrip(t, conn, testDeviceID, "wrongpw",
 		breezy.FuncRead, breezy.BuildReadDataBlock([]breezy.ParamID{0x00B9}))
-	if !errors.Is(err, breezy.ErrAuth) {
-		t.Fatalf("expected ErrAuth, got %v", err)
-	}
+	is.True(errors.Is(err, breezy.ErrAuth)) // expected ErrAuth
 }
 
 func TestRoundTrip_WrongDeviceIDDropped(t *testing.T) {
+	is := is.New(t)
 	srv, err := NewServer(snapshotPath(t), testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	conn := newClient(t, srv)
 	pkt := breezy.EncodeRequest("BREEZYNOTTHISONE", testPassword,
 		breezy.FuncRead, []byte{0xB9})
-	if _, err := conn.Write(pkt); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if err := conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
+	_, err = conn.Write(pkt)
+	is.NoErr(err)
+	is.NoErr(conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)))
 	buf := make([]byte, 2048)
-	if _, err := conn.Read(buf); err == nil {
-		t.Fatal("expected timeout (silent drop); got response")
-	} else if nerr, ok := err.(net.Error); !ok || !nerr.Timeout() {
-		t.Fatalf("expected timeout, got %v", err)
-	}
+	_, err = conn.Read(buf)
+	is.True(err != nil) // expected timeout (silent drop); got response
+	nerr, ok := err.(net.Error)
+	is.True(ok)             // expected net.Error
+	is.True(nerr.Timeout()) // expected timeout
 }
 
 func TestConcurrentReads(t *testing.T) {
