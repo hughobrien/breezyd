@@ -28,7 +28,6 @@ templ Layout(d LayoutData) {
 			<link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
 			<link rel="stylesheet" href={ "/ui/style-" + d.StyleHash + ".css" }/>
 			<script type="module" src={ "/ui/vendor/datastar-" + d.DatastarVersion + ".min.js" }></script>
-			<script src="/ui/vendor/dashboard.js"></script>
 		</head>
 		<body data-init="@get('/ui/sse')">
 			@ThemePicker()
