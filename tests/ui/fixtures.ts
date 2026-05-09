@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// fixtures.ts — admin-port helpers for driving the fakedevice from
-// Playwright tests. Each function talks to the HTTP admin plane that
-// the fakedevice_admin-tagged fakedevice exposes.
+// fixtures.ts — admin helpers for driving the memory backend from
+// Playwright tests. Each function talks to the /test/... admin surface
+// that breezyd exposes when built with the breezyd_test_admin tag.
 //
-// The `name` parameter is kept in every signature for forward compatibility
-// (when tests eventually target multiple devices). The current admin server
-// only knows about one device, so the parameter is unused internally.
+// The `name` parameter identifies the device in every call and is used
+// as the {name} path segment in the admin URL.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,13 +33,6 @@ function readEnvFile(): Record<string, string> {
   }
 }
 
-function adminBase(): string {
-  const env = readEnvFile();
-  const url = env.BREEZYD_ADMIN_URL;
-  if (!url) throw new Error("BREEZYD_ADMIN_URL not in env file — did global-setup run?");
-  return url;
-}
-
 function daemonBase(): string {
   const env = readEnvFile();
   const url = env.BREEZYD_URL;
@@ -49,14 +41,14 @@ function daemonBase(): string {
 }
 
 async function adminCall(method: string, path: string, body?: unknown): Promise<void> {
-  const r = await fetch(`${adminBase()}${path}`, {
+  const r = await fetch(`${daemonBase()}/test${path}`, {
     method,
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) {
     const text = await r.text().catch(() => "");
-    throw new Error(`admin ${method} ${path}: HTTP ${r.status} ${text}`);
+    throw new Error(`admin ${method} /test${path}: HTTP ${r.status} ${text}`);
   }
 }
 
@@ -75,52 +67,57 @@ async function daemonCall(method: string, path: string, body?: unknown): Promise
 /**
  * Overwrite one or more device parameters by hex param ID.
  *
- * @param _name  Device name (unused; kept for API symmetry with multi-device future).
+ * @param name   Device name (used as the {name} segment in the admin URL).
  * @param params Map of 4-char hex param IDs to hex-encoded value bytes.
  *               e.g. { "0001": "01" } sets param 0x0001 to 0x01 (power on).
  */
 export async function setDeviceState(
-  _name: string,
+  name: string,
   params: Record<string, string>,
 ): Promise<void> {
-  await adminCall("PUT", "/state", { params });
+  for (const [id, value] of Object.entries(params)) {
+    await adminCall("POST", `/devices/${name}/params/${id}`, { value });
+  }
 }
 
 /**
- * Simulate a fan-settle delay: the fakedevice adds `ms` milliseconds of
- * latency before each reply, mimicking the 10–15 s window after a
- * speed/mode write during which the unit lies about RPMs.
+ * Simulate a fan-settle delay.
  *
- * Pass ms=0 to clear the delay.
+ * NOT SUPPORTED by the memory backend. The fan-settle window is a
+ * UDP-protocol fact; this scenario is ported to Go in T6.
+ *
+ * Throws always so that any test calling this produces a clear failure
+ * rather than a silent no-op.
  */
-export async function simulateFanSettle(_name: string, ms: number): Promise<void> {
-  await adminCall("POST", `/simulate/fan-settle?ms=${ms}`);
+export async function simulateFanSettle(_name: string, _ms: number): Promise<void> {
+  throw new Error(
+    "simulateFanSettle is not supported by the memory backend; " +
+    "this scenario is ported to Go (poller_test.go) in T6",
+  );
 }
 
 /**
  * Toggle auth-failure mode: when `on` (default), every request returns
  * FUNC=0x07 (auth failure) regardless of the password supplied.
  */
-export async function simulateAuthFailure(_name: string, on = true): Promise<void> {
-  await adminCall("POST", `/simulate/auth-failure?on=${on}`);
+export async function simulateAuthFailure(name: string, on = true): Promise<void> {
+  await adminCall("POST", `/devices/${name}/inject-error`, { kind: on ? "auth" : "none" });
 }
 
 /**
- * Toggle UDP timeout mode: when `on` (default), the fakedevice silently
- * drops every incoming UDP request instead of replying — the caller's
- * read deadline will expire and return a timeout error.
+ * Toggle UDP timeout mode: when `on` (default), every request to the
+ * device returns a timeout error instead of a real response.
  */
-export async function simulateUDPTimeout(_name: string, on = true): Promise<void> {
-  await adminCall("POST", `/simulate/udp-timeout?on=${on}`);
+export async function simulateUDPTimeout(name: string, on = true): Promise<void> {
+  await adminCall("POST", `/devices/${name}/inject-error`, { kind: on ? "timeout" : "none" });
 }
 
 /**
- * Reset the fakedevice to its original snapshot state, clearing all
- * simulation flags (auth-failure, silent mode, reply delay) and
- * reloading the snapshot file.
+ * Reset the device to its original seed state, clearing all injected
+ * faults (auth-failure, timeout).
  */
-export async function reset(_name: string): Promise<void> {
-  await adminCall("POST", "/reset");
+export async function reset(name: string): Promise<void> {
+  await adminCall("POST", `/devices/${name}/reset`);
 }
 
 // ---------------------------------------------------------------------------

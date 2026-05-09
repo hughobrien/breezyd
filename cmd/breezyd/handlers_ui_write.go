@@ -205,10 +205,13 @@ func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error
 
 // uiBannerMsg renders err as a user-facing banner string. Raw
 // `context deadline exceeded` is meaningless to a dashboard user, so
-// translate timeout-shaped errors (ctx deadline + net.Error timeouts)
-// into a clear "device timeout".
+// translate timeout-shaped errors (ctx deadline + net.Error timeouts +
+// breezy.ErrTimeout from the memory backend) into a clear "device timeout".
 func uiBannerMsg(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "device timeout (no response)"
+	}
+	if errors.Is(err, breezy.ErrTimeout) {
 		return "device timeout (no response)"
 	}
 	var ne net.Error
