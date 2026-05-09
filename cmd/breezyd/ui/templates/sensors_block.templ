@@ -16,7 +16,7 @@ templ SensorsBlock(name string, s ui.SensorsView) {
 		data-class:alert="$sensorsAlert"
 		data-attr:open="$detailsOpen.sensors"
 	>
-		<summary><h3>Sensors</h3></summary>
+		<summary data-on:click="$detailsOpen.sensors = !$detailsOpen.sensors"><h3>Sensors</h3></summary>
 		@sensorsGrid(name, s)
 	</details>
 }
