@@ -19,6 +19,17 @@ import (
 // it without sleeping for a real interval.
 var keepaliveInterval = 30 * time.Second
 
+// newSSE wraps datastar.NewSSE with X-Accel-Buffering: no, defending
+// against reverse proxies that buffer responses by default. The NixOS
+// module's nginx already sets proxy_buffering off; this header covers
+// hand-rolled nginx, traefik, Apache, and Cloudflare. Must be called
+// BEFORE any explicit WriteHeader, since datastar.NewSSE flushes the
+// response head immediately.
+func newSSE(w http.ResponseWriter, r *http.Request, opts ...datastar.SSEOption) *datastar.ServerSentEventGenerator {
+	w.Header().Set("X-Accel-Buffering", "no")
+	return datastar.NewSSE(w, r, opts...)
+}
+
 // getUISSE serves the long-lived push channel. On connect, the handler:
 //  1. Clears the response writer's WriteDeadline (the daemon's http.Server
 //     enforces a 30s WriteTimeout for slow-loris protection on the JSON
@@ -49,7 +60,7 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("sse: clear write deadline", "err", err)
 	}
 
-	sse := datastar.NewSSE(w, r)
+	sse := newSSE(w, r)
 
 	// Reconnect detection: EventSource auto-resends Last-Event-ID after a
 	// drop. We don't implement replay — we just use the header's presence

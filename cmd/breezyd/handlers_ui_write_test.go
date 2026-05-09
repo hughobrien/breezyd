@@ -150,8 +150,31 @@ func TestUIWritePower_BadForm(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d, want 200", resp.StatusCode)
 	}
+	// errorBannerSSE writes the X-Accel-Buffering: no header inline, before
+	// its explicit WriteHeader(StatusOK). This asserts that path.
+	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
+		t.Errorf("X-Accel-Buffering: %q, want %q", got, "no")
+	}
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "missing")
+}
+
+func TestUIScheduleNewRow_XAccelBufferingHeader(t *testing.T) {
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/new-row")
+	if err != nil {
+		t.Fatalf("GET schedule/new-row: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
+		t.Errorf("X-Accel-Buffering: %q, want %q", got, "no")
+	}
 }
 
 func TestUIWritePower_BackendError(t *testing.T) {
