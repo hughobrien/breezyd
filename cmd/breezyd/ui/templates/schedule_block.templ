@@ -24,7 +24,6 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 					<input
 						type="checkbox"
 						if s.Enabled { checked }
-						if stale { disabled }
 						disabled
 					/>
 					enabled
