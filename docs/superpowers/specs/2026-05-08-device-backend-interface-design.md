@@ -1,185 +1,159 @@
-# Design: separate UI from device comms via DeviceBackend interface
+# Design: separate UI from device comms via in-process DeviceClient
 
-**Status:** approved 2026-05-08
+**Status:** approved 2026-05-08 (revised same day to Path A — simpler implementation)
 **Tracks:** v1.2 architecture
 
 ## Problem
 
-Today the dashboard, action handlers, poller, HomeKit bridge, and scheduler all import `pkg/breezy/ops` directly. To run or test the UI you need a real UDP peer — the `pkg/breezy/fakedevice` server. This conflates two unrelated concerns:
+Today the dashboard, action handlers, poller, HomeKit bridge, and scheduler all reach `pkg/breezy.Client` (or `pkg/breezy/ops.X` over a `breezy.DeviceClient`) backed by a real UDP socket. To run or test the UI you need a real UDP peer — the `pkg/breezy/fakedevice` server.
 
-1. **Rendering the dashboard from snapshots** (templ + datastar + SSE).
-2. **Talking to a Vents Twinfresh over FDFD/02 UDP** (frame, checksum, retry, fan-settle window).
+Symptoms:
 
-Symptoms in practice:
-
-- `just screenshot` and `just test-ui` spawn one breezyd plus three fakedevice UDP servers. An aborted run leaks orphan processes that hold loopback ports — every UI dev cycle risks tripping the same orphan-cleanup recipe.
-- Working on the dashboard locally requires either running against real hardware (per the project rule against unsanctioned writes, this is risky) or replicating the fakedevice spawn dance by hand.
-- The protocol-specific concerns (auth retries, fan-settle suppression) bleed into handler code that has no business knowing about them.
+- `just screenshot` and `just test-ui` spawn one breezyd plus three fakedevice UDP servers. Aborted runs leak orphan processes that hold loopback ports.
+- Working on the dashboard locally requires either real hardware (project rule against unsanctioned writes makes this risky) or replicating the fakedevice spawn dance manually.
+- The Playwright suite ships the `cmd/fakedevice` admin binary just to mutate device state mid-test.
 
 ## Goal
 
-A clean seam between "what the dashboard does" and "how a device is actually controlled." Production keeps the UDP path. UI development and Playwright tests run against a single in-process binary with no UDP, no spawn ceremony, and no orphans.
+UI development and Playwright tests run against a single in-process binary with no UDP, no spawn ceremony, and no orphans. Production keeps UDP.
 
 ## Non-goals
 
-- Replacing the `pkg/breezy/fakedevice` UDP server. It still earns its keep as a fixture for the Go protocol tests in `pkg/breezy/...` and `cmd/breezyd/...`. After this change it just stops being part of the UI test surface.
-- Changing the wire protocol or the Snapshot type.
-- HomeKit or scheduler behavioural changes — they continue to call the same verbs, just through the new interface.
+- Replacing `pkg/breezy/fakedevice`. It still earns its keep as a UDP fixture for protocol tests in `pkg/breezy/...` and `cmd/breezyd/poller_test.go`. After this change it just stops being part of the UI test surface.
+- Changing the wire protocol or the `Snapshot` type.
+- HomeKit / scheduler / energy-tracking behavioural changes — they continue to call ops verbs through the same `breezy.DeviceClient` interface.
 
 ## Design
 
-### The interface
+The codebase already has the right seam: `breezy.DeviceClient` is an interface (`ReadParams` + `WriteParams`) that handlers, poller, HomeKit, and scheduler all reach through. The UDP `*Client` is one implementation. The plan adds a second.
 
-A new file `pkg/breezy/backend.go` defines:
+### MemClient — in-process DeviceClient
 
-```go
-type DeviceBackend interface {
-    // Devices returns the configured-device map keyed by name.
-    Devices() map[string]Device
-
-    // Snapshot returns the current state of a single device. The backend
-    // owns staleness — UDP returns the last successful poll; memory
-    // returns its in-memory state.
-    Snapshot(ctx context.Context, name string) (Snapshot, error)
-
-    // Mutations. Each verb mirrors a function in pkg/breezy/ops. Returns
-    // ErrAuth on 0x07; backend-specific errors otherwise. The action handlers
-    // do not need to know which backend they hit.
-    Power(ctx context.Context, name string, on bool) error
-    Speed(ctx context.Context, name string, mode SpeedMode, manualPct int) error
-    Mode(ctx context.Context, name string, mode AirflowMode) error
-    Heater(ctx context.Context, name string, on bool) error
-    Timer(ctx context.Context, name string, mode TimerMode) error
-    Threshold(ctx context.Context, name string, sensor SensorKind, value int) error
-    Preset(ctx context.Context, name string, n int, supply, extract int) error
-    ResetFilter(ctx context.Context, name string) error
-    ResetFaults(ctx context.Context, name string) error
-    SetRTC(ctx context.Context, name string, t time.Time) error
-}
-```
-
-Verb naming matches the existing `pkg/breezy/ops` functions. The `Devices()` accessor exists because the poller and config validation need the configured-device map without going through the cache.
-
-### UDP backend
-
-`pkg/breezy/udpbackend.go`. Wraps the existing `*Client` per device plus the per-device mutex and fan-settle window state currently scattered in `cmd/breezyd/poller.go`. Each method delegates to the matching `pkg/breezy/ops.X` function. Roughly:
+New file `pkg/breezy/memclient.go`. Holds `map[ParamID][]byte` (matching how the fakedevice already models device state) behind a `sync.RWMutex`. Implements `DeviceClient`:
 
 ```go
-type udpBackend struct {
-    devices  map[string]Device
-    clients  map[string]*Client       // one per device, lazy
-    mu       map[string]*sync.Mutex   // serialises writes per device
-    settle   map[string]time.Time     // fan-settle suppression deadline
+type MemClient struct {
+    mu     sync.RWMutex
+    params map[ParamID][]byte
+
+    // Fault-injection (test admin surface).
+    forceAuthErr bool
+    forceTimeout bool
 }
 
-func (b *udpBackend) Power(ctx context.Context, name string, on bool) error {
-    cli, mu, err := b.client(name)
-    if err != nil { return err }
-    mu.Lock(); defer mu.Unlock()
-    return ops.Power(ctx, cli, on)
-}
+func NewMemClient() *MemClient
+func NewMemClientFromFile(path string) (*MemClient, error)  // loads JSON map[ParamID][]byte
+
+func (m *MemClient) ReadParams(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error)
+func (m *MemClient) WriteParams(ctx context.Context, writes []ParamWrite) error
+func (m *MemClient) Close() error  // no-op; kept to satisfy callers that defer Close
 ```
 
-The fan-settle window logic stays here, not in the poller — that's the right home for "this protocol fact" rather than leaking into call sites.
+Reads return a snapshot of the requested IDs. Writes mutate `params`. Both are O(n) over the request size; concurrency-safe.
 
-### Memory backend
-
-`pkg/breezy/membackend.go`. Holds `map[string]*Snapshot` behind a `sync.RWMutex`. Each method:
-
-1. Looks up the device's snapshot.
-2. Mutates the relevant field — Power → `snap.Power.Status`; Speed → `snap.SpeedMode + snap.Manual`; Mode → `snap.AirflowMode`; Threshold → `snap.Sensors.<kind>.Threshold`; etc.
-3. Updates `snap.LastPoll = time.Now()`.
-4. Returns nil.
-
-Constructors:
+#### Fault-injection knobs
 
 ```go
-func NewMemBackend(devices map[string]Device) *memBackend          // empty snapshots
-func NewMemBackendFromFile(devices, path string) (*memBackend, error) // seed JSON
+func (m *MemClient) SetAuthFailureMode(force bool)  // returns ErrAuth on next call
+func (m *MemClient) SetTimeoutMode(force bool)      // returns ErrTimeout on next call
+func (m *MemClient) SetParamValue(id ParamID, b []byte)  // direct mutation
+func (m *MemClient) Reset()                          // restore to construction-time state
 ```
 
-Concurrency: per-device write lock matches UDP backend's contract. Reads return a copy of the snapshot, never the live pointer, so callers can't mutate the backend by accident.
+These mirror the existing `fakedevice.Server` admin surface. Tests for the memory path use them; production never sets them.
 
-#### Faking firmware quirks
+### Seed format
 
-The memory backend does **not** simulate the fan-settle window or other firmware oddities. Those exist *because* of UDP and don't belong in an in-memory model. UI tests that need to verify "stale row appears after long quiet" can manipulate the backend's `LastPoll` field via a test helper, not via simulating UDP retries.
+The seed file is the same JSON shape `pkg/breezy/fakedevice` already loads — `map[ParamID][]byte` — so existing fixtures (`pkg/breezy/fakedevice/snapshot_148.json`) work unchanged.
 
 ### Wiring in `cmd/breezyd`
 
-- New flag: `--backend=udp|memory` (default `udp`). With `memory`: optional `--seed <path.json>` to preload snapshots, otherwise empty.
-- `main.go` constructs the backend once, threads it into:
-  - The poller (replaces direct `ops` calls)
-  - Action handlers under `/v1/...` and `/ui/devices/...`
-  - The HomeKit bridge (`cmd/breezyd/homekit.go`)
-  - The scheduler (`cmd/breezyd/scheduler.go`)
-- The poller for the memory backend is degenerate: `for { backend.Snapshot(name); push }`. Same loop structure, no UDP timing concerns.
+- New flag `--backend=udp|memory` (default `udp`). With `memory`: optional `--seed <path>` to preload params (otherwise empty client per device).
+- `main.go` chooses the constructor: existing `breezy.NewClient(addr)` for UDP, `breezy.NewMemClientFromFile(seed)` for memory.
+- The constructor lives behind a small `clientFactory(name string) (breezy.DeviceClient, error)` closure so call sites are unchanged.
 
-The mechanical refactor across consumers is roughly: replace `ops.Power(ctx, cli, on)` with `backend.Power(ctx, name, on)`. Call sites stop knowing the device's address or the per-device client.
+### Fan-settle suppression
+
+The fan-settle window is a UDP-protocol fact. The poller currently suppresses reads of `fanSensitiveReads` for 12s after writes to `fanWriteIDs`. With a MemClient there's nothing to suppress — writes land instantly and reads see them.
+
+Implementation: `breezy.DeviceClient` grows a `IsLocal() bool` method. UDP `*Client` returns `false`; `*MemClient` returns `true`. The poller's fan-settle gate becomes `if !client.IsLocal() { …suppress… }`.
+
+This is a tiny addition rather than a wholesale interface split. Documented behavioural difference: when `--backend=memory`, the dashboard reflects writes immediately (no settling). UI tests that need to assert on fan-settle behaviour stay in Go against the UDP fakedevice (one such test today; see migration table).
+
+### Test admin endpoints
+
+New file `cmd/breezyd/handlers_test_admin.go`, behind build tag `breezyd_test_admin`. Exposes:
+
+- `POST /test/devices/{name}/params/{id}` — body: `{"value":[byte,byte,…]}` → `client.SetParamValue`
+- `POST /test/devices/{name}/inject-error` — body: `{"kind":"auth"|"timeout"|"none"}`
+- `POST /test/devices/{name}/reset`
+
+These handlers cast the device's `breezy.DeviceClient` to `*breezy.MemClient`; if the cast fails (i.e., `--backend=udp`), they return 400. Routes are only registered when the build tag is set, so production never has the surface.
 
 ### Test surface impact
 
 | Surface | Before | After |
 |---|---|---|
-| `pkg/breezy/...` Go tests | fakedevice (UDP) | unchanged — still fakedevice |
-| `cmd/breezyd/...` Go tests | fakedevice (UDP) | unchanged — still fakedevice (the poller-via-UDP path is genuinely tested here) |
-| Playwright `tests/ui/...` | fakedevice (UDP) + breezyd | one breezyd `--backend=memory --seed <fixture.json>` |
-| `just screenshot` | fakedevice (UDP) + breezyd | one breezyd `--backend=memory --seed <fixture.json>` |
-| `cmd/fakedevice` admin binary | spawned by Playwright | retired (see Playwright fault-injection migration below) |
-| Local UI dev | requires fakedevice spawn | `breezyd --backend=memory --seed <devices.json>` |
-
-The fakedevice module shrinks to its honest job: a Go-level UDP fixture for protocol tests.
+| `pkg/breezy/...` Go tests | fakedevice (UDP) | unchanged |
+| `cmd/breezyd/poller_test.go` | fakedevice (UDP) | unchanged — fan-settle path stays here |
+| `cmd/breezyd/handlers_*_test.go` | fakedevice (UDP) | mostly unchanged; some can switch to MemClient for speed |
+| Playwright `tests/ui/...` | fakedevice + breezyd (admin tag) | one breezyd `--backend=memory --seed <fixture.json>` (admin tag) |
+| `just screenshot` | fakedevice + breezyd (admin tag) | one breezyd `--backend=memory --seed <fixture.json>` |
+| `cmd/fakedevice` admin binary | spawned by Playwright | retired |
+| Local UI dev | requires fakedevice spawn | `breezyd --backend=memory --seed <fixture>.json` |
 
 ### Playwright fault-injection migration
 
-The current `tests/ui/fixtures.ts` exposes five test hooks that talk to `cmd/fakedevice`'s admin HTTP plane: `setDeviceState`, `simulateFanSettle`, `simulateAuthFailure`, `simulateUDPTimeout`, `reset`. Each maps cleanly to the new world:
+`tests/ui/fixtures.ts` currently exposes five hooks against the `cmd/fakedevice` admin HTTP surface. Each maps cleanly:
 
 | Fixture hook | Today | After |
 |---|---|---|
-| `setDeviceState` | POST to fakedevice admin → fakedevice rewrites its snapshot | POST to a new build-tagged breezyd endpoint `/test/devices/{name}/snapshot` that mutates the memory backend |
-| `simulateAuthFailure` | fakedevice returns 0x07 on next read | memory backend has a configurable "next call returns ErrAuth" knob, set via `/test/devices/{name}/inject-error` |
-| `simulateUDPTimeout` | fakedevice swallows the next packet | same knob, returns `breezy.ErrTimeout` |
-| `reset` | fakedevice reloads the seed snapshot | memory backend reloads the seed snapshot |
-| `simulateFanSettle` | fakedevice returns stale fan readings for N ms | **does not port** — the fan-settle window is a UDP-protocol fact. Move the one Playwright test that uses this to a Go-level test against the UDP fakedevice. |
+| `setDeviceState` | POST to fakedevice admin → fakedevice rewrites a param | POST to breezyd's `/test/devices/{name}/params/{id}` |
+| `simulateAuthFailure` | fakedevice flips its `forceAuthErr` flag | POST `/test/devices/{name}/inject-error` `{"kind":"auth"}` |
+| `simulateUDPTimeout` | fakedevice swallows next packet | POST `/test/devices/{name}/inject-error` `{"kind":"timeout"}` |
+| `reset` | fakedevice reloads seed | POST `/test/devices/{name}/reset` |
+| `simulateFanSettle` | fakedevice returns stale fan readings | **does not port** — port the one consumer test to Go (`poller_test.go`) against the UDP fakedevice |
 
-The new `/test/...` endpoints live behind a build tag (`backend_test_admin` or similar) so the production binary doesn't ship them. `tests/ui/fixtures.ts` keeps the same TypeScript surface; only its target URL changes.
+The TypeScript surface of `fixtures.ts` is unchanged; only its base URL moves from `BREEZYD_ADMIN_URL` to `BREEZYD_URL` (the same daemon now exposes `/test/...`).
 
-### Out of scope (explicit)
+## Out of scope (explicit)
 
-- The raw `GET/PUT /v1/devices/{name}/params/{id}` debug endpoint. The high-level interface doesn't expose raw param read/write. Decision deferred to implementation: either drop the endpoint, or expose it only when the backend is UDP (type-assert at the handler).
-- Energy tracking — operates on Snapshots, no change.
-- Schedule — fires writes through the backend, works for both implementations.
-- Cross-cutting: behavior catalog and golden-render tests don't change shape; they may gain a new "memory backend" suite.
+- Raw `GET/PUT /v1/devices/{name}/params/{id}` debug endpoint stays as-is. Reads work through the same MemClient. Writes work too — MemClient's `WriteParams` accepts any param ID.
+- Energy tracking — operates on `Snapshot`s; no change.
+- Schedule — fires writes through the same `DeviceClient`; works unchanged.
 
 ## Effort
 
-One PR, target diff:
+Single PR:
 
 | Section | Approx |
 |---|---|
-| `backend.go` interface | 60 lines |
-| `udpbackend.go` (mostly forwarding) | 200 lines |
-| `membackend.go` | 250 lines |
-| Consumer refactor (poller, handlers, HomeKit, scheduler) | 100 lines changed |
-| Tests for memory backend | 200 lines |
-| Playwright migration (`tests/ui/global-setup.ts`, `screenshot.ts`) | 100 lines changed (mostly removed) |
-| Retire `cmd/fakedevice` admin binary | -300 lines |
+| `memclient.go` + tests | 250 + 200 |
+| `--backend` / `--seed` wiring in `main.go` | 50 |
+| `IsLocal()` plumbing on poller's fan-settle gate | 30 |
+| `handlers_test_admin.go` (build-tagged) | 100 |
+| Playwright migration (`global-setup.ts`, `fixtures.ts`) | 50 changed, 100 removed |
+| Move one Playwright test to Go (`poller_test.go`) | 80 |
+| Retire `cmd/fakedevice` admin binary + build tag | -300 |
+| `screenshot.ts` migration | 40 changed, 60 removed |
 
-Net: roughly +500/-300, with the UDP-backend wrapper being almost entirely mechanical. Reviewable in one sitting.
+Net diff: roughly +400/-300, mostly in new code that lives next to the existing `Client` and is exercised by tests. Reviewable in one sitting.
 
 ## Migration
 
-Single PR. The sequence within the PR:
+One PR, ordered so each commit compiles cleanly:
 
-1. Land `backend.go` interface and `udpbackend.go`. UDP backend passes Go test suite unchanged.
-2. Refactor consumers (poller, handlers, HomeKit, scheduler) to take the backend by injection.
-3. Add `membackend.go` and the `--backend=memory --seed` flag.
-4. Switch Playwright + screenshot scripts to memory backend.
-5. Retire `cmd/fakedevice` admin binary and its build-tagged tests.
-
-Each step compiles cleanly on its own; the PR can be reviewed commit-by-commit if needed.
+1. Add `MemClient` + tests.
+2. Add `IsLocal()` on `DeviceClient` and the poller's gated suppression.
+3. Add `--backend` / `--seed` flags and wiring.
+4. Add build-tagged `/test/...` admin handlers.
+5. Migrate Playwright (`global-setup.ts`, `fixtures.ts`, drop fakedevice spawn).
+6. Port the fan-settle Playwright test to Go.
+7. Retire `cmd/fakedevice` admin code and its build tag.
+8. Migrate `screenshot.ts`.
 
 ## Risk
 
-- Behaviour drift in the UDP backend during the wrap. Mitigated by: existing Go tests gate every consumer's call paths, and the wrapper is mechanical.
-- Memory-backend semantics quietly diverging from real device behaviour (e.g., a write that the firmware silently rejects but the memory backend accepts). Mitigated by: the memory backend models *user-observable state*, not protocol responses; tests for protocol edge cases stay against UDP fakedevice.
-- Loss of Playwright coverage for the UDP→cache path. Acceptable — that path is fully covered by `cmd/breezyd/poller_test.go` against fakedevice, and adding it to the UI test surface was always incidental.
+- MemClient diverging from real device behaviour. Mitigated: MemClient models user-observable state (param map round-trips), not protocol responses; protocol edge cases stay tested against the UDP fakedevice.
+- A Playwright test that depended on UDP-specific behaviour (e.g., fan-settle staleness) and isn't already covered in Go. Mitigated: surveyed `tests/ui/fixtures.ts`; the only such hook is `simulateFanSettle`, with a planned port in Task 6.
+- Loss of UDP→cache→dashboard end-to-end coverage in the UI suite. Acceptable — that path is fully covered by `cmd/breezyd/poller_test.go` against fakedevice. UI tests that pretend to test it were already a redundant layer.
