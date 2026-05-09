@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/matryer/is"
 )
 
 // writeConfig writes contents to a tmp file with mode 0600 by default.
@@ -23,6 +25,7 @@ func writeConfig(t *testing.T, contents string) string {
 }
 
 func TestLoad_HappyPath(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [daemon]
 listen        = "127.0.0.1:9876"
@@ -39,38 +42,27 @@ password = "secret"
 ip       = "192.168.1.42"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Daemon.Listen != "127.0.0.1:9876" {
-		t.Errorf("Listen = %q", cfg.Daemon.Listen)
-	}
-	if cfg.Daemon.PollInterval != 30*time.Second {
-		t.Errorf("PollInterval = %v", cfg.Daemon.PollInterval)
-	}
-	if cfg.Daemon.Discovery != "on-start" {
-		t.Errorf("Discovery = %q", cfg.Daemon.Discovery)
-	}
-	if len(cfg.Devices) != 2 {
-		t.Fatalf("len(Devices) = %d, want 2", len(cfg.Devices))
-	}
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.Listen, "127.0.0.1:9876")
+	is.Equal(cfg.Daemon.PollInterval, 30*time.Second)
+	is.Equal(cfg.Daemon.Discovery, "on-start")
+	is.Equal(len(cfg.Devices), 2)
+
 	pr, ok := cfg.Devices["playroom"]
-	if !ok {
-		t.Fatal("playroom missing")
-	}
-	if pr.ID != "BREEZY00000000A0" || pr.Password != "testpwd" || pr.IP != "" {
-		t.Errorf("playroom = %+v", pr)
-	}
+	is.True(ok) // playroom present
+	is.Equal(pr.ID, "BREEZY00000000A0")
+	is.Equal(pr.Password, "testpwd")
+	is.Equal(pr.IP, "")
+
 	br, ok := cfg.Devices["bedroom"]
-	if !ok {
-		t.Fatal("bedroom missing")
-	}
-	if br.ID != "BREEZY00000000A1" || br.Password != "secret" || br.IP != "192.168.1.42" {
-		t.Errorf("bedroom = %+v", br)
-	}
+	is.True(ok) // bedroom present
+	is.Equal(br.ID, "BREEZY00000000A1")
+	is.Equal(br.Password, "secret")
+	is.Equal(br.IP, "192.168.1.42")
 }
 
 func TestLoad_DefaultsApplied(t *testing.T) {
+	is := is.New(t)
 	// daemon table omitted entirely
 	path := writeConfig(t, `
 [devices.playroom]
@@ -78,24 +70,17 @@ id       = "BREEZY00000000A0"
 password = "testpwd"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	is.NoErr(err)
 	// Listen is intentionally NOT defaulted by Load — the CLI uses the
 	// empty string to mean "no daemon configured → standalone mode". The
 	// daemon applies its own default after Load returns.
-	if cfg.Daemon.Listen != "" {
-		t.Errorf("Listen default = %q, want empty (no-daemon sentinel)", cfg.Daemon.Listen)
-	}
-	if cfg.Daemon.PollInterval != 30*time.Second {
-		t.Errorf("PollInterval default = %v, want 30s", cfg.Daemon.PollInterval)
-	}
-	if cfg.Daemon.Discovery != "on-start" {
-		t.Errorf("Discovery default = %q, want on-start", cfg.Daemon.Discovery)
-	}
+	is.Equal(cfg.Daemon.Listen, "")
+	is.Equal(cfg.Daemon.PollInterval, 30*time.Second)
+	is.Equal(cfg.Daemon.Discovery, "on-start")
 }
 
 func TestLoad_DaemonPasswordInherited(t *testing.T) {
+	is := is.New(t)
 	// Devices without an explicit `password` should inherit
 	// [daemon].password. Devices with their own password keep it.
 	path := writeConfig(t, `
@@ -113,24 +98,15 @@ password = "override"
 id = "BREEZY00000000A2"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Daemon.Password != "fleetpwd" {
-		t.Errorf("Daemon.Password = %q, want fleetpwd", cfg.Daemon.Password)
-	}
-	if got := cfg.Devices["bedroom"].Password; got != "fleetpwd" {
-		t.Errorf("bedroom inherited = %q, want fleetpwd", got)
-	}
-	if got := cfg.Devices["office"].Password; got != "override" {
-		t.Errorf("office override = %q, want override", got)
-	}
-	if got := cfg.Devices["playroom"].Password; got != "fleetpwd" {
-		t.Errorf("playroom inherited = %q, want fleetpwd", got)
-	}
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.Password, "fleetpwd")
+	is.Equal(cfg.Devices["bedroom"].Password, "fleetpwd")
+	is.Equal(cfg.Devices["office"].Password, "override")
+	is.Equal(cfg.Devices["playroom"].Password, "fleetpwd")
 }
 
 func TestLoad_DaemonPasswordAbsentLeavesEmpty(t *testing.T) {
+	is := is.New(t)
 	// When [daemon].password is unset, devices without their own
 	// password stay empty (current behaviour preserved).
 	path := writeConfig(t, `
@@ -138,18 +114,13 @@ func TestLoad_DaemonPasswordAbsentLeavesEmpty(t *testing.T) {
 id = "BREEZY00000000A0"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Daemon.Password != "" {
-		t.Errorf("Daemon.Password = %q, want empty", cfg.Daemon.Password)
-	}
-	if got := cfg.Devices["bedroom"].Password; got != "" {
-		t.Errorf("bedroom.Password = %q, want empty (no inheritance)", got)
-	}
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.Password, "")
+	is.Equal(cfg.Devices["bedroom"].Password, "")
 }
 
 func TestLoad_EmptyDevicesAccepted(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [daemon]
 listen        = "127.0.0.1:9876"
@@ -157,152 +128,115 @@ poll_interval = "30s"
 discovery     = "off"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(cfg.Devices) != 0 {
-		t.Errorf("expected zero devices, got %d", len(cfg.Devices))
-	}
+	is.NoErr(err)
+	is.Equal(len(cfg.Devices), 0)
 }
 
 func TestLoad_ReservedNamesRejected(t *testing.T) {
 	for _, name := range []string{"ls", "discover", "daemon-url", "param", "LS", "Discover", "Daemon-URL", "Param"} {
 		t.Run(name, func(t *testing.T) {
+			is := is.New(t)
 			path := writeConfig(t, `
 [devices.`+name+`]
 id       = "BREEZY00000000A0"
 password = "testpwd"
 `)
 			_, err := Load(path)
-			if err == nil {
-				t.Fatalf("expected error for reserved name %q, got nil", name)
-			}
-			if !strings.Contains(err.Error(), name) {
-				t.Errorf("error %q must mention offending name %q", err.Error(), name)
-			}
-			if !strings.Contains(strings.ToLower(err.Error()), "reserved") {
-				t.Errorf("error %q should mention 'reserved'", err.Error())
-			}
+			is.True(err != nil)                                                 // error returned for reserved name
+			is.True(strings.Contains(err.Error(), name))                        // mentions offending name
+			is.True(strings.Contains(strings.ToLower(err.Error()), "reserved")) // mentions 'reserved'
 		})
 	}
 }
 
 func TestLoad_WorldReadableRejected(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
+	err := os.WriteFile(path, []byte(`
 [devices.playroom]
 id       = "BREEZY00000000A0"
 password = "testpwd"
-`), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for mode 0644, got nil")
-	}
-	if !strings.Contains(err.Error(), "0600") {
-		t.Errorf("error should mention 0600: %v", err)
-	}
-	if !strings.Contains(err.Error(), "644") {
-		t.Errorf("error should mention actual mode 644: %v", err)
-	}
+`), 0o644)
+	is.NoErr(err)
+	_, err = Load(path)
+	is.True(err != nil)                            // mode 0644 rejected
+	is.True(strings.Contains(err.Error(), "0600")) // error mentions 0600
+	is.True(strings.Contains(err.Error(), "644"))  // error mentions actual mode
 }
 
 func TestLoad_GroupReadableRejected(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
+	err := os.WriteFile(path, []byte(`
 [devices.playroom]
 id       = "BREEZY00000000A0"
 password = "testpwd"
-`), 0o640); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for mode 0640, got nil")
-	}
-	if !strings.Contains(err.Error(), "0600") {
-		t.Errorf("error should mention 0600: %v", err)
-	}
+`), 0o640)
+	is.NoErr(err)
+	_, err = Load(path)
+	is.True(err != nil)                            // mode 0640 rejected
+	is.True(strings.Contains(err.Error(), "0600")) // error mentions 0600
 }
 
 func TestLoad_PasswordFreeWorldReadableAccepted(t *testing.T) {
+	is := is.New(t)
 	// A system fallback like /etc/breezy/config.toml with only
 	// [daemon].listen (no passwords) must be loadable at mode 0644 so
 	// every user on the host can read it.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
+	err := os.WriteFile(path, []byte(`
 [daemon]
 listen = "127.0.0.1:9876"
-`), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
+`), 0o644)
+	is.NoErr(err)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("password-free 0644 should load, got: %v", err)
-	}
-	if cfg.Daemon.Listen != "127.0.0.1:9876" {
-		t.Errorf("Listen = %q, want 127.0.0.1:9876", cfg.Daemon.Listen)
-	}
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.Listen, "127.0.0.1:9876")
 }
 
 func TestLoad_DaemonPasswordTriggersModeCheck(t *testing.T) {
+	is := is.New(t)
 	// [daemon].password counts as a secret too — a config with only a
 	// fleet-wide password and no [devices] still requires mode 0600.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(`
+	err := os.WriteFile(path, []byte(`
 [daemon]
 password = "fleetpwd"
-`), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for daemon-password at 0644, got nil")
-	}
-	if !strings.Contains(err.Error(), "0600") {
-		t.Errorf("error should mention 0600: %v", err)
-	}
+`), 0o644)
+	is.NoErr(err)
+	_, err = Load(path)
+	is.True(err != nil)                            // daemon-password at 0644 rejected
+	is.True(strings.Contains(err.Error(), "0600")) // error mentions 0600
 }
 
 func TestLoad_BadDeviceIDLength(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [devices.playroom]
 id       = "TOOSHORT"
 password = "testpwd"
 `)
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for short id, got nil")
-	}
-	if !strings.Contains(err.Error(), "playroom") {
-		t.Errorf("error should mention device name: %v", err)
-	}
-	if !strings.Contains(err.Error(), "16") {
-		t.Errorf("error should mention required length 16: %v", err)
-	}
-	if !strings.Contains(err.Error(), "8") {
-		t.Errorf("error should mention actual length 8: %v", err)
-	}
+	is.True(err != nil)                                // short id rejected
+	is.True(strings.Contains(err.Error(), "playroom")) // mentions device name
+	is.True(strings.Contains(err.Error(), "16"))       // mentions required length 16
+	is.True(strings.Contains(err.Error(), "8"))        // mentions actual length 8
 }
 
 func TestLoad_BadDeviceIDLong(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [devices.playroom]
 id       = "BREEZY00000000A0XTRA"
 password = "testpwd"
 `)
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for too-long id, got nil")
-	}
-	if !strings.Contains(err.Error(), "playroom") {
-		t.Errorf("error should mention device name: %v", err)
-	}
+	is.True(err != nil)                                // too-long id rejected
+	is.True(strings.Contains(err.Error(), "playroom")) // mentions device name
 }
 
 func TestLoad_BadDiscoveryValue(t *testing.T) {
@@ -314,87 +248,69 @@ func TestLoad_BadDiscoveryValue(t *testing.T) {
 	}
 	for _, line := range cases {
 		t.Run(line, func(t *testing.T) {
+			is := is.New(t)
 			path := writeConfig(t, `
 [daemon]
 `+line+`
 `)
 			_, err := Load(path)
-			if err == nil {
-				t.Fatalf("expected error for %q", line)
-			}
-			if !strings.Contains(strings.ToLower(err.Error()), "discovery") &&
-				!strings.Contains(strings.ToLower(err.Error()), "periodic") {
-				t.Errorf("error should mention discovery: %v", err)
-			}
+			is.True(err != nil) // bad discovery rejected
+			lower := strings.ToLower(err.Error())
+			is.True(strings.Contains(lower, "discovery") || strings.Contains(lower, "periodic")) // mentions discovery/periodic
 		})
 	}
 }
 
 func TestLoad_GoodPeriodicDiscovery(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [daemon]
 discovery = "periodic:5m"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Daemon.Discovery != "periodic:5m" {
-		t.Errorf("Discovery = %q", cfg.Daemon.Discovery)
-	}
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.Discovery, "periodic:5m")
 }
 
 func TestLoad_BadPollInterval(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [daemon]
 poll_interval = "notaduration"
 `)
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "poll_interval") {
-		t.Errorf("error should mention poll_interval: %v", err)
-	}
+	is.True(err != nil)                                                      // bad poll_interval rejected
+	is.True(strings.Contains(strings.ToLower(err.Error()), "poll_interval")) // mentions poll_interval
 }
 
 func TestLoad_MissingFile(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doesnotexist.toml")
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("expected os.ErrNotExist, got %v", err)
-	}
+	is.True(err != nil)                     // missing file rejected
+	is.True(errors.Is(err, os.ErrNotExist)) // wraps os.ErrNotExist
 }
 
 func TestLoad_BadTOMLSyntax(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `this is not valid toml = = =`)
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	is.True(err != nil) // bad TOML rejected
 }
 
 func TestWriteDefault_FreshTempDir(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "breezyd.toml")
-	if err := WriteDefault(path); err != nil {
-		t.Fatalf("WriteDefault: %v", err)
-	}
+	is.NoErr(WriteDefault(path))
+
 	st, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if mode := st.Mode().Perm(); mode != 0o600 {
-		t.Errorf("mode = %#o, want 0600", mode)
-	}
+	is.NoErr(err)
+	is.Equal(st.Mode().Perm(), os.FileMode(0o600))
+
 	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
+	is.NoErr(err)
 	got := string(body)
 	for _, want := range []string{
 		// [daemon] block is commented out so new users land in standalone mode.
@@ -405,79 +321,58 @@ func TestWriteDefault_FreshTempDir(t *testing.T) {
 		`# [devices.playroom]`,
 		`breezy discover`,
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("default config missing %q", want)
-		}
+		is.True(strings.Contains(got, want)) // default config contains expected line
 	}
 	// Roundtrip: the bootstrap output must Load cleanly. This is the
 	// strongest single regression guard against a future template edit
 	// that breaks `breezyd` first-run.
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load on WriteDefault output failed: %v", err)
-	}
-	if cfg.Daemon.Listen != "" {
-		t.Errorf("Daemon.Listen = %q, want empty (standalone sentinel)", cfg.Daemon.Listen)
-	}
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.Listen, "")
 }
 
 func TestWriteDefault_CreatesParent(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "deeper", "breezyd.toml")
-	if err := WriteDefault(path); err != nil {
-		t.Fatalf("WriteDefault: %v", err)
-	}
+	is.NoErr(WriteDefault(path))
+
 	parentSt, err := os.Stat(filepath.Dir(path))
-	if err != nil {
-		t.Fatalf("stat parent: %v", err)
-	}
-	if !parentSt.IsDir() {
-		t.Fatal("parent is not a directory")
-	}
-	if mode := parentSt.Mode().Perm(); mode != 0o700 {
-		t.Errorf("parent mode = %#o, want 0700", mode)
-	}
+	is.NoErr(err)
+	is.True(parentSt.IsDir()) // parent is a directory
+	is.Equal(parentSt.Mode().Perm(), os.FileMode(0o700))
 }
 
 func TestWriteDefault_RefusesToOverwrite(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "breezyd.toml")
 	const sentinel = "user-supplied content; do not clobber"
-	if err := os.WriteFile(path, []byte(sentinel), 0o600); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	is.NoErr(os.WriteFile(path, []byte(sentinel), 0o600))
+
 	err := WriteDefault(path)
-	if err == nil {
-		t.Fatal("WriteDefault returned nil; expected ErrConfigExists")
-	}
-	if !errors.Is(err, ErrConfigExists) {
-		t.Errorf("err = %v, want errors.Is(_, ErrConfigExists)", err)
-	}
+	is.True(err != nil)                      // refused to overwrite
+	is.True(errors.Is(err, ErrConfigExists)) // wraps ErrConfigExists
+
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read after refusal: %v", err)
-	}
-	if string(got) != sentinel {
-		t.Errorf("WriteDefault clobbered existing file; got %q", string(got))
-	}
+	is.NoErr(err)
+	is.Equal(string(got), sentinel) // existing file preserved
 }
 
 func TestLoad_HomekitDisabledByDefault(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [devices.playroom]
 id       = "BREEZY00000000A0"
 password = "testpwd"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Homekit.Enabled {
-		t.Error("Homekit.Enabled defaults to false")
-	}
+	is.NoErr(err)
+	is.True(!cfg.Homekit.Enabled) // Homekit defaults to false
 }
 
 func TestLoad_HomekitEnabledDefaults(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	path := writeConfig(t, `
 [homekit]
@@ -488,51 +383,38 @@ id       = "BREEZY00000000A0"
 password = "testpwd"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if !cfg.Homekit.Enabled {
-		t.Error("Enabled = false, want true")
-	}
-	if cfg.Homekit.BridgeName != "breezyd" {
-		t.Errorf("BridgeName = %q, want default 'breezyd'", cfg.Homekit.BridgeName)
-	}
-	if !strings.HasSuffix(cfg.Homekit.StateDir, "/breezyd/homekit") {
-		t.Errorf("StateDir = %q, want path ending in /breezyd/homekit", cfg.Homekit.StateDir)
-	}
+	is.NoErr(err)
+	is.True(cfg.Homekit.Enabled)
+	is.Equal(cfg.Homekit.BridgeName, "breezyd")
+	is.True(strings.HasSuffix(cfg.Homekit.StateDir, "/breezyd/homekit")) // StateDir ends in /breezyd/homekit
 }
 
 func TestLoad_HomekitBridgeNameTooLong(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [homekit]
 enabled     = true
 bridge_name = "this-name-is-way-too-long-for-the-32-char-limit"
 `)
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for long bridge_name")
-	}
-	if !strings.Contains(err.Error(), "32 chars") {
-		t.Errorf("error should mention 32 char limit: %v", err)
-	}
+	is.True(err != nil)                                // long bridge_name rejected
+	is.True(strings.Contains(err.Error(), "32 chars")) // mentions 32 char limit
 }
 
 func TestLoad_HomekitBadPort(t *testing.T) {
+	is := is.New(t)
 	path := writeConfig(t, `
 [homekit]
 enabled = true
 port    = 80
 `)
 	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for low port")
-	}
-	if !strings.Contains(err.Error(), "1024-65535") {
-		t.Errorf("error should mention port range: %v", err)
-	}
+	is.True(err != nil)                                  // low port rejected
+	is.True(strings.Contains(err.Error(), "1024-65535")) // mentions port range
 }
 
 func TestLoad_HomekitTildeExpansion(t *testing.T) {
+	is := is.New(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", "")
@@ -542,11 +424,7 @@ enabled   = true
 state_dir = "~/.config/breezyd/homekit"
 `)
 	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	is.NoErr(err)
 	want := filepath.Join(home, ".config", "breezyd", "homekit")
-	if cfg.Homekit.StateDir != want {
-		t.Errorf("StateDir = %q, want %q", cfg.Homekit.StateDir, want)
-	}
+	is.Equal(cfg.Homekit.StateDir, want)
 }
