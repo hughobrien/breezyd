@@ -511,14 +511,6 @@ func TestPoller_BatchesLargeReadList(t *testing.T) {
 	is.Equal(len(fc.batches[2]), 15) // last batch holds the remainder
 }
 
-func batchSizes(bs [][]breezy.ParamID) []int {
-	out := make([]int, len(bs))
-	for i, b := range bs {
-		out[i] = len(b)
-	}
-	return out
-}
-
 func TestPoller_ErrorClassification(t *testing.T) {
 	cases := []struct {
 		name string
