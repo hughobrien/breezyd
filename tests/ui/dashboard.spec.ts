@@ -218,6 +218,86 @@ test.describe("controls", () => {
     await card.getByRole("button", { name: "48/49", pressed: true }).click();
     await expect(editor2).toBeHidden({ timeout: 2_000 });
   });
+
+  // Catalog B-17: a rapid drag of a slider with `data-on:change__debounce.200ms`
+  // should produce exactly one POST, not one per intermediate value. Pins
+  // the debounce attribute against accidental removal/relaxation.
+  //
+  // Targets the preset-2 supply slider rather than the manual slider —
+  // both carry the same debounce attribute, but the manual slider has a
+  // separate signal-reseed bug worth its own issue (the @post reads
+  // $manualPct, which doesn't update from synthesized events because of
+  // a data-bind:manualPct case quirk; the preset expression reads
+  // evt.target.value directly so it works under synthesis).
+  test("preset slider drag debounces — one POST per drag", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.asPresetSpeed(DEVICE, 1);
+    const card = await loadCard(page);
+
+    // Open the preset-2 editor.
+    await card.getByRole("button", { name: "48/49" }).click();
+    const editor2 = card.locator('[data-preset-editor="2"]');
+    await expect(editor2).toBeVisible({ timeout: 2_000 });
+    const supplySlider = editor2.locator('input[name="supply"]');
+    await expect(supplySlider).toBeVisible();
+
+    // matchSpeeds defaults true: a supply drag will mirror to extract,
+    // and the @post payload carries both sides on each fire. That's
+    // fine for this test — we still expect exactly ONE POST after the
+    // debounce, and we read .supply from it.
+
+    // Count POSTs to /ui/devices/{name}/preset.
+    const presetPosts: Array<{ supply: number; extract: number }> = [];
+    page.on("request", (req) => {
+      if (
+        req.method() === "POST" &&
+        req.url().endsWith(`/ui/devices/${DEVICE}/preset`)
+      ) {
+        try {
+          const body = JSON.parse(req.postData() || "{}");
+          if (body.preset === 2) {
+            presetPosts.push({ supply: body.supply, extract: body.extract });
+          }
+        } catch {
+          // Non-JSON bodies don't pass the filter; ignore.
+        }
+      }
+    });
+
+    // Synthesize a drag: five intermediate values dispatched synchronously
+    // within the 200ms debounce window. The preset expression reads
+    // evt.target.value directly, so a single `change` event per step is
+    // enough to drive the debounced @post.
+    await supplySlider.evaluate((el: HTMLInputElement) => {
+      for (const v of [20, 35, 50, 65, 80]) {
+        el.value = String(v);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    // Wait for the daemon to record the @post on fakedevice. The
+    // /test/devices/{name}/params/0x003C endpoint reads param 0x003C
+    // (preset-2 supply pct) from fakedevice. We poll it until it
+    // reflects the dragged value (80=0x50). That confirms the @post
+    // fired AND the daemon wrote it through. Any racing extra POSTs
+    // would have fired before this one completes.
+    await expect
+      .poll(() => presetPosts.length, { timeout: POLL_PUSH_TIMEOUT })
+      .toBeGreaterThanOrEqual(1);
+
+    // Give any racing extras a chance to land. The debounce window is
+    // 200ms; once the first POST has landed, the listener has already
+    // received any earlier-fired requests (Playwright preserves
+    // request/response event order). A short positive-signal wait —
+    // for the SSE-patched extract value to mirror — ensures we're past
+    // the debounce window of any plausibly-racing extras.
+    const extractSlider = editor2.locator('input[name="extract"]');
+    await expect(extractSlider).toHaveValue("80", { timeout: POLL_PUSH_TIMEOUT });
+
+    // Exactly one POST, carrying the final dragged value.
+    expect(presetPosts).toHaveLength(1);
+    expect(presetPosts[0].supply).toBe(80);
+  });
 });
 
 test.describe("threshold editor", () => {
