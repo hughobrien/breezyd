@@ -19,6 +19,7 @@ templ DeviceCard(v ui.DeviceView) {
 		<div
 			class="card"
 			data-device={ v.Name }
+			data-testid={ "card-" + v.Name }
 			data-class:stale="$stale"
 			data-attr:data-speed-mode="$speedMode"
 			data-attr:data-airflow-mode="$airflowMode"

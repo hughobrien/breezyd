@@ -29,7 +29,7 @@ const DEVICE = "alpha";
 // patch to land, and returns a Locator scoped to the card.
 async function loadCard(page: Page, name = DEVICE): Promise<Locator> {
   await page.goto("/");
-  const card = page.locator(`.card[data-device="${name}"]`);
+  const card = page.getByTestId(`card-${name}`);
   await expect(card).toBeVisible({ timeout: 10_000 });
   return card;
 }
@@ -69,7 +69,7 @@ test.describe("rendering", () => {
   test("@smoke card renders for the configured device", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
-    await expect(card.locator("h2")).toContainText(DEVICE);
+    await expect(card.getByRole("heading", { name: DEVICE })).toBeVisible();
   });
 
   test("layout loads datastar, not htmx", async ({ page }) => {
@@ -93,7 +93,7 @@ test.describe("rendering", () => {
       if (r.url().includes("/ui/sse")) sseRequests.push(r.url());
     });
     await page.goto("/");
-    await expect(page.locator(".card")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId(`card-${DEVICE}`)).toBeVisible({ timeout: 5_000 });
     expect(sseRequests.length).toBeGreaterThan(0);
   });
 
@@ -104,7 +104,7 @@ test.describe("rendering", () => {
     // Assert rather than defensively toggle — if the default ever flips
     // to false, this fails loudly here instead of silently masking a
     // closed-block test elsewhere.
-    const sensors = card.locator("details.sensors");
+    const sensors = card.locator('details[data-block="sensors"]');
     await expect(sensors).toHaveAttribute("open", "");
     await expect(card).toContainText("54%");
     await expect(card).toContainText("1175 ppm");
@@ -138,8 +138,8 @@ test.describe("SSE push", () => {
 
     await pageA.goto("/");
     await pageB.goto("/");
-    const cardA = pageA.locator(`.card[data-device="${DEVICE}"]`);
-    const cardB = pageB.locator(`.card[data-device="${DEVICE}"]`);
+    const cardA = pageA.getByTestId(`card-${DEVICE}`);
+    const cardB = pageB.getByTestId(`card-${DEVICE}`);
     await expect(cardA).toBeVisible({ timeout: 10_000 });
     await expect(cardB).toBeVisible({ timeout: 10_000 });
 
@@ -162,11 +162,11 @@ test.describe("controls", () => {
     await reset(DEVICE);
     await presets.asPowerOn(DEVICE);
     const card = await loadCard(page);
-    const power = card.locator('button.toggle-inline[aria-pressed="true"]');
+    const power = card.getByRole("button", { name: "power", pressed: true });
     await expect(power).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
     await power.click();
     await expect(
-      card.locator('button.toggle-inline[aria-pressed="false"]'),
+      card.getByRole("button", { name: "power", pressed: false }),
     ).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
   });
 
@@ -177,11 +177,11 @@ test.describe("controls", () => {
     await presets.withTimer(DEVICE, "off");
     const card = await loadCard(page);
     // Switch to manual + click "supply" mode chip.
-    await card.locator('button[aria-pressed="false"]:text-is("manual")').click();
+    await card.getByRole("button", { name: "manual", pressed: false }).click();
     await expect(card).toHaveAttribute("data-speed-mode", "manual", {
       timeout: POLL_PUSH_TIMEOUT,
     });
-    await card.locator('button:text-is("supply")').click();
+    await card.getByRole("button", { name: "supply" }).click();
     await expect(card).toHaveAttribute("data-airflow-mode", "supply", {
       timeout: POLL_PUSH_TIMEOUT,
     });
@@ -193,9 +193,9 @@ test.describe("controls", () => {
     const card = await loadCard(page);
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeHidden();
-    await card.locator('button:text-is("48/49")').click();
+    await card.getByRole("button", { name: "48/49" }).click();
     await expect(editor2).toBeVisible({ timeout: 2_000 });
-    await card.locator('button[aria-pressed="true"]:text-is("48/49")').click();
+    await card.getByRole("button", { name: "48/49", pressed: true }).click();
     await expect(editor2).toBeHidden({ timeout: 2_000 });
   });
 });
@@ -206,14 +206,14 @@ test.describe("threshold editor", () => {
     const card = await loadCard(page);
     // Sensors defaults open via $detailsOpen.sensors=true signal seed; assert
     // rather than defensively toggle (see #82).
-    const sensors = card.locator("details.sensors");
+    const sensors = card.locator('details[data-block="sensors"]');
     await expect(sensors).toHaveAttribute("open", "");
     const cell = card.locator('[data-threshold-cell="humidity"]');
     await cell.locator(".value-clickable").click();
-    const input = cell.locator(".thresh-input");
+    const input = cell.getByRole("spinbutton");
     await expect(input).toBeVisible({ timeout: 2_000 });
     await input.fill("65");
-    await cell.locator('button[type="submit"]').click();
+    await cell.getByRole("button", { name: "✓" }).click();
     // Wait for the read-variant to come back via SSE patch.
     await expect(cell.locator(".value-clickable")).toBeVisible({
       timeout: POLL_PUSH_TIMEOUT,
@@ -228,7 +228,7 @@ test.describe("error paths", () => {
     await simulateAuthFailure(DEVICE, true);
     try {
       // Click any action; the SSE error envelope should land in the banner.
-      await card.locator('button.toggle-inline').click();
+      await card.getByRole("button", { name: "power" }).click();
       const banner = page.locator("#global-error-banner");
       await expect(banner).toContainText(/auth/i, { timeout: 4_000 });
     } finally {
@@ -241,7 +241,7 @@ test.describe("error paths", () => {
     const card = await loadCard(page);
     await simulateUDPTimeout(DEVICE, true);
     try {
-      await card.locator('button.toggle-inline').click();
+      await card.getByRole("button", { name: "power" }).click();
       const banner = page.locator("#global-error-banner");
       // handlerOpTimeout is 5s in the daemon; the request blocks for the
       // full timeout before the SSE banner event lands. 12s gives enough
@@ -295,7 +295,7 @@ test.describe("editor preservation across polls (#65)", () => {
     });
 
     // Click "edit schedule" to enter edit mode.
-    const editBtn = card.locator('button:text-is("edit schedule")');
+    const editBtn = card.getByRole("button", { name: "edit schedule" });
     await expect(editBtn).toBeVisible({ timeout: 2_000 });
     await editBtn.click();
 
@@ -338,8 +338,8 @@ test.describe("editor preservation across polls (#65)", () => {
     await co2Cell.locator(".value-clickable").click();
 
     // After the SSE patch, the cell itself carries data-edit="true".
-    // Wait for the edit form to appear (the patched cell now has .thresh-input).
-    const input = card.locator('[data-threshold-cell="co2"] .thresh-input');
+    // Wait for the edit form to appear (the patched cell now has the spinbutton).
+    const input = card.locator('[data-threshold-cell="co2"]').getByRole("spinbutton");
     await expect(input).toBeVisible({ timeout: 4_000 });
     await input.fill("1234");
 
@@ -362,8 +362,8 @@ test.describe("editor preservation across polls (#65)", () => {
 
     // Open the preset-2 editor by clicking its chip. Preset-2 chip text is
     // "48/49" (snapshot_148.json: 0x003C=0x30=48, 0x003D=0x31=49).
-    // Use the same text selector as the existing preset-chip test for reliability.
-    await card.locator('button:text-is("48/49")').click();
+    // Use the same role-by-name selector as the existing preset-chip test.
+    await card.getByRole("button", { name: "48/49" }).click();
 
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeVisible({ timeout: 2_000 });

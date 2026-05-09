@@ -12,10 +12,12 @@
 
 import { test, expect } from "@playwright/test";
 
+const DEVICE = "alpha";
+
 test("@smoke daemon serves dashboard with device card", async ({ page }) => {
   // baseURL is set from process.env.BREEZYD_URL by global-setup.
   await page.goto("/");
   // The daemon polls the fakedevice on a 1s interval; allow up to 10s for
   // the first poll to complete and the card to appear.
-  await expect(page.locator(".card")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId(`card-${DEVICE}`)).toBeVisible({ timeout: 10_000 });
 });
