@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 func TestEnergyTracker_Load_MissingFile(t *testing.T) {
+	is := is.New(t)
 	tr := &EnergyTracker{
 		Device:   "test-device",
 		StateDir: t.TempDir(),
@@ -22,22 +24,19 @@ func TestEnergyTracker_Load_MissingFile(t *testing.T) {
 	tr.Load()
 
 	snap := tr.Snapshot()
-	if snap.HeatingTodayKWh != 0 || snap.CoolingTodayKWh != 0 || snap.ConsumedTodayKWh != 0 {
-		t.Errorf("today counters not zero: heating=%v cooling=%v consumed=%v",
-			snap.HeatingTodayKWh, snap.CoolingTodayKWh, snap.ConsumedTodayKWh)
-	}
-	if snap.HeatingLifetimeKWh != 0 || snap.CoolingLifetimeKWh != 0 || snap.ConsumedLifetimeKWh != 0 {
-		t.Errorf("lifetime counters not zero: heating=%v cooling=%v consumed=%v",
-			snap.HeatingLifetimeKWh, snap.CoolingLifetimeKWh, snap.ConsumedLifetimeKWh)
-	}
+	is.Equal(snap.HeatingTodayKWh, float64(0))  // today counters zero on missing file
+	is.Equal(snap.CoolingTodayKWh, float64(0))  // today counters zero on missing file
+	is.Equal(snap.ConsumedTodayKWh, float64(0)) // today counters zero on missing file
+	is.Equal(snap.HeatingLifetimeKWh, float64(0))
+	is.Equal(snap.CoolingLifetimeKWh, float64(0))
+	is.Equal(snap.ConsumedLifetimeKWh, float64(0))
 
 	wantDate := time.Now().Local().Format("2006-01-02")
-	if tr.Today != wantDate {
-		t.Errorf("Today = %q, want %q", tr.Today, wantDate)
-	}
+	is.Equal(tr.Today, wantDate) // Today seeded from local wall clock
 }
 
 func TestEnergyTracker_Load_MalformedFile(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{
 		Device:   "test-device",
@@ -45,42 +44,34 @@ func TestEnergyTracker_Load_MalformedFile(t *testing.T) {
 	}
 
 	// Write malformed JSON to the state path.
-	if err := os.WriteFile(tr.statePath(), []byte("{not json"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	is.NoErr(os.WriteFile(tr.statePath(), []byte("{not json"), 0o600))
 
 	tr.Load()
 
 	snap := tr.Snapshot()
-	if snap.HeatingTodayKWh != 0 || snap.CoolingTodayKWh != 0 || snap.ConsumedTodayKWh != 0 {
-		t.Errorf("today counters not zero after malformed load: heating=%v cooling=%v consumed=%v",
-			snap.HeatingTodayKWh, snap.CoolingTodayKWh, snap.ConsumedTodayKWh)
-	}
-	if snap.HeatingLifetimeKWh != 0 || snap.CoolingLifetimeKWh != 0 || snap.ConsumedLifetimeKWh != 0 {
-		t.Errorf("lifetime counters not zero after malformed load: heating=%v cooling=%v consumed=%v",
-			snap.HeatingLifetimeKWh, snap.CoolingLifetimeKWh, snap.ConsumedLifetimeKWh)
-	}
+	is.Equal(snap.HeatingTodayKWh, float64(0)) // malformed load yields fresh state
+	is.Equal(snap.CoolingTodayKWh, float64(0))
+	is.Equal(snap.ConsumedTodayKWh, float64(0))
+	is.Equal(snap.HeatingLifetimeKWh, float64(0))
+	is.Equal(snap.CoolingLifetimeKWh, float64(0))
+	is.Equal(snap.ConsumedLifetimeKWh, float64(0))
 }
 
 func TestEnergyTracker_Load_EmptyFile(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{Device: "playroom", StateDir: dir}
 	// A zero-byte file at the state path simulates an interrupted write
 	// that left a truncated artefact behind. Load should treat it as
 	// malformed (warn + fresh state) rather than panic on the unmarshal.
-	if err := os.WriteFile(tr.statePath(), nil, 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	is.NoErr(os.WriteFile(tr.statePath(), nil, 0o600))
 	tr.Load()
-	if tr.HeatingLifetimeKWh != 0 {
-		t.Errorf("expected fresh state on empty file, got HeatingLifetimeKWh=%v", tr.HeatingLifetimeKWh)
-	}
-	if tr.Today != time.Now().Local().Format("2006-01-02") {
-		t.Errorf("Today not set on empty-file load")
-	}
+	is.Equal(tr.HeatingLifetimeKWh, float64(0))                 // fresh state on empty file
+	is.Equal(tr.Today, time.Now().Local().Format("2006-01-02")) // Today seeded even on empty-file load
 }
 
 func TestEnergyTracker_RoundTrip(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	today := time.Now().Local().Format("2006-01-02")
 
@@ -96,9 +87,7 @@ func TestEnergyTracker_RoundTrip(t *testing.T) {
 		Today:               today,
 	}
 
-	if err := tr.save(); err != nil {
-		t.Fatalf("save: %v", err)
-	}
+	is.NoErr(tr.save())
 
 	tr2 := &EnergyTracker{
 		Device:   "living-room",
@@ -106,30 +95,17 @@ func TestEnergyTracker_RoundTrip(t *testing.T) {
 	}
 	tr2.Load()
 
-	if tr2.HeatingTodayKWh != tr.HeatingTodayKWh {
-		t.Errorf("HeatingTodayKWh: got %v, want %v", tr2.HeatingTodayKWh, tr.HeatingTodayKWh)
-	}
-	if tr2.CoolingTodayKWh != tr.CoolingTodayKWh {
-		t.Errorf("CoolingTodayKWh: got %v, want %v", tr2.CoolingTodayKWh, tr.CoolingTodayKWh)
-	}
-	if tr2.ConsumedTodayKWh != tr.ConsumedTodayKWh {
-		t.Errorf("ConsumedTodayKWh: got %v, want %v", tr2.ConsumedTodayKWh, tr.ConsumedTodayKWh)
-	}
-	if tr2.HeatingLifetimeKWh != tr.HeatingLifetimeKWh {
-		t.Errorf("HeatingLifetimeKWh: got %v, want %v", tr2.HeatingLifetimeKWh, tr.HeatingLifetimeKWh)
-	}
-	if tr2.CoolingLifetimeKWh != tr.CoolingLifetimeKWh {
-		t.Errorf("CoolingLifetimeKWh: got %v, want %v", tr2.CoolingLifetimeKWh, tr.CoolingLifetimeKWh)
-	}
-	if tr2.ConsumedLifetimeKWh != tr.ConsumedLifetimeKWh {
-		t.Errorf("ConsumedLifetimeKWh: got %v, want %v", tr2.ConsumedLifetimeKWh, tr.ConsumedLifetimeKWh)
-	}
-	if tr2.Today != tr.Today {
-		t.Errorf("Today: got %q, want %q", tr2.Today, tr.Today)
-	}
+	is.Equal(tr2.HeatingTodayKWh, tr.HeatingTodayKWh)
+	is.Equal(tr2.CoolingTodayKWh, tr.CoolingTodayKWh)
+	is.Equal(tr2.ConsumedTodayKWh, tr.ConsumedTodayKWh)
+	is.Equal(tr2.HeatingLifetimeKWh, tr.HeatingLifetimeKWh)
+	is.Equal(tr2.CoolingLifetimeKWh, tr.CoolingLifetimeKWh)
+	is.Equal(tr2.ConsumedLifetimeKWh, tr.ConsumedLifetimeKWh)
+	is.Equal(tr2.Today, tr.Today)
 }
 
 func TestEnergyTracker_Snapshot_IsCopy(t *testing.T) {
+	is := is.New(t)
 	tr := &EnergyTracker{
 		Device:          "office",
 		StateDir:        t.TempDir(),
@@ -145,12 +121,8 @@ func TestEnergyTracker_Snapshot_IsCopy(t *testing.T) {
 	tr.CoolingTodayKWh = 888.8
 	tr.Today = "1970-01-01"
 
-	if snap.HeatingTodayKWh != 5.5 {
-		t.Errorf("snapshot HeatingTodayKWh mutated: got %v, want 5.5", snap.HeatingTodayKWh)
-	}
-	if snap.CoolingTodayKWh != 6.6 {
-		t.Errorf("snapshot CoolingTodayKWh mutated: got %v, want 6.6", snap.CoolingTodayKWh)
-	}
+	is.Equal(snap.HeatingTodayKWh, 5.5) // snapshot must be a copy, not a live view
+	is.Equal(snap.CoolingTodayKWh, 6.6)
 }
 
 // ---------------------------------------------------------------------------
@@ -217,17 +189,17 @@ func approxEqual(got, want, tolFrac float64) bool {
 // ---------------------------------------------------------------------------
 
 func TestEnergyTracker_Tick_FirstTickNoAccumulation(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
 	tr.Tick(makeRegenSnap(50, 0, 20), t0)
 	snap := tr.Snapshot()
-	if snap.HeatingTodayKWh != 0 {
-		t.Errorf("first tick should not accumulate: HeatingTodayKWh = %v, want 0", snap.HeatingTodayKWh)
-	}
+	is.Equal(snap.HeatingTodayKWh, float64(0)) // first tick primes LastTick, must not accumulate
 }
 
 func TestEnergyTracker_Tick_HeatingAccumulation(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
@@ -240,27 +212,18 @@ func TestEnergyTracker_Tick_HeatingAccumulation(t *testing.T) {
 
 	// At 50% on Breezy 160: airflow = 100 m³/h. Δ = 20 °C. W = 100×0.335×20 = 670.
 	wantW := 670.0
-	if snap.InstantW < 669 || snap.InstantW > 671 {
-		t.Errorf("InstantW = %v, want ≈670", snap.InstantW)
-	}
+	is.True(snap.InstantW >= 669 && snap.InstantW <= 671) // InstantW ≈ 670
 	// Per-fan at 50%: 9 W. Total consumed = 9+9 = 18.
-	if snap.ConsumedW < 17.5 || snap.ConsumedW > 18.5 {
-		t.Errorf("ConsumedW = %v, want ≈18", snap.ConsumedW)
-	}
+	is.True(snap.ConsumedW >= 17.5 && snap.ConsumedW <= 18.5) // ConsumedW ≈ 18
 	wantHeating := wantW * 5 / 3.6e6
-	if !approxEqual(snap.HeatingTodayKWh, wantHeating, 0.01) {
-		t.Errorf("HeatingTodayKWh = %v, want ≈%v", snap.HeatingTodayKWh, wantHeating)
-	}
-	if snap.CoolingTodayKWh != 0 {
-		t.Errorf("CoolingTodayKWh = %v, want 0", snap.CoolingTodayKWh)
-	}
+	is.True(approxEqual(snap.HeatingTodayKWh, wantHeating, 0.01))
+	is.Equal(snap.CoolingTodayKWh, float64(0))
 	wantConsumed := 18.0 * 5 / 3.6e6
-	if !approxEqual(snap.ConsumedTodayKWh, wantConsumed, 0.01) {
-		t.Errorf("ConsumedTodayKWh = %v, want ≈%v", snap.ConsumedTodayKWh, wantConsumed)
-	}
+	is.True(approxEqual(snap.ConsumedTodayKWh, wantConsumed, 0.01))
 }
 
 func TestEnergyTracker_Tick_CoolingAccumulation(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
@@ -271,19 +234,14 @@ func TestEnergyTracker_Tick_CoolingAccumulation(t *testing.T) {
 	snap := tr.Snapshot()
 
 	// W = 100×0.335×(-5) = -167.5.
-	if snap.InstantW < -169 || snap.InstantW > -166 {
-		t.Errorf("InstantW = %v, want ≈-167.5", snap.InstantW)
-	}
-	if snap.HeatingTodayKWh != 0 {
-		t.Errorf("HeatingTodayKWh = %v, want 0", snap.HeatingTodayKWh)
-	}
+	is.True(snap.InstantW >= -169 && snap.InstantW <= -166) // InstantW ≈ -167.5
+	is.Equal(snap.HeatingTodayKWh, float64(0))              // cooling tick must not accumulate heating
 	wantCooling := math.Abs(-167.5) * 5 / 3.6e6
-	if !approxEqual(snap.CoolingTodayKWh, wantCooling, 0.01) {
-		t.Errorf("CoolingTodayKWh = %v, want ≈%v", snap.CoolingTodayKWh, wantCooling)
-	}
+	is.True(approxEqual(snap.CoolingTodayKWh, wantCooling, 0.01))
 }
 
 func TestEnergyTracker_Tick_AsymmetricFans(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
@@ -293,12 +251,11 @@ func TestEnergyTracker_Tick_AsymmetricFans(t *testing.T) {
 	tr.Tick(makeRegenSnapAsymmetric(70, 100, 0, 20), t1)
 	snap := tr.Snapshot()
 	// FanW at 70% ≈ 14W, at 100% = 22W → total ≈ 36W (±1W tolerance).
-	if snap.ConsumedW < 35 || snap.ConsumedW > 37 {
-		t.Errorf("ConsumedW (asymmetric) = %v, want ≈36 (±1)", snap.ConsumedW)
-	}
+	is.True(snap.ConsumedW >= 35 && snap.ConsumedW <= 37) // ConsumedW (asymmetric) ≈ 36
 }
 
 func TestEnergyTracker_Tick_NonRegenSkipped(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
@@ -310,18 +267,13 @@ func TestEnergyTracker_Tick_NonRegenSkipped(t *testing.T) {
 	notRegen[0x00B7] = []byte{0}
 	tr.Tick(notRegen, t1)
 	snap := tr.Snapshot()
-	if snap.HeatingTodayKWh != 0 {
-		t.Errorf("HeatingTodayKWh = %v, want 0 (non-regen should not accumulate)", snap.HeatingTodayKWh)
-	}
-	if snap.InstantW != 0 {
-		t.Errorf("InstantW = %v, want 0 for non-regen", snap.InstantW)
-	}
-	if snap.ConsumedW != 0 {
-		t.Errorf("ConsumedW = %v, want 0 for non-regen", snap.ConsumedW)
-	}
+	is.Equal(snap.HeatingTodayKWh, float64(0)) // non-regen mode must not accumulate
+	is.Equal(snap.InstantW, float64(0))        // non-regen zeros instantaneous power
+	is.Equal(snap.ConsumedW, float64(0))
 }
 
 func TestEnergyTracker_Tick_DtCap(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
@@ -331,12 +283,11 @@ func TestEnergyTracker_Tick_DtCap(t *testing.T) {
 	snap := tr.Snapshot()
 	// capped at 300s: heating ≤ 670 × 300 / 3.6e6 × 1.01
 	maxHeating := 670.0 * 300 / 3.6e6 * 1.01
-	if snap.HeatingTodayKWh > maxHeating {
-		t.Errorf("HeatingTodayKWh = %v exceeds dt-capped max %v", snap.HeatingTodayKWh, maxHeating)
-	}
+	is.True(snap.HeatingTodayKWh <= maxHeating) // dt cap protects against long stalls
 }
 
 func TestEnergyTracker_Tick_NegativeDt(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
@@ -344,12 +295,11 @@ func TestEnergyTracker_Tick_NegativeDt(t *testing.T) {
 	// Clock jumped backwards.
 	tr.Tick(makeRegenSnap(50, 0, 20), t0.Add(-30*time.Second))
 	snap := tr.Snapshot()
-	if snap.HeatingTodayKWh != 0 {
-		t.Errorf("HeatingTodayKWh = %v, want 0 on negative dt", snap.HeatingTodayKWh)
-	}
+	is.Equal(snap.HeatingTodayKWh, float64(0)) // negative dt must not accumulate
 }
 
 func TestEnergyTracker_Tick_DateRollover(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{
 		Device:             "rollover",
@@ -364,19 +314,13 @@ func TestEnergyTracker_Tick_DateRollover(t *testing.T) {
 	tr.Tick(makeRegenSnap(50, 0, 20), t1)
 	snap := tr.Snapshot()
 	// HeatingTodayKWh should have been zeroed by the rollover before priming.
-	if snap.HeatingTodayKWh != 0 {
-		t.Errorf("HeatingTodayKWh = %v after rollover, want 0", snap.HeatingTodayKWh)
-	}
-	// Lifetime must not be touched.
-	if snap.HeatingLifetimeKWh != 100.0 {
-		t.Errorf("HeatingLifetimeKWh = %v, want 100 (lifetime must survive rollover)", snap.HeatingLifetimeKWh)
-	}
-	if tr.Today != "2026-05-06" {
-		t.Errorf("Today = %q, want 2026-05-06", tr.Today)
-	}
+	is.Equal(snap.HeatingTodayKWh, float64(0))        // rollover zeros today counter
+	is.Equal(snap.HeatingLifetimeKWh, float64(100.0)) // lifetime must survive rollover
+	is.Equal(tr.Today, "2026-05-06")                  // Today advanced to current calendar day
 }
 
 func TestEnergyTracker_Tick_RolloverPersists(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{
 		Device:          "rollover-persist",
@@ -397,22 +341,15 @@ func TestEnergyTracker_Tick_RolloverPersists(t *testing.T) {
 	// wall-clock time.Now() to derive "today" and would mask the rollover
 	// save by overwriting the loaded Today with the current wall date).
 	data, err := os.ReadFile(filepath.Join(dir, "energy_rollover-persist.json"))
-	if err != nil {
-		t.Fatalf("read persisted state: %v", err)
-	}
+	is.NoErr(err)
 	var p persistedEnergy
-	if err := json.Unmarshal(data, &p); err != nil {
-		t.Fatalf("unmarshal persisted state: %v", err)
-	}
-	if p.TodayDate != "2026-05-06" {
-		t.Errorf("persisted TodayDate = %q, want 2026-05-06", p.TodayDate)
-	}
-	if p.HeatingTodayKWh != 0 {
-		t.Errorf("persisted HeatingTodayKWh = %v, want 0 after rollover", p.HeatingTodayKWh)
-	}
+	is.NoErr(json.Unmarshal(data, &p))
+	is.Equal(p.TodayDate, "2026-05-06")     // rollover save persisted before early return
+	is.Equal(p.HeatingTodayKWh, float64(0)) // today counter zeroed in persisted state
 }
 
 func TestEnergyTracker_Tick_MonthRollover(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{
 		Device:             "month-rollover",
@@ -427,21 +364,14 @@ func TestEnergyTracker_Tick_MonthRollover(t *testing.T) {
 	t1 := time.Date(2026, 5, 1, 0, 0, 5, 0, time.Local)
 	tr.Tick(makeRegenSnap(50, 0, 20), t1)
 	snap := tr.Snapshot()
-	if snap.HeatingTodayKWh != 0 {
-		t.Errorf("HeatingTodayKWh = %v after rollover, want 0", snap.HeatingTodayKWh)
-	}
-	if snap.HeatingMonthKWh != 0 {
-		t.Errorf("HeatingMonthKWh = %v after rollover, want 0", snap.HeatingMonthKWh)
-	}
-	if snap.HeatingLifetimeKWh != 100.0 {
-		t.Errorf("HeatingLifetimeKWh = %v, want 100 (lifetime must survive rollover)", snap.HeatingLifetimeKWh)
-	}
-	if tr.MonthStart != "2026-05" {
-		t.Errorf("MonthStart = %q, want 2026-05", tr.MonthStart)
-	}
+	is.Equal(snap.HeatingTodayKWh, float64(0))
+	is.Equal(snap.HeatingMonthKWh, float64(0))
+	is.Equal(snap.HeatingLifetimeKWh, float64(100.0)) // lifetime must survive rollover
+	is.Equal(tr.MonthStart, "2026-05")
 }
 
 func TestEnergyTracker_Tick_MonthRolloverPersists(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{
 		Device:          "month-rollover-persist",
@@ -459,15 +389,12 @@ func TestEnergyTracker_Tick_MonthRolloverPersists(t *testing.T) {
 
 	tr2 := &EnergyTracker{Device: "month-rollover-persist", StateDir: dir}
 	tr2.Load()
-	if tr2.MonthStart != "2026-05" {
-		t.Errorf("persisted MonthStart = %q, want 2026-05", tr2.MonthStart)
-	}
-	if tr2.HeatingMonthKWh != 0 {
-		t.Errorf("persisted HeatingMonthKWh = %v, want 0 after rollover", tr2.HeatingMonthKWh)
-	}
+	is.Equal(tr2.MonthStart, "2026-05")
+	is.Equal(tr2.HeatingMonthKWh, float64(0))
 }
 
 func TestEnergyTracker_Tick_UnsupportedModel(t *testing.T) {
+	is := is.New(t)
 	tr := newTracker(t)
 	tr.Load()
 	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
@@ -478,18 +405,13 @@ func TestEnergyTracker_Tick_UnsupportedModel(t *testing.T) {
 	tr.Tick(unknownModel, t0)
 	tr.Tick(unknownModel, t1)
 	snap := tr.Snapshot()
-	if snap.Supported {
-		t.Errorf("Supported = true for unknown model, want false")
-	}
-	if snap.Error == "" {
-		t.Errorf("Error is empty for unknown model, want a non-empty message")
-	}
-	if snap.HeatingTodayKWh != 0 {
-		t.Errorf("HeatingTodayKWh = %v for unsupported model, want 0", snap.HeatingTodayKWh)
-	}
+	is.Equal(snap.Supported, false)            // unknown model must surface as unsupported
+	is.True(snap.Error != "")                  // unsupported snapshot must carry an error message
+	is.Equal(snap.HeatingTodayKWh, float64(0)) // unsupported model must not accumulate
 }
 
 func TestEnergyTracker_Tick_PersistsAfterEachTick(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{Device: "persist-test", StateDir: dir}
 	tr.Load()
@@ -498,18 +420,12 @@ func TestEnergyTracker_Tick_PersistsAfterEachTick(t *testing.T) {
 	tr.Tick(makeRegenSnap(50, 0, 20), t0)
 	tr.Tick(makeRegenSnap(50, 0, 20), t1)
 	snap1 := tr.Snapshot()
-	if snap1.HeatingLifetimeKWh == 0 {
-		t.Fatalf("no heating lifetime after tick — precondition failed")
-	}
+	is.True(snap1.HeatingLifetimeKWh != 0) // precondition: tick must accumulate heating
 
 	// Reload from disk.
 	tr2 := &EnergyTracker{Device: "persist-test", StateDir: dir}
 	tr2.Load()
 	snap2 := tr2.Snapshot()
-	if snap2.HeatingLifetimeKWh == 0 {
-		t.Errorf("HeatingLifetimeKWh not persisted: got 0 after reload")
-	}
-	if snap2.HeatingLifetimeKWh != snap1.HeatingLifetimeKWh {
-		t.Errorf("HeatingLifetimeKWh mismatch: reloaded %v, want %v", snap2.HeatingLifetimeKWh, snap1.HeatingLifetimeKWh)
-	}
+	is.True(snap2.HeatingLifetimeKWh != 0)                       // lifetime persisted
+	is.Equal(snap2.HeatingLifetimeKWh, snap1.HeatingLifetimeKWh) // round-trip preserves value
 }

@@ -6,54 +6,43 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/matryer/is"
 )
 
 // TestUI_GetIndex confirms GET / returns the embedded dashboard with the
 // correct Content-Type and a non-empty body that includes the page title.
 func TestUI_GetIndex(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/", nil)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	if got := rec.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
-		t.Errorf("Content-Type = %q, want text/html; charset=utf-8", got)
-	}
-	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
-		t.Errorf("Cache-Control = %q, want no-store", got)
-	}
+	is.Equal(rec.Code, http.StatusOK)                                      // status
+	is.Equal(rec.Header().Get("Content-Type"), "text/html; charset=utf-8") // Content-Type
+	is.Equal(rec.Header().Get("Cache-Control"), "no-store")                // Cache-Control
 	body := rec.Body.String()
-	if len(body) == 0 {
-		t.Fatal("body is empty; go:embed likely not wired")
-	}
+	is.True(len(body) > 0) // body must be non-empty; go:embed wired
 	// Layout template renders <title>breezy</title> (index.html had "breezyd").
-	if !strings.Contains(body, "<title>breezy</title>") {
-		t.Errorf("body missing <title>breezy</title>; got prefix %q", body[:min(200, len(body))])
-	}
+	is.True(strings.Contains(body, "<title>breezy</title>")) // body must contain page title
 }
 
 // TestUI_DoesNotInterceptAPI is a regression: the new GET /{$} pattern
 // must not catch other API paths. /v1/devices should still return JSON.
 func TestUI_DoesNotInterceptAPI(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices", nil)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
-		t.Errorf("Content-Type = %q, want application/json...", got)
-	}
+	is.Equal(rec.Code, http.StatusOK)                                                // status
+	is.True(strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json")) // Content-Type must be JSON
 }
 
 // TestUI_UnknownPath confirms the index pattern does NOT catch arbitrary
 // unmatched paths. A typo on the API surface should 404, not return HTML.
 func TestUI_UnknownPath(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/asdf", nil)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", rec.Code)
-	}
+	is.Equal(rec.Code, http.StatusNotFound) // status
 }
