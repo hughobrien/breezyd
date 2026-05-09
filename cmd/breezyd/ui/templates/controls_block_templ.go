@@ -285,9 +285,9 @@ func manualBtn(v ui.DeviceView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
-		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs("$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v))))
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(closeEditorThen(postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v)))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 74, Col: 128}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 74, Col: 127}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -350,9 +350,9 @@ func modeBtn(v ui.DeviceView, label, value string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var13 string
-		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs("$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value)))
+		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(closeEditorThen(postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 83, Col: 117}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 83, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -809,6 +809,15 @@ func postActionExpr(url, payload string) string {
 func presetChipExpr(name string, n int) string {
 	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
 	return fmt.Sprintf("$editor = $editor === %d ? 0 : %d; %s", n, n, post)
+}
+
+// closeEditorThen prefixes a JS expression with $editor = 0 so any open
+// preset-editor closes before the wrapped expression runs. Used by the
+// manual and mode buttons (which select a non-preset speed): the
+// presetChipExpr toggle handles its own $editor state, so only these
+// non-preset paths need the explicit reset.
+func closeEditorThen(expr string) string {
+	return "$editor = 0; " + expr
 }
 
 // presetSliderExpr builds the data-on:change expression for a preset
