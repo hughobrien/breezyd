@@ -56,6 +56,10 @@ var fanSensitiveReads = map[breezy.ParamID]bool{
 type PollerClient interface {
 	ReadParams(ctx context.Context, ids []breezy.ParamID) (map[breezy.ParamID][]byte, error)
 	Close() error
+	// IsLocal reports whether the client is in-process (e.g. MemClient).
+	// The fan-settle suppression is skipped for local clients because writes
+	// land instantly and there is no firmware settle delay to wait out.
+	IsLocal() bool
 }
 
 // Poller drives one device's polling loop and updates State.
@@ -102,6 +106,7 @@ type Poller struct {
 
 	mu             sync.Mutex
 	settleDeadline time.Time
+	lastClient     PollerClient // set by dial(); nil until first tick
 
 	// udpMu serialises ALL UDP traffic to this device — both the poller's
 	// own tick and any HTTP handler issuing a write/read. CLAUDE.md's
@@ -125,14 +130,18 @@ func (p *Poller) LockUDP() func() {
 // NoticeWrite is called by the HTTP handler whenever it issues a write to
 // a fan-affecting parameter. It schedules the next fanSettleDuration of
 // ticks to skip params whose values are unstable while the fans ramp.
-// Writes to non-fan params are no-ops.
+// Writes to non-fan params are no-ops. Local clients (MemClient) skip the
+// suppression entirely — writes land instantly with no firmware settle delay.
 func (p *Poller) NoticeWrite(id breezy.ParamID) {
 	if !fanWriteIDs[id] {
 		return
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.lastClient != nil && p.lastClient.IsLocal() {
+		return
+	}
 	p.settleDeadline = p.now().Add(fanSettleDuration)
-	p.mu.Unlock()
 }
 
 // Run blocks until ctx is done, ticking at p.Interval. The first tick
@@ -214,11 +223,25 @@ func (p *Poller) tick(ctx context.Context) {
 
 // dial returns a PollerClient for the upcoming tick. If NewClient is set
 // it's used directly; otherwise the poller builds a real *breezy.Client.
+// The returned client is stored in p.lastClient (under p.mu) so that
+// NoticeWrite can gate settle-window suppression on IsLocal.
 func (p *Poller) dial() (PollerClient, error) {
+	var (
+		c   PollerClient
+		err error
+	)
 	if p.NewClient != nil {
-		return p.NewClient()
+		c, err = p.NewClient()
+	} else {
+		c, err = breezy.NewClient(p.IP, p.DeviceID, p.Password)
 	}
-	return breezy.NewClient(p.IP, p.DeviceID, p.Password)
+	if err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	p.lastClient = c
+	p.mu.Unlock()
+	return c, nil
 }
 
 // idsForThisTick returns ReadIDs filtered through the settle window: if

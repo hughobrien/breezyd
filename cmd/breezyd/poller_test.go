@@ -273,7 +273,8 @@ func (f *fakeClient) ReadParams(ctx context.Context, ids []breezy.ParamID) (map[
 	return out, nil
 }
 
-func (f *fakeClient) Close() error { return nil }
+func (f *fakeClient) Close() error   { return nil }
+func (f *fakeClient) IsLocal() bool  { return false }
 
 func (f *fakeClient) seenIDs() []breezy.ParamID {
 	f.mu.Lock()
@@ -454,6 +455,52 @@ func TestPoller_NoticeWrite_TimerWriteSetsSettle(t *testing.T) {
 	}
 	if !hasPower {
 		t.Errorf("settle-tick should still read non-fan params; got=%v", got)
+	}
+}
+
+func TestPoller_FanSettle_SkippedForLocalClient(t *testing.T) {
+	// A MemClient is in-process; writes land instantly, so the firmware settle
+	// delay does not apply. NoticeWrite should not set a settle deadline when
+	// the last dialed client reports IsLocal() == true.
+	state := NewState()
+
+	mc, err := breezy.NewMemClientFromFile(pollerSnapshotPath(t))
+	if err != nil {
+		t.Fatalf("breezy.NewMemClientFromFile: %v", err)
+	}
+
+	p := &Poller{
+		Name:     "local",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001, 0x0044, 0x004A, 0x004B},
+		NewClient: func() (PollerClient, error) {
+			return mc, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	// Run one tick so dial() records the MemClient in p.lastClient.
+	p.tick(ctx)
+
+	// Now fire a fan-affecting write (0x0002 = speed_mode).
+	p.NoticeWrite(0x0002)
+
+	// idsForThisTick must include fan-sensitive reads — no suppression.
+	ids := p.idsForThisTick()
+	idSet := make(map[breezy.ParamID]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	if !idSet[0x004A] {
+		t.Errorf("0x004A (fan_supply_rpm) was suppressed for a local client; want it present in ids=%v", ids)
+	}
+	if !idSet[0x004B] {
+		t.Errorf("0x004B (fan_extract_rpm) was suppressed for a local client; want it present in ids=%v", ids)
 	}
 }
 
