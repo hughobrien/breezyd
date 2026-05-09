@@ -301,6 +301,30 @@ func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
 	}
 }
 
+func TestRenderScheduleEdit_EnabledCheckboxReflectsState(t *testing.T) {
+	cases := []struct {
+		enabled     bool
+		wantChecked bool
+	}{
+		{enabled: true, wantChecked: true},
+		{enabled: false, wantChecked: false},
+	}
+	for _, tc := range cases {
+		var sb strings.Builder
+		sv := ui.ScheduleView{Present: true, Enabled: tc.enabled}
+		if err := ScheduleBlockEdit("alpha", sv, false, "").Render(context.Background(), &sb); err != nil {
+			t.Fatalf("enabled=%v: render: %v", tc.enabled, err)
+		}
+		got := sb.String()
+		// The enabled checkbox is the only `name="enabled"` input of type checkbox;
+		// the sibling hidden field has the same name but type=hidden.
+		hasChecked := strings.Contains(got, `<input type="checkbox" name="enabled" value="true" checked>`)
+		if hasChecked != tc.wantChecked {
+			t.Errorf("enabled=%v: got checked=%v, want %v; html=%q", tc.enabled, hasChecked, tc.wantChecked, got)
+		}
+	}
+}
+
 func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	var sb strings.Builder
 	if err := SensorThresholdEdit("alpha", "co2", "eCO₂", 400, 2000, 10, 800, true, false).Render(context.Background(), &sb); err != nil {
