@@ -277,7 +277,11 @@ test.describe("editor preservation across polls (#65)", () => {
     const editDetails = card.locator('details.schedule[data-edit="true"]');
     await expect(editDetails).toBeVisible({ timeout: 2_000 });
 
-    const pctInput = editDetails.locator('input[name="pct"]').first();
+    // The test pre-loaded exactly one schedule entry — assert the locator
+    // resolves to one row instead of using .first() (which would hide a
+    // row-count regression). See #83.
+    const pctInput = editDetails.locator('input[name="pct"]');
+    await expect(pctInput).toHaveCount(1);
     await expect(pctInput).toBeVisible();
     await pctInput.fill("77");
 
@@ -335,7 +339,10 @@ test.describe("editor preservation across polls (#65)", () => {
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeVisible({ timeout: 2_000 });
 
-    const supplySlider = editor2.locator('input[type="range"]').first();
+    // The supply slider is identifiable by data-side rather than DOM
+    // position — using .first() would silently flip to the extract slider
+    // if the order ever changed. See #83.
+    const supplySlider = editor2.locator('[data-side="supply"]');
     await expect(supplySlider).toBeVisible();
 
     // Set slider value via JS (avoid dispatching a change event that would
