@@ -89,6 +89,7 @@ templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg strin
 						type="checkbox"
 						name="enabled"
 						value="true"
+						if s.Enabled { checked }
 					/>
 					<input type="hidden" name="enabled" value="false"/>
 					enabled
