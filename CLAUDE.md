@@ -14,12 +14,14 @@ just test-msan       # go test -msan ./...         (cgo+clang; uninit-memory rea
 just test-asan       # go test -asan ./...         (cgo+clang; OOB / UAF)
 just test-staticcheck# golangci-lint run ./...     (errcheck is the strict bit)
 just test-templ-drift# verify generated *_templ.go files are up-to-date
-just test-ui         # Playwright e2e against real breezyd+memory backend (needs test-ui-install once)
+just test-ui         # Playwright e2e against breezyd+memory backend (needs test-ui-install once)
+just test-test-admin # go test -tags breezyd_test_admin (the /test/... surface used by Playwright)
 just lint            # go vet + gofmt-drift check
 just check           # lint + fast tests + templ-drift (pre-commit gate)
 just check-all       # lint + test + test-race + test-ui + templ-drift (pre-push gate)
-just ci              # everything CI runs on every PR: check-all + staticcheck + asan + msan + templ-drift
+just ci              # everything CI runs on every PR: check-all + staticcheck + asan + msan + templ-drift + test-test-admin
 just check-deep      # ci + race-flake             (~5 min; pre-tag gate)
+just kill-test-daemons # safety-net: SIGTERM any orphan breezyd procs from aborted UI runs
 just tidy            # go mod tidy
 just clean           # remove binaries, test cache, Playwright artifacts
 just fmt             # gofmt -w .
@@ -58,20 +60,33 @@ Nix flake builds work too: `nix build`, `nix develop`, `nix run .#breezy -- ls`.
 Three artefacts from one Go module (`github.com/hughobrien/breezyd`):
 
 1. **`pkg/breezy`** — importable protocol library. Speaks the Vents Twinfresh FDFD/02 framed protocol over UDP/4000.
-2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`. Also serves a server-rendered dashboard using `templ` + datastar. Two HTTP namespaces: `/v1/...` (JSON, used by the CLI and external consumers) and `/ui/...` (SSE event streams, used by the dashboard). The page shell (`cmd/breezyd/ui/templates/layout.templ`) is served at `GET /{$}` — the `{$}` anchor is load-bearing: a plain `GET /` pattern would catch every unmatched URL and silently turn API typos into HTML responses. Datastar (vendored at `cmd/breezyd/ui/vendor/datastar-1.0.1.min.js`) drives reactive UI state and write interactions; the page opens a single `GET /ui/sse` on load and the daemon's poller fans out per-device card updates through it. CSS is extracted to `cmd/breezyd/ui/style.css` and served at a content-hashed URL `/ui/style-<hash>.css`. Dark mode is supported via `prefers-color-scheme` (auto) and a manual theme picker on the title bar that persists to localStorage. The templ-friendly view type is `cmd/breezyd/ui/view.go::DeviceView`; conversion from a raw `Snapshot` lives in `cmd/breezyd/ui_view.go::snapshotToView`, augmented by `handlers_ui_read.go::buildView` (which adds Energy and Schedule fields).
+2. **`cmd/breezyd`** — long-running daemon. Owns *all* UDP traffic, polls every configured device, caches snapshots, exposes JSON HTTP + Prometheus `/metrics`. Two HTTP namespaces: `/v1/...` (JSON, for the CLI and external consumers) and `/ui/...` (SSE, for the templ + datastar dashboard). The page shell at `GET /{$}` — the `{$}` anchor is load-bearing: a plain `GET /` would catch every unmatched URL and turn API typos into HTML responses. The page opens one `GET /ui/sse` on load and the poller fans per-device card updates out through it. View type: `cmd/breezyd/ui/view.go::DeviceView`; Snapshot→View conversion in `ui_view.go::snapshotToView` + `handlers_ui_read.go::buildView` (the latter adds Energy and Schedule).
 
-The push channel lives in two pieces: `cmd/breezyd/push_hub.go::PushHub` owns the subscriber set and renders templ DeviceCards via an injected closure on every `Notify(name, snap)`; `cmd/breezyd/handlers_ui_sse.go::getUISSE` holds the long-lived response, sends initial-state cards on connect, then drains the subscriber's channel and emits `datastar-patch-elements` events via the datastar Go SDK (`github.com/starfederation/datastar-go/datastar`). The poller's `OnPoll` hook is composed in `main.go` as `SyncHomekit + PushHub.Notify`. Action handlers under `/ui/devices/{name}/...` return 200 + empty body on success (subscribers see the next push); validation/auth/backend failures emit a status-coded `datastar-patch-elements` event into `#global-error-banner`. The `dashboard.js` vendor helper centralises the preset-slider snap + match-speeds-mirror + implied-mode logic that's too gnarly for inline `data-on-*` expressions.
-3. **`cmd/breezy`** — CLI. Defaults to standalone mode (UDP directly to each configured device via `pkg/breezy/ops`). Opts into daemon mode when `--daemon URL` is passed or `[daemon].listen` is set in config. `breezy discover` always broadcasts on the LAN directly, independent of mode. `Discover()` enumerates every up, non-loopback IPv4 interface and sends to its directed-broadcast address in addition to a static fallback list — relevant when a host isn't on `192.168.0/1.0/24`.
+Push wiring: `push_hub.go::PushHub` owns subscribers and renders templ DeviceCards via an injected closure; `handlers_ui_sse.go::getUISSE` holds the long-lived response, emits initial-state cards on connect, then drains the subscriber channel as `datastar-patch-elements` events. The poller's `OnPoll` is composed in `main.go` as `SyncHomekit + PushHub.Notify`. Action handlers under `/ui/devices/{name}/...` return 200 + empty body on success (clients see the next push); validation/auth/backend failures emit a status-coded `datastar-patch-elements` into `#global-error-banner`.
+3. **`cmd/breezy`** — CLI. Defaults to standalone mode (UDP directly to each configured device via `pkg/breezy/ops`). Opts into daemon mode when `--daemon URL` is passed or `[daemon].listen` is set in config. `breezy discover` always broadcasts on the LAN directly, independent of mode. `Discover()` enumerates every up, non-loopback IPv4 interface and sends to its directed-broadcast address plus a static fallback list — relevant when a host isn't on `192.168.0/1.0/24`.
 
-`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration Go test runs against it. `cmd/fakedevice` was retired in v1.2; mid-test state mutation now happens via breezyd's build-tagged `/test/...` surface (see `cmd/breezyd/handlers_test_admin.go`). `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that spawns a real `breezyd` process (with `--backend=memory`) and drives the actual dashboard — 84 tests total (83 active + 1 fixme). `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
+`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — used by Go protocol tests (`pkg/breezy/...`) and by the poller's UDP-path tests (`cmd/breezyd/poller_test.go::TestPoller_FanSettle_*`). `cmd/fakedevice` (the standalone admin binary) was retired in v1.2; mid-test state mutation now happens via breezyd's build-tagged `/test/...` surface (see `cmd/breezyd/handlers_test_admin.go`). `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that spawns one breezyd process (built with `-tags breezyd_test_admin`, run with `--backend=memory --seed pkg/breezy/fakedevice/snapshot_148.json`) and drives the actual dashboard. `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
 
-### Standalone mode (default)
+### Device backend (UDP vs in-process memory)
 
-The CLI also runs without the daemon — opening UDP per-invocation via `pkg/breezy/ops` against each configured device. This is the default; daemon mode is opt-in via `--daemon URL` or `[daemon].listen` in config. Within a single CLI invocation, `pkg/breezy.Client` serialises UDP behind a mutex. Across multiple CLI invocations against the same device, no coordination exists — the same hazard `discover` has applies. If users script parallel invocations against the same device, they should run the daemon.
+`pkg/breezy.DeviceClient` is the seam between `breezyd` and "the device." Two implementations:
 
-### Why a daemon owns UDP
+- **`*breezy.Client`** — UDP, production default. Owned per-device; serialises traffic behind a `sync.Mutex`. Used when `breezyd --backend=udp` (the default).
+- **`*breezy.MemClient`** — in-process, `map[ParamID][]byte` over `sync.RWMutex`. Reads/writes return instantly. Used when `breezyd --backend=memory --seed <path>` is set; one MemClient is created per configured device, seeded from the same JSON snapshot file (the `pkg/breezy/fakedevice/snapshot_*.json` shape).
 
-Concurrent UDP request/response with checksums isn't safe to fan out from independent CLI invocations: overlapping retries and packet collisions cause silent corruption. `breezyd` serialises traffic per device behind a `sync.Mutex` in `pkg/breezy.Client` and a single per-device poller goroutine. The CLI in standalone mode opens its own UDP socket for the duration of the command, which is safe for a single sequential invocation but unsafe if multiple processes run concurrently against the same device.
+`DeviceClient.IsLocal() bool` distinguishes them so callers can gate UDP-protocol-specific behaviour (e.g., the poller's fan-settle suppression — see below).
+
+**Local UI development:** spin up the dashboard against canned data with no hardware, no fakedevice, no UDP:
+
+```sh
+breezyd --config <some-config.toml> --backend=memory --seed pkg/breezy/fakedevice/snapshot_148.json
+```
+
+Add a `[devices.<name>]` block per card you want to render; `ip` is required by config validation but ignored in memory mode (e.g., `ip = "127.0.0.1:0"`). Build with `-tags breezyd_test_admin` if you want the `/test/devices/{name}/...` admin surface for runtime mutation; without the tag the surface returns 404. Production binaries don't ship the tag.
+
+### Standalone CLI mode and why the daemon owns UDP
+
+Concurrent UDP request/response with checksums isn't safe to fan out from independent processes — overlapping retries and packet collisions cause silent corruption. `breezyd` solves this by serialising traffic per device behind a `sync.Mutex` in `pkg/breezy.Client` plus a single per-device poller goroutine. The standalone CLI (default; daemon mode is opt-in via `--daemon URL` or `[daemon].listen` in config) is safe for a single sequential invocation but unsafe if users script parallel invocations against the same device — for that, run the daemon.
 
 ### HomeKit bridge (opt-in via `[homekit].enabled`)
 
@@ -105,7 +120,11 @@ Editing happens exclusively from the web UI via `GET`/`PUT /v1/devices/{name}/sc
 
 ### Fan-settle window (a real protocol quirk)
 
-After a write to `0x02` (speed_mode), `0x44` (manual %), or `0xB7` (fan rotation), the unit takes 10–15s before `0x4A`/`0x4B` (fan RPMs) and `0x84` (air-quality status) reflect the new state. The poller suppresses reads of `fanSensitiveReads` for `fanSettleDuration = 12s` after any `fanWriteIDs` write. See `cmd/breezyd/poller.go`. **Don't shorten this window** — the protocol genuinely lies during that interval.
+After a write to `0x02` (speed_mode), `0x44` (manual %), or `0xB7` (fan rotation), the unit takes 10–15s before `0x4A`/`0x4B` (fan RPMs) and `0x84` (air-quality status) reflect the new state. The poller suppresses reads of `fanSensitiveReads` for `fanSettleDuration = 12s` after any `fanWriteIDs` write. See `cmd/breezyd/poller.go`. **Don't shorten this window** — the protocol genuinely lies during that interval. The suppression is gated on `client.IsLocal()`, so it only fires for the UDP backend; `*breezy.MemClient` writes land instantly with no fan-settle window. End-to-end coverage of the suppression lives in `TestPoller_FanSettle_DropsSensitiveReads_OverUDP` (against fakedevice, real UDP).
+
+### Failed-poll cache semantics
+
+When a poll tick has every read fail (e.g. the in-process backend with `SetTimeoutMode(true)` returns `ErrTimeout` instantly), the poller preserves the previous tick's `Values` map rather than overwriting the cache with empty. The dashboard then renders "stale" with last-known data instead of dropping to the `unreachable` placeholder. Real-UDP timeouts are slow enough that this branch rarely fires in production.
 
 ### Sensor override (a user-visible firmware quirk)
 
@@ -144,10 +163,8 @@ CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","
 - `docs/superpowers/specs/2026-05-03-param-map.md` — every parameter ID with type, units, observed values.
 - `docs/superpowers/specs/breezy-manual-vendor.pdf` — vendor protocol manual.
 - `docs/superpowers/specs/2026-05-04-basic-ui-design.md` — v1.1 design doc for the embedded dashboard, the bind-address tradeoff, and the optional NixOS-nginx reverse-proxy integration.
-- `docs/superpowers/specs/2026-05-04-justfile-migration-design.md` — design notes for the Make → just transition.
-- `docs/superpowers/specs/2026-05-04-discover-investigation.md` — analysis of the two unrelated causes behind `breezy discover` failures (the code defect, fixed in v1.1; and the QEMU-NAT environmental constraint, documented).
-- `docs/superpowers/plans/2026-05-03-twinfresh-cli.md` — original implementation plan; matches the v1.0 scope.
-- `docs/superpowers/plans/2026-05-04-basic-ui.md` — eight-task implementation plan executed for v1.1 (web UI, controls, nginx integration, docs, Playwright tests, screenshots, config bootstrap, discover diagnosis).
+- `docs/superpowers/specs/2026-05-08-device-backend-interface-design.md` — v1.2 design doc for the `*breezy.MemClient` in-process backend (the seam this CLAUDE.md describes under "Device backend").
+- `docs/superpowers/plans/` — implementation plans, one per shipped feature. Most relevant for current architecture: `2026-05-04-basic-ui.md` (v1.1 dashboard) and `2026-05-08-device-backend-interface.md` (v1.2 in-process backend).
 
 ## Out of scope (deliberate, not bugs)
 
