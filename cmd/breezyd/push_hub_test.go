@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/matryer/is"
 )
 
 // newTestHub returns a PushHub whose renderBlocks closure produces a stable
@@ -27,24 +29,22 @@ func newTestHub(t *testing.T) *PushHub {
 }
 
 func TestPushHub_SubscribeUnsubscribeRoundTrip(t *testing.T) {
+	is := is.New(t)
 	hub := newTestHub(t)
 	sub := hub.Subscribe()
-	if sub == nil {
-		t.Fatal("Subscribe returned nil")
-	}
+	is.True(sub != nil) // Subscribe must not return nil
 	hub.Unsubscribe(sub)
 
 	select {
 	case _, ok := <-sub.Events:
-		if ok {
-			t.Error("expected closed channel after Unsubscribe")
-		}
+		is.Equal(ok, false) // events channel must be closed after Unsubscribe
 	case <-time.After(50 * time.Millisecond):
-		t.Error("Unsubscribe did not close events channel")
+		t.Fatal("Unsubscribe did not close events channel")
 	}
 }
 
 func TestPushHub_NotifyFansOut(t *testing.T) {
+	is := is.New(t)
 	hub := newTestHub(t)
 	subs := make([]*Subscriber, 3)
 	for i := range subs {
@@ -53,24 +53,20 @@ func TestPushHub_NotifyFansOut(t *testing.T) {
 
 	hub.Notify("bedroom", Snapshot{})
 
-	for i, sub := range subs {
+	for _, sub := range subs {
 		select {
 		case ev := <-sub.Events:
-			if ev.DeviceName != "bedroom" {
-				t.Errorf("subscriber %d: device %q, want %q", i, ev.DeviceName, "bedroom")
-			}
-			if len(ev.Blocks) == 0 {
-				t.Errorf("subscriber %d: no blocks in event", i)
-			} else if !strings.Contains(ev.Blocks[0].HTML, `data-device="bedroom"`) {
-				t.Errorf("subscriber %d: block HTML missing device marker: %q", i, ev.Blocks[0].HTML)
-			}
+			is.Equal(ev.DeviceName, "bedroom")
+			is.True(len(ev.Blocks) > 0) // event must carry at least one block
+			is.True(strings.Contains(ev.Blocks[0].HTML, `data-device="bedroom"`))
 		case <-time.After(100 * time.Millisecond):
-			t.Errorf("subscriber %d: did not receive event", i)
+			t.Fatal("subscriber did not receive event")
 		}
 	}
 }
 
 func TestPushHub_DropsOldestOnFullBuffer(t *testing.T) {
+	is := is.New(t)
 	hub := newTestHub(t)
 	sub := hub.Subscribe()
 	for i := 0; i < pushHubBufferSize+4; i++ {
@@ -82,9 +78,7 @@ func TestPushHub_DropsOldestOnFullBuffer(t *testing.T) {
 		case <-sub.Events:
 			count++
 		case <-time.After(50 * time.Millisecond):
-			if count != pushHubBufferSize {
-				t.Errorf("got %d events, want %d (buffer size)", count, pushHubBufferSize)
-			}
+			is.Equal(count, pushHubBufferSize) // bounded buffer drops oldest, never grows past cap
 			return
 		}
 	}
@@ -120,6 +114,7 @@ func TestPushHub_ConcurrentNotifyAndUnsubscribe(t *testing.T) {
 }
 
 func TestPushHub_RenderErrorIsTolerated(t *testing.T) {
+	is := is.New(t)
 	var renderErrCount atomic.Int32
 	hub := NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
 		if name == "broken" {
@@ -142,16 +137,12 @@ func TestPushHub_RenderErrorIsTolerated(t *testing.T) {
 
 	select {
 	case ev := <-sub.Events:
-		if ev.DeviceName != "bedroom" {
-			t.Errorf("got %q, want bedroom (broken render should be skipped)", ev.DeviceName)
-		}
+		is.Equal(ev.DeviceName, "bedroom") // broken render is dropped; only successful events fan out
 	case <-time.After(100 * time.Millisecond):
-		t.Error("expected one successful event after the render error")
+		t.Fatal("expected one successful event after the render error")
 	}
 
-	if got := renderErrCount.Load(); got != 1 {
-		t.Errorf("renderErrCount: got %d, want 1", got)
-	}
+	is.Equal(renderErrCount.Load(), int32(1)) // exactly one render error observed
 }
 
 func TestPushHub_UnsubscribeIsIdempotent(t *testing.T) {
