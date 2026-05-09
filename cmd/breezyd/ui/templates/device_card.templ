@@ -25,7 +25,7 @@ templ DeviceCard(v ui.DeviceView) {
 			data-signals={ initialCardSignals(v) }
 		>
 			@InfoDetails(v)
-			<div class="row" data-show="$stale">
+			<div class="row" style="display:none" data-show="$stale">
 				<span class="ts red"><span data-text="$lastPollAge ? $lastPollAge + ' ago' : 'no poll'"></span></span>
 			</div>
 			@EnergyBlock(v.Name, v.Energy)
