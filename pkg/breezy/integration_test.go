@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 // envOrSkip returns the value of env var k, or t.Skip's with a clear
@@ -60,84 +61,62 @@ func newClient(t *testing.T) *breezy.Client {
 }
 
 func TestIntegration_ReadUnitType(t *testing.T) {
+	is := is.New(t)
 	c := newClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	raw, err := c.ReadParam(ctx, 0x00B9)
-	if err != nil {
-		t.Fatalf("ReadParam(0x00B9): %v", err)
-	}
-	if len(raw) != 2 {
-		t.Fatalf("expected 2-byte device type, got %d bytes: %x", len(raw), raw)
-	}
+	is.NoErr(err)
+	is.Equal(len(raw), 2) // 2-byte device type
 
 	// Decode via the registry too, to exercise the full path.
 	p, ok := breezy.LookupByID(0x00B9)
-	if !ok {
-		t.Fatal("0x00B9 not in registry")
-	}
+	is.True(ok) // 0x00B9 in registry
 	v, err := p.Decode(raw)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
+	is.NoErr(err)
 
 	typ := binary.LittleEndian.Uint16(raw)
-	if typ == 0 {
-		t.Fatalf("device type is zero (decoded: %s)", v)
-	}
+	is.True(typ != 0) // device type non-zero
 	t.Logf("device type: %d (%s)", typ, v)
 }
 
 func TestIntegration_ReadFirmware(t *testing.T) {
+	is := is.New(t)
 	c := newClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	raw, err := c.ReadParam(ctx, 0x0086)
-	if err != nil {
-		t.Fatalf("ReadParam(0x0086): %v", err)
-	}
+	is.NoErr(err)
 
 	p, ok := breezy.LookupByID(0x0086)
-	if !ok {
-		t.Fatal("0x0086 not in registry")
-	}
+	is.True(ok) // 0x0086 in registry
 	v, err := p.Decode(raw)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
+	is.NoErr(err)
 
 	fw, ok := v.(breezy.FirmwareMetaValue)
-	if !ok {
-		t.Fatalf("expected FirmwareMetaValue, got %T", v)
-	}
-	if fw.Major == 0 && fw.Minor == 0 {
-		t.Fatalf("firmware version is 0.0 (raw: %x)", raw)
-	}
+	is.True(ok)                             // value is FirmwareMetaValue
+	is.True(fw.Major != 0 || fw.Minor != 0) // firmware version not 0.0
 	t.Logf("firmware: %s", fw)
 }
 
 func TestIntegration_ReadRTCBattery(t *testing.T) {
+	is := is.New(t)
 	c := newClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	raw, err := c.ReadParam(ctx, 0x0024)
-	if err != nil {
-		t.Fatalf("ReadParam(0x0024): %v", err)
-	}
-	if len(raw) != 2 {
-		t.Fatalf("expected 2-byte rtc battery value, got %d bytes: %x", len(raw), raw)
-	}
+	is.NoErr(err)
+	is.Equal(len(raw), 2) // 2-byte rtc battery value
 	mv := binary.LittleEndian.Uint16(raw)
-	if mv < 1000 || mv > 5000 {
-		t.Fatalf("rtc battery out of sane range: %d mV (raw %x)", mv, raw)
-	}
+	is.True(mv >= 1000 && mv <= 5000) // rtc battery in sane range
 	t.Logf("rtc battery: %d mV", mv)
 }
 
 func TestIntegration_HighPageRead(t *testing.T) {
+	is := is.New(t)
 	c := newClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -145,32 +124,23 @@ func TestIntegration_HighPageRead(t *testing.T) {
 	// 0x0320 lives on page 3; reading it end-to-end validates that the
 	// codec emits the FF page-switch marker and the device honors it.
 	raw, err := c.ReadParam(ctx, 0x0320)
-	if err != nil {
-		t.Fatalf("ReadParam(0x0320): %v", err)
-	}
-	if len(raw) != 2 {
-		t.Fatalf("expected 2-byte voc index, got %d bytes: %x", len(raw), raw)
-	}
+	is.NoErr(err)
+	is.Equal(len(raw), 2) // 2-byte voc index
 	voc := binary.LittleEndian.Uint16(raw)
-	if voc > 500 {
-		t.Fatalf("voc index out of expected range: %d (raw %x)", voc, raw)
-	}
+	is.True(voc <= 500) // voc index in expected range
 	t.Logf("voc index: %d", voc)
 }
 
 func TestIntegration_MultiByteWriteRoundtrip(t *testing.T) {
+	is := is.New(t)
 	c := newClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Save the current night-timer duration so we can restore it.
 	orig, err := c.ReadParam(ctx, 0x0302)
-	if err != nil {
-		t.Fatalf("ReadParam(0x0302) initial: %v", err)
-	}
-	if len(orig) != 2 {
-		t.Fatalf("expected 2-byte duration, got %d bytes: %x", len(orig), orig)
-	}
+	is.NoErr(err)
+	is.Equal(len(orig), 2) // 2-byte duration
 	t.Logf("original night_duration: %02d:%02d (raw %x)", orig[1], orig[0], orig)
 
 	// Restore on cleanup using a fresh context — the test's ctx may have
@@ -189,32 +159,23 @@ func TestIntegration_MultiByteWriteRoundtrip(t *testing.T) {
 
 	// Write 7h 45m. Wire encoding is [minute, hour] LE.
 	target := []byte{0x2D, 0x07}
-	if err := c.WriteParam(ctx, 0x0302, target); err != nil {
-		t.Fatalf("WriteParam(0x0302, %x): %v", target, err)
-	}
+	is.NoErr(c.WriteParam(ctx, 0x0302, target))
 
 	got, err := c.ReadParam(ctx, 0x0302)
-	if err != nil {
-		t.Fatalf("ReadParam(0x0302) readback: %v", err)
-	}
-	if len(got) != 2 || got[0] != target[0] || got[1] != target[1] {
-		t.Fatalf("readback mismatch: wrote %x, got %x", target, got)
-	}
+	is.NoErr(err)
+	is.True(len(got) == 2 && got[0] == target[0] && got[1] == target[1]) // readback matches
 	t.Logf("multi-byte write+readback ok: %x", got)
 }
 
 func TestIntegration_SpeedRoundtrip(t *testing.T) {
+	is := is.New(t)
 	c := newClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	orig, err := c.ReadParam(ctx, 0x0044)
-	if err != nil {
-		t.Fatalf("ReadParam(0x0044) initial: %v", err)
-	}
-	if len(orig) != 1 {
-		t.Fatalf("expected 1-byte manual %%, got %d bytes: %x", len(orig), orig)
-	}
+	is.NoErr(err)
+	is.Equal(len(orig), 1) // 1-byte manual %
 	t.Logf("original speed_manual_pct: %d", orig[0])
 
 	t.Cleanup(func() {
@@ -227,21 +188,16 @@ func TestIntegration_SpeedRoundtrip(t *testing.T) {
 	})
 
 	const target byte = 20
-	if err := c.WriteParam(ctx, 0x0044, []byte{target}); err != nil {
-		t.Fatalf("WriteParam(0x0044, %d): %v", target, err)
-	}
+	is.NoErr(c.WriteParam(ctx, 0x0044, []byte{target}))
 
 	got, err := c.ReadParam(ctx, 0x0044)
-	if err != nil {
-		t.Fatalf("ReadParam(0x0044) readback: %v", err)
-	}
-	if len(got) != 1 || got[0] != target {
-		t.Fatalf("readback mismatch: wrote %d, got %x", target, got)
-	}
+	is.NoErr(err)
+	is.True(len(got) == 1 && got[0] == target) // readback matches
 	t.Logf("single-byte write+readback ok: %d", got[0])
 }
 
 func TestIntegration_DiscoverFindsDevice(t *testing.T) {
+	is := is.New(t)
 	requireIntegration(t)
 	expectedID := envOrSkip(t, "BREEZY_TEST_DEVICE_ID")
 
@@ -251,9 +207,7 @@ func TestIntegration_DiscoverFindsDevice(t *testing.T) {
 	defer cancel()
 
 	found, err := breezy.Discover(ctx)
-	if err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
+	is.NoErr(err)
 	if len(found) == 0 {
 		t.Logf("no devices responded to broadcast — network may filter; skipping")
 		t.Skip("no broadcast replies")

@@ -5,9 +5,10 @@ package breezy
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
+
+	"github.com/matryer/is"
 )
 
 // recordingClient implements DeviceClient for tests: it captures writes and
@@ -31,49 +32,35 @@ func (r *recordingClient) WriteParams(ctx context.Context, ws []ParamWrite) erro
 func (r *recordingClient) IsLocal() bool { return false }
 
 func TestOps_Power(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{}
-	if err := Power(context.Background(), c, true); err != nil {
-		t.Fatalf("Power(true): %v", err)
-	}
+	is.NoErr(Power(context.Background(), c, true))
 	want := []ParamWrite{{ID: 0x0001, Value: []byte{1}}}
-	if !reflect.DeepEqual(c.writes[0], want) {
-		t.Errorf("got %v, want %v", c.writes[0], want)
-	}
+	is.Equal(c.writes[0], want)
 
 	c = &recordingClient{}
-	if err := Power(context.Background(), c, false); err != nil {
-		t.Fatalf("Power(false): %v", err)
-	}
-	if c.writes[0][0].Value[0] != 0 {
-		t.Errorf("Power(false): want value 0, got %d", c.writes[0][0].Value[0])
-	}
+	is.NoErr(Power(context.Background(), c, false))
+	is.Equal(c.writes[0][0].Value[0], byte(0)) // Power(false) writes value 0
 }
 
 func TestOps_SetSpeedPreset(t *testing.T) {
+	is := is.New(t)
 	for _, preset := range []int{1, 2, 3} {
 		c := &recordingClient{}
-		if err := SetSpeedPreset(context.Background(), c, preset); err != nil {
-			t.Errorf("SetSpeedPreset(%d): %v", preset, err)
-			continue
-		}
+		is.NoErr(SetSpeedPreset(context.Background(), c, preset))
 		got := c.writes[0][0].Value[0]
-		if int(got) != preset {
-			t.Errorf("preset %d: wrote 0x%02x, want 0x%02x", preset, got, preset)
-		}
+		is.Equal(int(got), preset)
 	}
 	for _, bad := range []int{0, 4, -1, 255} {
 		c := &recordingClient{}
 		err := SetSpeedPreset(context.Background(), c, bad)
-		if !errors.Is(err, ErrInvalidArg) {
-			t.Errorf("preset %d: expected ErrInvalidArg, got %v", bad, err)
-		}
-		if len(c.writes) != 0 {
-			t.Errorf("preset %d: should not have issued any writes", bad)
-		}
+		is.True(errors.Is(err, ErrInvalidArg)) // bad preset must yield ErrInvalidArg
+		is.Equal(len(c.writes), 0)             // bad preset should not have issued writes
 	}
 }
 
 func TestOps_SetPresetSpeed(t *testing.T) {
+	is := is.New(t)
 	cases := []struct {
 		preset            int
 		supplyID, extID   ParamID
@@ -85,23 +72,14 @@ func TestOps_SetPresetSpeed(t *testing.T) {
 	}
 	for _, c := range cases {
 		rc := &recordingClient{}
-		if err := SetPresetSpeed(context.Background(), rc, c.preset, c.supplyPct, c.extPct); err != nil {
-			t.Errorf("preset=%d: %v", c.preset, err)
-			continue
-		}
-		if len(rc.writes) != 1 || len(rc.writes[0]) != 2 {
-			t.Errorf("preset=%d: want one packet with two writes, got %v", c.preset, rc.writes)
-			continue
-		}
+		is.NoErr(SetPresetSpeed(context.Background(), rc, c.preset, c.supplyPct, c.extPct))
+		is.Equal(len(rc.writes), 1)    // one packet
+		is.Equal(len(rc.writes[0]), 2) // two writes in packet
 		w := rc.writes[0]
-		if w[0].ID != c.supplyID || int(w[0].Value[0]) != c.supplyPct {
-			t.Errorf("preset=%d: supply write = (0x%04X, %d), want (0x%04X, %d)",
-				c.preset, uint16(w[0].ID), w[0].Value[0], uint16(c.supplyID), c.supplyPct)
-		}
-		if w[1].ID != c.extID || int(w[1].Value[0]) != c.extPct {
-			t.Errorf("preset=%d: extract write = (0x%04X, %d), want (0x%04X, %d)",
-				c.preset, uint16(w[1].ID), w[1].Value[0], uint16(c.extID), c.extPct)
-		}
+		is.Equal(w[0].ID, c.supplyID)
+		is.Equal(int(w[0].Value[0]), c.supplyPct)
+		is.Equal(w[1].ID, c.extID)
+		is.Equal(int(w[1].Value[0]), c.extPct)
 	}
 
 	for _, bad := range []struct {
@@ -117,55 +95,36 @@ func TestOps_SetPresetSpeed(t *testing.T) {
 	} {
 		rc := &recordingClient{}
 		err := SetPresetSpeed(context.Background(), rc, bad.preset, bad.supply, bad.extract)
-		if !errors.Is(err, ErrInvalidArg) {
-			t.Errorf("[%s] want ErrInvalidArg, got %v", bad.why, err)
-		}
-		if len(rc.writes) != 0 {
-			t.Errorf("[%s] should not have issued writes", bad.why)
-		}
+		is.True(errors.Is(err, ErrInvalidArg)) // bad.why
+		is.Equal(len(rc.writes), 0)            // bad.why: should not have issued writes
 	}
 }
 
 func TestOps_SetSpeedManual_PacketOrder(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{}
-	if err := SetSpeedManual(context.Background(), c, 30); err != nil {
-		t.Fatalf("SetSpeedManual(30): %v", err)
-	}
-	if len(c.writes) != 1 {
-		t.Fatalf("expected 1 packet, got %d", len(c.writes))
-	}
+	is.NoErr(SetSpeedManual(context.Background(), c, 30))
+	is.Equal(len(c.writes), 1) // one packet
 	pkt := c.writes[0]
-	if len(pkt) != 2 {
-		t.Fatalf("expected 2 writes in packet, got %d", len(pkt))
-	}
-	if pkt[0].ID != 0x0044 {
-		t.Errorf("first write must be 0x0044 (manual_pct), got 0x%04X", uint16(pkt[0].ID))
-	}
-	if pkt[0].Value[0] != 30 {
-		t.Errorf("manual_pct value: want 30, got %d", pkt[0].Value[0])
-	}
-	if pkt[1].ID != 0x0002 {
-		t.Errorf("second write must be 0x0002 (speed_mode), got 0x%04X", uint16(pkt[1].ID))
-	}
-	if pkt[1].Value[0] != 0xFF {
-		t.Errorf("speed_mode value: want 0xFF (manual flag), got 0x%02X", pkt[1].Value[0])
-	}
+	is.Equal(len(pkt), 2)                // two writes in packet
+	is.Equal(pkt[0].ID, ParamID(0x0044)) // first write must be 0x0044 (manual_pct)
+	is.Equal(pkt[0].Value[0], byte(30))
+	is.Equal(pkt[1].ID, ParamID(0x0002))  // second write must be 0x0002 (speed_mode)
+	is.Equal(pkt[1].Value[0], byte(0xFF)) // 0xFF is the manual flag
 }
 
 func TestOps_SetSpeedManual_RangeReject(t *testing.T) {
+	is := is.New(t)
 	for _, bad := range []int{0, 5, 9, 101, 200} {
 		c := &recordingClient{}
 		err := SetSpeedManual(context.Background(), c, bad)
-		if !errors.Is(err, ErrInvalidArg) {
-			t.Errorf("manual %d: expected ErrInvalidArg, got %v", bad, err)
-		}
-		if len(c.writes) != 0 {
-			t.Errorf("manual %d: should not have issued any writes", bad)
-		}
+		is.True(errors.Is(err, ErrInvalidArg)) // bad manual value must yield ErrInvalidArg
+		is.Equal(len(c.writes), 0)             // bad manual value should not issue writes
 	}
 }
 
 func TestOps_SetMode(t *testing.T) {
+	is := is.New(t)
 	cases := map[string]byte{
 		"ventilation":  0,
 		"regeneration": 1,
@@ -176,40 +135,28 @@ func TestOps_SetMode(t *testing.T) {
 	}
 	for in, want := range cases {
 		c := &recordingClient{}
-		if err := SetMode(context.Background(), c, in); err != nil {
-			t.Errorf("SetMode(%q): %v", in, err)
-			continue
-		}
-		got := c.writes[0][0].Value[0]
-		if got != want {
-			t.Errorf("SetMode(%q): wrote 0x%02X, want 0x%02X", in, got, want)
-		}
+		is.NoErr(SetMode(context.Background(), c, in))
+		is.Equal(c.writes[0][0].Value[0], want)
 	}
 	c := &recordingClient{}
 	err := SetMode(context.Background(), c, "auto")
-	if !errors.Is(err, ErrInvalidArg) {
-		t.Errorf("SetMode(\"auto\"): expected ErrInvalidArg, got %v", err)
-	}
+	is.True(errors.Is(err, ErrInvalidArg)) // "auto" is not a valid mode
 }
 
 func TestOps_SetHeater(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{}
-	if err := SetHeater(context.Background(), c, true); err != nil {
-		t.Fatalf("SetHeater(true): %v", err)
-	}
-	if c.writes[0][0].ID != 0x0068 || c.writes[0][0].Value[0] != 1 {
-		t.Errorf("SetHeater(true): unexpected write %+v", c.writes[0][0])
-	}
+	is.NoErr(SetHeater(context.Background(), c, true))
+	is.Equal(c.writes[0][0].ID, ParamID(0x0068))
+	is.Equal(c.writes[0][0].Value[0], byte(1))
 	c2 := &recordingClient{}
-	if err := SetHeater(context.Background(), c2, false); err != nil {
-		t.Fatalf("SetHeater(false): %v", err)
-	}
-	if c2.writes[0][0].ID != 0x0068 || c2.writes[0][0].Value[0] != 0 {
-		t.Errorf("SetHeater(false): unexpected write %+v", c2.writes[0][0])
-	}
+	is.NoErr(SetHeater(context.Background(), c2, false))
+	is.Equal(c2.writes[0][0].ID, ParamID(0x0068))
+	is.Equal(c2.writes[0][0].Value[0], byte(0))
 }
 
 func TestOps_SetTimer(t *testing.T) {
+	is := is.New(t)
 	cases := map[string]byte{
 		"off":   0,
 		"night": 1,
@@ -219,35 +166,23 @@ func TestOps_SetTimer(t *testing.T) {
 	}
 	for in, want := range cases {
 		c := &recordingClient{}
-		if err := SetTimer(context.Background(), c, in); err != nil {
-			t.Errorf("SetTimer(%q): %v", in, err)
-			continue
-		}
-		if len(c.writes) != 1 || len(c.writes[0]) != 1 {
-			t.Errorf("SetTimer(%q): expected one packet with one write, got %v", in, c.writes)
-			continue
-		}
+		is.NoErr(SetTimer(context.Background(), c, in))
+		is.Equal(len(c.writes), 1)    // one packet
+		is.Equal(len(c.writes[0]), 1) // one write in packet
 		got := c.writes[0][0]
-		if got.ID != 0x0007 {
-			t.Errorf("SetTimer(%q): wrote ID 0x%04X, want 0x0007", in, uint16(got.ID))
-		}
-		if got.Value[0] != want {
-			t.Errorf("SetTimer(%q): wrote 0x%02X, want 0x%02X", in, got.Value[0], want)
-		}
+		is.Equal(got.ID, ParamID(0x0007))
+		is.Equal(got.Value[0], want)
 	}
 	for _, bad := range []string{"sleep", "boost", "auto", ""} {
 		c := &recordingClient{}
 		err := SetTimer(context.Background(), c, bad)
-		if !errors.Is(err, ErrInvalidArg) {
-			t.Errorf("SetTimer(%q): expected ErrInvalidArg, got %v", bad, err)
-		}
-		if len(c.writes) != 0 {
-			t.Errorf("SetTimer(%q): should not have issued any writes", bad)
-		}
+		is.True(errors.Is(err, ErrInvalidArg)) // bad timer value must yield ErrInvalidArg
+		is.Equal(len(c.writes), 0)             // bad timer value should not issue writes
 	}
 }
 
 func TestOps_SetThreshold(t *testing.T) {
+	is := is.New(t)
 	type happy struct {
 		kind  string
 		value int
@@ -266,21 +201,12 @@ func TestOps_SetThreshold(t *testing.T) {
 		{"VOC", 175, 0x031F, []byte{0xAF, 0x00}},
 	} {
 		rc := &recordingClient{}
-		if err := SetThreshold(context.Background(), rc, c.kind, c.value); err != nil {
-			t.Errorf("SetThreshold(%q,%d): %v", c.kind, c.value, err)
-			continue
-		}
-		if len(rc.writes) != 1 || len(rc.writes[0]) != 1 {
-			t.Errorf("SetThreshold(%q,%d): want one packet with one write, got %v", c.kind, c.value, rc.writes)
-			continue
-		}
+		is.NoErr(SetThreshold(context.Background(), rc, c.kind, c.value))
+		is.Equal(len(rc.writes), 1)    // one packet
+		is.Equal(len(rc.writes[0]), 1) // one write in packet
 		got := rc.writes[0][0]
-		if got.ID != c.id {
-			t.Errorf("SetThreshold(%q,%d): wrote ID 0x%04X, want 0x%04X", c.kind, c.value, uint16(got.ID), uint16(c.id))
-		}
-		if !reflect.DeepEqual(got.Value, c.bytes) {
-			t.Errorf("SetThreshold(%q,%d): wrote bytes %v, want %v", c.kind, c.value, got.Value, c.bytes)
-		}
+		is.Equal(got.ID, c.id)
+		is.Equal(got.Value, c.bytes)
 	}
 
 	type bad struct {
@@ -301,160 +227,127 @@ func TestOps_SetThreshold(t *testing.T) {
 	} {
 		rc := &recordingClient{}
 		err := SetThreshold(context.Background(), rc, c.kind, c.value)
-		if !errors.Is(err, ErrInvalidArg) {
-			t.Errorf("SetThreshold(%q,%d) [%s]: want ErrInvalidArg, got %v", c.kind, c.value, c.why, err)
-		}
-		if len(rc.writes) != 0 {
-			t.Errorf("SetThreshold(%q,%d) [%s]: should not have issued any writes", c.kind, c.value, c.why)
-		}
+		is.True(errors.Is(err, ErrInvalidArg)) // c.why
+		is.Equal(len(rc.writes), 0)            // c.why: should not have issued writes
 	}
 }
 
 func TestSetThresholdConfig_ValueOnly(t *testing.T) {
+	is := is.New(t)
 	rec := &recordingClient{}
 	v := 65
-	if err := SetThresholdConfig(context.Background(), rec, "humidity", &v, nil); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if len(rec.writes) != 1 || len(rec.writes[0]) != 1 ||
-		rec.writes[0][0].ID != 0x0019 || rec.writes[0][0].Value[0] != 65 {
-		t.Errorf("writes = %+v; want one packet with one write to 0x0019 byte 65", rec.writes)
-	}
+	is.NoErr(SetThresholdConfig(context.Background(), rec, "humidity", &v, nil))
+	is.Equal(len(rec.writes), 1)
+	is.Equal(len(rec.writes[0]), 1)
+	is.Equal(rec.writes[0][0].ID, ParamID(0x0019))
+	is.Equal(rec.writes[0][0].Value[0], byte(65))
 }
 
 func TestSetThresholdConfig_EnabledOnly(t *testing.T) {
+	is := is.New(t)
 	rec := &recordingClient{}
 	enable := false
-	if err := SetThresholdConfig(context.Background(), rec, "co2", nil, &enable); err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if len(rec.writes) != 1 || len(rec.writes[0]) != 1 ||
-		rec.writes[0][0].ID != 0x0011 || rec.writes[0][0].Value[0] != 0 {
-		t.Errorf("writes = %+v; want one packet with one write to 0x0011 byte 0", rec.writes)
-	}
+	is.NoErr(SetThresholdConfig(context.Background(), rec, "co2", nil, &enable))
+	is.Equal(len(rec.writes), 1)
+	is.Equal(len(rec.writes[0]), 1)
+	is.Equal(rec.writes[0][0].ID, ParamID(0x0011))
+	is.Equal(rec.writes[0][0].Value[0], byte(0))
 }
 
 func TestSetThresholdConfig_Both(t *testing.T) {
+	is := is.New(t)
 	rec := &recordingClient{}
 	v := 200
 	enable := true
-	if err := SetThresholdConfig(context.Background(), rec, "voc", &v, &enable); err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	is.NoErr(SetThresholdConfig(context.Background(), rec, "voc", &v, &enable))
 	// One WriteParams call carrying both writes (atomic from device's POV).
-	if len(rec.writes) != 1 {
-		t.Fatalf("got %d packets, want 1", len(rec.writes))
-	}
-	if len(rec.writes[0]) != 2 {
-		t.Fatalf("got %d writes in packet, want 2", len(rec.writes[0]))
-	}
+	is.Equal(len(rec.writes), 1)
+	is.Equal(len(rec.writes[0]), 2)
 	// Order is value-then-enable per implementation; just assert presence by ID.
 	idsSeen := map[ParamID]bool{}
 	for _, w := range rec.writes[0] {
 		idsSeen[w.ID] = true
 	}
-	if !idsSeen[0x031F] || !idsSeen[0x0315] {
-		t.Errorf("writes = %+v; want both 0x031F and 0x0315", rec.writes[0])
-	}
+	is.True(idsSeen[0x031F]) // value write present
+	is.True(idsSeen[0x0315]) // enable write present
 }
 
 func TestSetThresholdConfig_Neither(t *testing.T) {
+	is := is.New(t)
 	rec := &recordingClient{}
-	if err := SetThresholdConfig(context.Background(), rec, "humidity", nil, nil); !errors.Is(err, ErrInvalidArg) {
-		t.Errorf("err = %v, want ErrInvalidArg", err)
-	}
-	if len(rec.writes) != 0 {
-		t.Errorf("got %d writes after invalid-arg, want 0", len(rec.writes))
-	}
+	err := SetThresholdConfig(context.Background(), rec, "humidity", nil, nil)
+	is.True(errors.Is(err, ErrInvalidArg))
+	is.Equal(len(rec.writes), 0)
 }
 
 func TestSetThresholdConfig_OutOfRange(t *testing.T) {
+	is := is.New(t)
 	rec := &recordingClient{}
 	v := 90 // humidity max is 80
-	if err := SetThresholdConfig(context.Background(), rec, "humidity", &v, nil); !errors.Is(err, ErrInvalidArg) {
-		t.Errorf("err = %v, want ErrInvalidArg", err)
-	}
+	err := SetThresholdConfig(context.Background(), rec, "humidity", &v, nil)
+	is.True(errors.Is(err, ErrInvalidArg))
 }
 
 func TestSetThresholdConfig_UnknownKind(t *testing.T) {
+	is := is.New(t)
 	rec := &recordingClient{}
 	v := 50
-	if err := SetThresholdConfig(context.Background(), rec, "temperature", &v, nil); !errors.Is(err, ErrInvalidArg) {
-		t.Errorf("err = %v, want ErrInvalidArg", err)
-	}
+	err := SetThresholdConfig(context.Background(), rec, "temperature", &v, nil)
+	is.True(errors.Is(err, ErrInvalidArg))
 }
 
 func TestOps_ResetFilter(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{}
-	if err := ResetFilter(context.Background(), c); err != nil {
-		t.Fatalf("ResetFilter: %v", err)
-	}
-	if c.writes[0][0].ID != 0x0065 || c.writes[0][0].Value[0] != 1 {
-		t.Errorf("ResetFilter: unexpected write %+v", c.writes[0][0])
-	}
+	is.NoErr(ResetFilter(context.Background(), c))
+	is.Equal(c.writes[0][0].ID, ParamID(0x0065))
+	is.Equal(c.writes[0][0].Value[0], byte(1))
 }
 
 func TestOps_ResetFaults(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{}
-	if err := ResetFaults(context.Background(), c); err != nil {
-		t.Fatalf("ResetFaults: %v", err)
-	}
-	if c.writes[0][0].ID != 0x0080 || c.writes[0][0].Value[0] != 1 {
-		t.Errorf("ResetFaults: unexpected write %+v", c.writes[0][0])
-	}
+	is.NoErr(ResetFaults(context.Background(), c))
+	is.Equal(c.writes[0][0].ID, ParamID(0x0080))
+	is.Equal(c.writes[0][0].Value[0], byte(1))
 }
 
 func TestOps_SetRTC(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{}
 	t0 := time.Date(2026, 5, 4, 10, 30, 45, 0, time.UTC) // Monday
-	if err := SetRTC(context.Background(), c, t0); err != nil {
-		t.Fatalf("SetRTC: %v", err)
-	}
-	if len(c.writes) != 1 || len(c.writes[0]) != 2 {
-		t.Fatalf("expected one packet with two writes, got %v", c.writes)
-	}
+	is.NoErr(SetRTC(context.Background(), c, t0))
+	is.Equal(len(c.writes), 1)    // one packet
+	is.Equal(len(c.writes[0]), 2) // two writes
 	pkt := c.writes[0]
-	if pkt[0].ID != 0x006F {
-		t.Errorf("first write must be 0x006F (rtc_time), got 0x%04X", uint16(pkt[0].ID))
-	}
-	if !reflect.DeepEqual(pkt[0].Value, []byte{45, 30, 10}) {
-		t.Errorf("rtc_time bytes: want [45 30 10], got %v", pkt[0].Value)
-	}
-	if pkt[1].ID != 0x0070 {
-		t.Errorf("second write must be 0x0070 (rtc_calendar), got 0x%04X", uint16(pkt[1].ID))
-	}
-	if !reflect.DeepEqual(pkt[1].Value, []byte{4, 1, 5, 26}) {
-		t.Errorf("rtc_calendar bytes: want [4 1 5 26], got %v", pkt[1].Value)
-	}
+	is.Equal(pkt[0].ID, ParamID(0x006F)) // rtc_time
+	is.Equal(pkt[0].Value, []byte{45, 30, 10})
+	is.Equal(pkt[1].ID, ParamID(0x0070)) // rtc_calendar
+	is.Equal(pkt[1].Value, []byte{4, 1, 5, 26})
 }
 
 func TestOps_SetRTC_SundayDoW(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{}
 	t0 := time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC) // Sunday
-	if err := SetRTC(context.Background(), c, t0); err != nil {
-		t.Fatalf("SetRTC: %v", err)
-	}
+	is.NoErr(SetRTC(context.Background(), c, t0))
 	dow := c.writes[0][1].Value[1]
-	if dow != 7 {
-		t.Errorf("Sunday: want dow=7 (ISO), got %d", dow)
-	}
+	is.Equal(dow, byte(7)) // Sunday is ISO dow=7
 }
 
 func TestOps_SetRTC_YearOutOfRange(t *testing.T) {
+	is := is.New(t)
 	for _, year := range []int{1999, 2256, 1900} {
 		c := &recordingClient{}
 		t0 := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
 		err := SetRTC(context.Background(), c, t0)
-		if !errors.Is(err, ErrInvalidArg) {
-			t.Errorf("year %d: expected ErrInvalidArg, got %v", year, err)
-		}
-		if len(c.writes) != 0 {
-			t.Errorf("year %d: should not have issued any writes", year)
-		}
+		is.True(errors.Is(err, ErrInvalidArg)) // out-of-range year must yield ErrInvalidArg
+		is.Equal(len(c.writes), 0)             // out-of-range year should not issue writes
 	}
 }
 
 func TestOps_GetFirmware(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
 			return map[ParamID][]byte{
@@ -463,58 +356,49 @@ func TestOps_GetFirmware(t *testing.T) {
 		},
 	}
 	fw, err := GetFirmware(context.Background(), c)
-	if err != nil {
-		t.Fatalf("GetFirmware: %v", err)
-	}
-	if fw.Major != 1 || fw.Minor != 5 {
-		t.Errorf("version: want 1.5, got %d.%d", fw.Major, fw.Minor)
-	}
+	is.NoErr(err)
+	is.Equal(fw.Major, uint8(1))
+	is.Equal(fw.Minor, uint8(5))
 	wantDate := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
-	if !fw.Date.Equal(wantDate) {
-		t.Errorf("date: want %v, got %v", wantDate, fw.Date)
-	}
+	is.True(fw.Date.Equal(wantDate)) // firmware date matches 2026-05-15
 }
 
 func TestOps_GetFirmware_Unsupported(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
 			return map[ParamID][]byte{}, nil
 		},
 	}
 	_, err := GetFirmware(context.Background(), c)
-	if err == nil {
-		t.Fatal("expected error when 0x0086 is missing, got nil")
-	}
+	is.True(err != nil) // expected error when 0x0086 is missing
 }
 
 func TestOps_GetEfficiency(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
 			return map[ParamID][]byte{0x0129: {72}}, nil
 		},
 	}
 	got, err := GetEfficiency(context.Background(), c)
-	if err != nil {
-		t.Fatalf("GetEfficiency: %v", err)
-	}
-	if got != 72 {
-		t.Errorf("efficiency: want 72, got %d", got)
-	}
+	is.NoErr(err)
+	is.Equal(got, 72)
 }
 
 func TestOps_GetEfficiency_WrongSize(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
 			return map[ParamID][]byte{0x0129: {72, 0}}, nil // 2 bytes, wrong
 		},
 	}
 	_, err := GetEfficiency(context.Background(), c)
-	if err == nil {
-		t.Fatal("expected error for wrong-sized 0x0129, got nil")
-	}
+	is.True(err != nil) // expected error for wrong-sized 0x0129
 }
 
 func TestOps_GetFaults_PairsAndOddTrailing(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
 			return map[ParamID][]byte{
@@ -524,53 +408,42 @@ func TestOps_GetFaults_PairsAndOddTrailing(t *testing.T) {
 		},
 	}
 	got, err := GetFaults(context.Background(), c)
-	if err != nil {
-		t.Fatalf("GetFaults: %v", err)
-	}
+	is.NoErr(err)
 	want := []FaultCode{
 		{Code: 17, Kind: "alarm"},
 		{Code: 22, Kind: "warning"},
 		{Code: 99, Kind: "unknown(5)"},
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
+	is.Equal(got, want)
 }
 
 func TestOps_GetFaults_Empty(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
 			return map[ParamID][]byte{0x007F: {}}, nil
 		},
 	}
 	got, err := GetFaults(context.Background(), c)
-	if err != nil {
-		t.Fatalf("GetFaults: %v", err)
-	}
-	if got == nil {
-		t.Errorf("GetFaults must return [], not nil, on empty fault list")
-	}
-	if len(got) != 0 {
-		t.Errorf("expected empty slice, got %v", got)
-	}
+	is.NoErr(err)
+	is.True(got != nil) // GetFaults must return [], not nil, on empty fault list
+	is.Equal(len(got), 0)
 }
 
 func TestOps_GetFaults_Missing(t *testing.T) {
+	is := is.New(t)
 	c := &recordingClient{
 		reads: func(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
 			return map[ParamID][]byte{}, nil
 		},
 	}
 	got, err := GetFaults(context.Background(), c)
-	if err != nil {
-		t.Fatalf("GetFaults: %v", err)
-	}
-	if got == nil {
-		t.Errorf("GetFaults must return [], not nil, when 0x007F absent")
-	}
+	is.NoErr(err)
+	is.True(got != nil) // GetFaults must return [], not nil, when 0x007F absent
 }
 
 func TestOps_GetStatus_RoundTrip(t *testing.T) {
+	is := is.New(t)
 	values := map[ParamID][]byte{
 		0x0001: {1},
 		0x0002: {0x01},
@@ -589,25 +462,13 @@ func TestOps_GetStatus_RoundTrip(t *testing.T) {
 		},
 	}
 	s, err := GetStatus(context.Background(), c, "playroom", "BREEZYID", "192.168.1.1")
-	if err != nil {
-		t.Fatalf("GetStatus: %v", err)
-	}
-	if s.Name != "playroom" || s.ID != "BREEZYID" || s.IP != "192.168.1.1" {
-		t.Errorf("identity fields wrong: %+v", s)
-	}
-	if s.Configured["power"] != true {
-		t.Errorf("power: want true, got %v", s.Configured["power"])
-	}
-	if s.Configured["speed_mode"] != "preset1" {
-		t.Errorf("speed_mode: want preset1, got %v", s.Configured["speed_mode"])
-	}
-	if s.Configured["airflow_mode"] != "regeneration" {
-		t.Errorf("airflow_mode: want regeneration, got %v", s.Configured["airflow_mode"])
-	}
-	if s.Sensors["humidity_pct"] != 42 {
-		t.Errorf("humidity_pct: want 42, got %v", s.Sensors["humidity_pct"])
-	}
-	if s.LastPoll != "" {
-		t.Errorf("LastPoll must be empty in standalone path, got %q", s.LastPoll)
-	}
+	is.NoErr(err)
+	is.Equal(s.Name, "playroom")
+	is.Equal(s.ID, "BREEZYID")
+	is.Equal(s.IP, "192.168.1.1")
+	is.Equal(s.Configured["power"], true)
+	is.Equal(s.Configured["speed_mode"], "preset1")
+	is.Equal(s.Configured["airflow_mode"], "regeneration")
+	is.Equal(s.Sensors["humidity_pct"], 42)
+	is.Equal(s.LastPoll, "") // LastPoll must be empty in standalone path
 }

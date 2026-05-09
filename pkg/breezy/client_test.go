@@ -3,7 +3,6 @@
 package breezy_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
+	"github.com/matryer/is"
 )
 
 const (
@@ -56,6 +56,7 @@ func newTestClient(t *testing.T, addr, password string, opts ...breezy.Option) *
 // ----- ReadParam -----
 
 func TestReadParam_OneByte(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -64,15 +65,12 @@ func TestReadParam_OneByte(t *testing.T) {
 
 	// 0x0001 (power) is encoded as a single byte 0x01 in the snapshot.
 	val, err := c.ReadParam(ctx, 0x0001)
-	if err != nil {
-		t.Fatalf("ReadParam: %v", err)
-	}
-	if !bytes.Equal(val, []byte{0x01}) {
-		t.Fatalf("want [0x01], got %x", val)
-	}
+	is.NoErr(err)
+	is.Equal(val, []byte{0x01})
 }
 
 func TestReadParam_MultiByte(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -81,15 +79,12 @@ func TestReadParam_MultiByte(t *testing.T) {
 
 	// 0x00B9 (unit type) is two bytes (0x11 0x00) in the snapshot.
 	val, err := c.ReadParam(ctx, 0x00B9)
-	if err != nil {
-		t.Fatalf("ReadParam: %v", err)
-	}
-	if !bytes.Equal(val, []byte{0x11, 0x00}) {
-		t.Fatalf("want [0x11 0x00], got %x", val)
-	}
+	is.NoErr(err)
+	is.Equal(val, []byte{0x11, 0x00})
 }
 
 func TestReadParam_HighPage(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -98,15 +93,12 @@ func TestReadParam_HighPage(t *testing.T) {
 
 	// 0x0320 (VOC) lives on the high page; the codec must emit FF 03 first.
 	val, err := c.ReadParam(ctx, 0x0320)
-	if err != nil {
-		t.Fatalf("ReadParam: %v", err)
-	}
-	if !bytes.Equal(val, []byte{0x5E, 0x01}) {
-		t.Fatalf("want [0x5E 0x01], got %x", val)
-	}
+	is.NoErr(err)
+	is.Equal(val, []byte{0x5E, 0x01})
 }
 
 func TestReadParam_Unsupported(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -115,14 +107,13 @@ func TestReadParam_Unsupported(t *testing.T) {
 
 	// 0xFFFB is highly unlikely to appear in the snapshot.
 	_, err := c.ReadParam(ctx, 0xFFFB)
-	if !errors.Is(err, breezy.ErrUnsupported) {
-		t.Fatalf("want ErrUnsupported, got %v", err)
-	}
+	is.True(errors.Is(err, breezy.ErrUnsupported)) // want ErrUnsupported
 }
 
 // ----- ReadParams -----
 
 func TestReadParams_Batch(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -130,24 +121,16 @@ func TestReadParams_Batch(t *testing.T) {
 	defer cancel()
 
 	out, err := c.ReadParams(ctx, []breezy.ParamID{0x0001, 0x00B9, 0x0320, 0xFFFB})
-	if err != nil {
-		t.Fatalf("ReadParams: %v", err)
-	}
-	if !bytes.Equal(out[0x0001], []byte{0x01}) {
-		t.Fatalf("0x0001 = %x, want 01", out[0x0001])
-	}
-	if !bytes.Equal(out[0x00B9], []byte{0x11, 0x00}) {
-		t.Fatalf("0x00B9 = %x, want 1100", out[0x00B9])
-	}
-	if !bytes.Equal(out[0x0320], []byte{0x5E, 0x01}) {
-		t.Fatalf("0x0320 = %x, want 5E01", out[0x0320])
-	}
-	if _, ok := out[0xFFFB]; ok {
-		t.Fatalf("0xFFFB should be omitted (unsupported), got %x", out[0xFFFB])
-	}
+	is.NoErr(err)
+	is.Equal(out[0x0001], []byte{0x01})
+	is.Equal(out[0x00B9], []byte{0x11, 0x00})
+	is.Equal(out[0x0320], []byte{0x5E, 0x01})
+	_, ok := out[0xFFFB]
+	is.True(!ok) // 0xFFFB should be omitted (unsupported)
 }
 
 func TestReadParams_Empty(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -155,17 +138,14 @@ func TestReadParams_Empty(t *testing.T) {
 	defer cancel()
 
 	out, err := c.ReadParams(ctx, nil)
-	if err != nil {
-		t.Fatalf("ReadParams(nil): %v", err)
-	}
-	if len(out) != 0 {
-		t.Fatalf("want empty map, got %v", out)
-	}
+	is.NoErr(err)
+	is.Equal(len(out), 0) // want empty map
 }
 
 // ----- WriteParam -----
 
 func TestWriteParam_RoundTrip(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -173,19 +153,15 @@ func TestWriteParam_RoundTrip(t *testing.T) {
 	defer cancel()
 
 	// Toggle 0x0001 from 0x01 -> 0x00.
-	if err := c.WriteParam(ctx, 0x0001, []byte{0x00}); err != nil {
-		t.Fatalf("WriteParam: %v", err)
-	}
+	err := c.WriteParam(ctx, 0x0001, []byte{0x00})
+	is.NoErr(err)
 	val, err := c.ReadParam(ctx, 0x0001)
-	if err != nil {
-		t.Fatalf("ReadParam after write: %v", err)
-	}
-	if !bytes.Equal(val, []byte{0x00}) {
-		t.Fatalf("after write want [0x00], got %x", val)
-	}
+	is.NoErr(err)
+	is.Equal(val, []byte{0x00})
 }
 
 func TestWriteParam_MultiByte(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -194,19 +170,15 @@ func TestWriteParam_MultiByte(t *testing.T) {
 
 	// 0x001A (co2_threshold) is a two-byte writeable param. Write a fresh value.
 	want := []byte{0xAB, 0x07}
-	if err := c.WriteParam(ctx, 0x001A, want); err != nil {
-		t.Fatalf("WriteParam: %v", err)
-	}
+	err := c.WriteParam(ctx, 0x001A, want)
+	is.NoErr(err)
 	got, err := c.ReadParam(ctx, 0x001A)
-	if err != nil {
-		t.Fatalf("ReadParam after write: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("after write want %x, got %x", want, got)
-	}
+	is.NoErr(err)
+	is.Equal(got, want)
 }
 
 func TestWriteParams_Batch(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -217,25 +189,19 @@ func TestWriteParams_Batch(t *testing.T) {
 		{ID: 0x0001, Value: []byte{0x00}},
 		{ID: 0x0007, Value: []byte{0x05}},
 	}
-	if err := c.WriteParams(ctx, writes); err != nil {
-		t.Fatalf("WriteParams: %v", err)
-	}
+	err := c.WriteParams(ctx, writes)
+	is.NoErr(err)
 
 	got, err := c.ReadParams(ctx, []breezy.ParamID{0x0001, 0x0007})
-	if err != nil {
-		t.Fatalf("ReadParams: %v", err)
-	}
-	if !bytes.Equal(got[0x0001], []byte{0x00}) {
-		t.Fatalf("0x0001 = %x, want 00", got[0x0001])
-	}
-	if !bytes.Equal(got[0x0007], []byte{0x05}) {
-		t.Fatalf("0x0007 = %x, want 05", got[0x0007])
-	}
+	is.NoErr(err)
+	is.Equal(got[0x0001], []byte{0x00})
+	is.Equal(got[0x0007], []byte{0x05})
 }
 
 // ----- Errors -----
 
 func TestReadParam_AuthFailure(t *testing.T) {
+	is := is.New(t)
 	// Server expects "secret"; client uses "wrong".
 	srv := newTestServer(t, "secret")
 	c := newTestClient(t, srv.Addr(), "wrong",
@@ -245,9 +211,7 @@ func TestReadParam_AuthFailure(t *testing.T) {
 	defer cancel()
 
 	_, err := c.ReadParam(ctx, 0x0001)
-	if !errors.Is(err, breezy.ErrAuth) {
-		t.Fatalf("want ErrAuth, got %v", err)
-	}
+	is.True(errors.Is(err, breezy.ErrAuth)) // want ErrAuth
 }
 
 // ----- Retries / timeouts -----
@@ -273,6 +237,7 @@ func blackholeAddr(t *testing.T) string {
 }
 
 func TestExchange_Timeout(t *testing.T) {
+	is := is.New(t)
 	c := newTestClient(t, blackholeAddr(t), testPassword,
 		breezy.WithTimeout(50*time.Millisecond),
 		breezy.WithRetries(0),
@@ -285,16 +250,13 @@ func TestExchange_Timeout(t *testing.T) {
 	start := time.Now()
 	_, err := c.ReadParam(ctx, 0x0001)
 	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatalf("want timeout error, got nil")
-	}
+	is.True(err != nil) // want timeout error
 	// With 0 retries and 50ms timeout, we should be done well under 1s.
-	if elapsed > 800*time.Millisecond {
-		t.Fatalf("took %v with retries=0; expected <800ms", elapsed)
-	}
+	is.True(elapsed <= 800*time.Millisecond) // expected <800ms with retries=0
 }
 
 func TestExchange_Retries(t *testing.T) {
+	is := is.New(t)
 	// We can't directly observe retry count, so we time it. Per-attempt
 	// behavior depends on the OS: Linux surfaces ICMP unreachables to
 	// "connected" UDP sockets, so writing to a never-bound port fails
@@ -318,21 +280,16 @@ func TestExchange_Retries(t *testing.T) {
 	start := time.Now()
 	_, err := c.ReadParam(ctx, 0x0001)
 	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatalf("want timeout error after retries, got nil")
-	}
+	is.True(err != nil) // want timeout error after retries
 	// Cumulative backoff for 2 retries: 50ms + 100ms = 150ms (the third
 	// attempt has no follow-up sleep).
 	const minExpected = 140 * time.Millisecond // small fudge for clocks
-	if elapsed < minExpected {
-		t.Fatalf("retries elapsed %v, expected >=%v (retries didn't fire?)", elapsed, minExpected)
-	}
-	if elapsed > 2*time.Second {
-		t.Fatalf("retries elapsed %v, expected <2s", elapsed)
-	}
+	is.True(elapsed >= minExpected)            // retries didn't fire?
+	is.True(elapsed <= 2*time.Second)          // retries took too long
 }
 
 func TestExchange_CtxCancelDuringBackoff(t *testing.T) {
+	is := is.New(t)
 	c := newTestClient(t, blackholeAddr(t), testPassword,
 		breezy.WithTimeout(30*time.Millisecond),
 		breezy.WithRetries(5),
@@ -350,15 +307,12 @@ func TestExchange_CtxCancelDuringBackoff(t *testing.T) {
 	start := time.Now()
 	_, err := c.ReadParam(ctx, 0x0001)
 	elapsed := time.Since(start)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("want context.Canceled, got %v", err)
-	}
-	if elapsed > 400*time.Millisecond {
-		t.Fatalf("cancel didn't abort retries promptly: elapsed %v", elapsed)
-	}
+	is.True(errors.Is(err, context.Canceled)) // want context.Canceled
+	is.True(elapsed <= 400*time.Millisecond)  // cancel didn't abort retries promptly
 }
 
 func TestExchange_CtxDeadlineExceeded(t *testing.T) {
+	is := is.New(t)
 	c := newTestClient(t, blackholeAddr(t), testPassword,
 		breezy.WithTimeout(2*time.Second),
 		breezy.WithRetries(5),
@@ -369,14 +323,13 @@ func TestExchange_CtxDeadlineExceeded(t *testing.T) {
 	defer cancel()
 
 	_, err := c.ReadParam(ctx, 0x0001)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("want context.DeadlineExceeded, got %v", err)
-	}
+	is.True(errors.Is(err, context.DeadlineExceeded)) // want context.DeadlineExceeded
 }
 
 // ----- Concurrency -----
 
 func TestClient_ConcurrentReads(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -407,14 +360,13 @@ func TestClient_ConcurrentReads(t *testing.T) {
 	}
 	wg.Wait()
 
-	if errCount.Load() != 0 {
-		t.Fatalf("got %d errors during concurrent reads", errCount.Load())
-	}
+	is.Equal(errCount.Load(), int32(0)) // no errors expected during concurrent reads
 }
 
 // ----- Lifecycle -----
 
 func TestClient_CloseUnblocksInFlight(t *testing.T) {
+	is := is.New(t)
 	c := newTestClient(t, blackholeAddr(t), testPassword,
 		breezy.WithTimeout(10*time.Second),
 		breezy.WithRetries(0),
@@ -429,15 +381,12 @@ func TestClient_CloseUnblocksInFlight(t *testing.T) {
 
 	// Give the goroutine a moment to enter the Read.
 	time.Sleep(50 * time.Millisecond)
-	if err := c.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	err := c.Close()
+	is.NoErr(err)
 
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatalf("ReadParam after Close returned nil error")
-		}
+		is.True(err != nil) // ReadParam after Close should return error
 	case <-time.After(2 * time.Second):
 		t.Fatalf("ReadParam did not unblock after Close")
 	}
@@ -451,26 +400,23 @@ func TestClient_CloseUnblocksInFlight(t *testing.T) {
 // a UDP write to 127.0.0.1:4000 (likely unbound) should fail eventually,
 // while NewClient itself should not.
 func TestNewClient_DefaultPort(t *testing.T) {
+	is := is.New(t)
 	c, err := breezy.NewClient("127.0.0.1", testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewClient host-only: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = c.Close() }()
 }
 
 func TestNewClient_HostPort(t *testing.T) {
+	is := is.New(t)
 	c, err := breezy.NewClient("127.0.0.1:9999", testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewClient host:port: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = c.Close() }()
 }
 
 func TestNewClient_BadDeviceID(t *testing.T) {
+	is := is.New(t)
 	_, err := breezy.NewClient("127.0.0.1", "short", testPassword)
-	if err == nil {
-		t.Fatalf("want error for short deviceID")
-	}
+	is.True(err != nil) // want error for short deviceID
 }
 
 // ----- ErrReadOnly enforcement -----
@@ -479,12 +425,11 @@ func TestNewClient_BadDeviceID(t *testing.T) {
 // (*Client).WriteParams: a registered read-only parameter (fan_supply_rpm)
 // is rejected with ErrReadOnly before any UDP traffic.
 func TestWriteParams_ReadOnlyParamRejected(t *testing.T) {
+	is := is.New(t)
 	// Note: no server needed; the check fires before exchange().
 	c, err := breezy.NewClient("127.0.0.1:1", testDeviceID, testPassword,
 		breezy.WithTimeout(50*time.Millisecond), breezy.WithRetries(0))
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = c.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -492,9 +437,7 @@ func TestWriteParams_ReadOnlyParamRejected(t *testing.T) {
 
 	// 0x004A = fan_supply_rpm — registered as read-only.
 	err = c.WriteParam(ctx, 0x004A, []byte{0x00, 0x00})
-	if !errors.Is(err, breezy.ErrReadOnly) {
-		t.Fatalf("want ErrReadOnly, got %v", err)
-	}
+	is.True(errors.Is(err, breezy.ErrReadOnly)) // want ErrReadOnly
 }
 
 // TestWriteParams_UnregisteredParamPassesThrough confirms that param IDs
@@ -502,6 +445,7 @@ func TestWriteParams_ReadOnlyParamRejected(t *testing.T) {
 // diagnostics is intentionally exempt. We use the fakedevice and verify
 // the write reaches the wire.
 func TestWriteParams_UnregisteredParamPassesThrough(t *testing.T) {
+	is := is.New(t)
 	srv := newTestServer(t, testPassword)
 	c := newTestClient(t, srv.Addr(), testPassword)
 
@@ -518,26 +462,17 @@ func TestWriteParams_UnregisteredParamPassesThrough(t *testing.T) {
 	if err := c.WriteParam(ctx, unregistered, []byte{0x42}); err != nil {
 		// The fakedevice may or may not accept this; the contract being
 		// tested is that the package layer does NOT reject it as ReadOnly.
-		if errors.Is(err, breezy.ErrReadOnly) {
-			t.Fatalf("unregistered write rejected as read-only: %v", err)
-		}
+		is.True(!errors.Is(err, breezy.ErrReadOnly)) // unregistered write must not be rejected as read-only
 	}
 }
 
 // ----- Idempotent Close -----
 
 func TestClient_Close_Idempotent(t *testing.T) {
+	is := is.New(t)
 	c, err := breezy.NewClient("127.0.0.1:1", testDeviceID, testPassword)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	if err := c.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
-	if err := c.Close(); err != nil {
-		t.Fatalf("second Close returned %v, want nil", err)
-	}
-	if err := c.Close(); err != nil {
-		t.Fatalf("third Close returned %v, want nil", err)
-	}
+	is.NoErr(err)
+	is.NoErr(c.Close()) // first Close
+	is.NoErr(c.Close()) // second Close should still be nil
+	is.NoErr(c.Close()) // third Close should still be nil
 }
