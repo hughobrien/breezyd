@@ -63,7 +63,7 @@ func NewServer(snapshotPath, deviceID, password string) (*Server, error) {
 		return nil, fmt.Errorf("fakedevice: password must be <= 8 bytes, got %d", len(password))
 	}
 
-	values, err := loadSnapshot(snapshotPath)
+	values, err := LoadSnapshotJSON(snapshotPath)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,13 @@ func NewServer(snapshotPath, deviceID, password string) (*Server, error) {
 	return s, nil
 }
 
-func loadSnapshot(path string) (map[breezy.ParamID][]byte, error) {
+// LoadSnapshotJSON parses a fakedevice JSON snapshot file and returns the
+// decoded parameter map. Keys are 4-digit hex ParamIDs; values are hex of
+// the little-endian value bytes. Empty values and FD-prefixed values are
+// treated as unsupported (absent in the output map). This is exported so
+// that pkg/breezy.NewMemClientFromFile can seed a MemClient from the same
+// snapshot format without re-implementing the parser.
+func LoadSnapshotJSON(path string) (map[breezy.ParamID][]byte, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("fakedevice: read snapshot: %w", err)
@@ -182,7 +188,7 @@ func (s *Server) SetReplyDelay(d time.Duration) {
 // reply-delay flags, and re-applies the snapshot file's values. Used by
 // tests between cases.
 func (s *Server) Reset() error {
-	values, err := loadSnapshot(s.snapshotPath)
+	values, err := LoadSnapshotJSON(s.snapshotPath)
 	if err != nil {
 		return err
 	}

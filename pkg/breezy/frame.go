@@ -62,6 +62,12 @@ var (
 	ErrChecksum    = errors.New("breezy: checksum mismatch")
 	ErrTruncated   = errors.New("breezy: truncated frame")
 	ErrAuth        = errors.New("breezy: authentication failed")
+	// ErrTimeout is returned by MemClient (and may be returned by other
+	// non-UDP implementations) when a simulated timeout is injected via
+	// SetTimeoutMode. The UDP *Client surfaces context.DeadlineExceeded
+	// for real timeouts; this sentinel lets callers test timeout handling
+	// against in-process clients without real timers.
+	ErrTimeout     = errors.New("breezy: operation timed out")
 	ErrInvalidData = errors.New("breezy: malformed data block")
 	ErrIDMismatch  = errors.New("breezy: response device ID does not match request")
 	ErrPwdMismatch = errors.New("breezy: response password does not match request")

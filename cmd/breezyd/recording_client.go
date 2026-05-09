@@ -37,6 +37,9 @@ func newRecordingClient(inner breezy.DeviceClient, record func([]breezy.ParamWri
 	return &recordingClient{inner: inner, record: record}
 }
 
+// IsLocal delegates to the inner client.
+func (r *recordingClient) IsLocal() bool { return r.inner.IsLocal() }
+
 // ReadParams delegates without recording.
 func (r *recordingClient) ReadParams(ctx context.Context, ids []breezy.ParamID) (map[breezy.ParamID][]byte, error) {
 	return r.inner.ReadParams(ctx, ids)

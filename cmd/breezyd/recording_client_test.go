@@ -27,6 +27,7 @@ func (s *stubInner) WriteParams(_ context.Context, ws []breezy.ParamWrite) error
 	s.writeCalls = append(s.writeCalls, ws)
 	return s.writeErr
 }
+func (s *stubInner) IsLocal() bool { return false }
 
 func TestRecordingClient_WriteSuccessFiresCallback(t *testing.T) {
 	inner := &stubInner{}

@@ -50,6 +50,9 @@ import (
 type HandlerClient interface {
 	ReadParams(ctx context.Context, ids []breezy.ParamID) (map[breezy.ParamID][]byte, error)
 	WriteParams(ctx context.Context, writes []breezy.ParamWrite) error
+	// IsLocal reports whether the client is in-process. Forwarded from
+	// breezy.DeviceClient so recordingClient can satisfy that interface.
+	IsLocal() bool
 	Close() error
 }
 
