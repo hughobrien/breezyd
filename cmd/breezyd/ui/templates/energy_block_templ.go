@@ -52,7 +52,7 @@ func EnergyBlock(name string, ev *ui.EnergyView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"block energy\" data-block=\"energy\" data-attr:open=\"$detailsOpen.energy\"><summary><h3>ENERGY</h3></summary> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"block energy\" data-block=\"energy\" data-attr:open=\"$detailsOpen.energy\"><summary data-on:click=\"$detailsOpen.energy = !$detailsOpen.energy\"><h3>ENERGY</h3></summary> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

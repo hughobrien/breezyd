@@ -177,7 +177,7 @@ func InfoDetails(v ui.DeviceView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" data-block=\"info\" data-attr:open=\"$detailsOpen.info\"><summary><h2>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" data-block=\"info\" data-attr:open=\"$detailsOpen.info\"><summary data-on:click=\"$detailsOpen.info = !$detailsOpen.info\"><h2>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -190,14 +190,14 @@ func InfoDetails(v ui.DeviceView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</h2><button type=\"button\" class=\"toggle toggle-inline\" data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</h2><button type=\"button\" class=\"toggle toggle-inline\" data-on:click__stop=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(powerButtonExpr(v))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/device_card.templ`, Line: 54, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/device_card.templ`, Line: 54, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
