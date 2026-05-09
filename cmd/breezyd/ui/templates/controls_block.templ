@@ -71,7 +71,7 @@ templ presetBtn(v ui.DeviceView, n int) {
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
-		data-on:click={ "$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v))) }
+		data-on:click={ closeEditorThen(postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v)))) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == "manual") }
 	>manual</button>
@@ -80,7 +80,7 @@ templ manualBtn(v ui.DeviceView) {
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on:click={ "$editor = 0; " + postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value)) }
+		data-on:click={ closeEditorThen(postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value))) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.AirflowMode == value) }
 	>{ label }</button>
@@ -222,6 +222,15 @@ func postActionExpr(url, payload string) string {
 func presetChipExpr(name string, n int) string {
 	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
 	return fmt.Sprintf("$editor = $editor === %d ? 0 : %d; %s", n, n, post)
+}
+
+// closeEditorThen prefixes a JS expression with $editor = 0 so any open
+// preset-editor closes before the wrapped expression runs. Used by the
+// manual and mode buttons (which select a non-preset speed): the
+// presetChipExpr toggle handles its own $editor state, so only these
+// non-preset paths need the explicit reset.
+func closeEditorThen(expr string) string {
+	return "$editor = 0; " + expr
 }
 
 // presetSliderExpr builds the data-on:change expression for a preset
