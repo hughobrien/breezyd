@@ -9,7 +9,6 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"fmt"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
@@ -45,7 +44,7 @@ func SensorsBlock(name string, s ui.SensorsView) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs("sensors-" + name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 14, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 13, Col: 24}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -92,51 +91,51 @@ func sensorsGrid(name string, s ui.SensorsView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = co2Cell(name, s).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = CO2Cell(name, s).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = vocCell(name, s).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = VOCCell(name, s).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = humidityCell(name, s).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = HumidityCell(name, s).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("recovery", "recovery", fmtOptPct(s.RecoveryPct)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("recovery", "recovery", ui.FmtOptPct(s.RecoveryPct)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("supply", "supply", fmtTempC(s.TempOutdoorC)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("supply", "supply", ui.FmtTempC(s.TempOutdoorC)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("exhaust", "exhaust", fmtTempC(s.TempExhaustInletC)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("exhaust", "exhaust", ui.FmtTempC(s.TempExhaustInletC)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("supply_regen", "supply_regen", fmtTempC(s.TempSupplyC)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("supply_regen", "supply_regen", ui.FmtTempC(s.TempSupplyC)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("exhaust_regen", "exhaust_regen", fmtTempC(s.TempExhaustOutC)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("exhaust_regen", "exhaust_regen", ui.FmtTempC(s.TempExhaustOutC)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("delta_supply", "Δ", tempDeltaStr(s.TempSupplyC, s.TempOutdoorC)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("delta_supply", "Δ", ui.TempDeltaStr(s.TempSupplyC, s.TempOutdoorC)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("delta_exhaust", "Δ", tempDeltaStr(s.TempExhaustOutC, s.TempExhaustInletC)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("delta_exhaust", "Δ", ui.TempDeltaStr(s.TempExhaustOutC, s.TempExhaustInletC)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("supply_rpm", "supply rpm", rpmStr(s.SupplyRPM)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("supply_rpm", "supply rpm", ui.RPMStr(s.SupplyRPM)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = plainSensorCell("exhaust_rpm", "exhaust rpm", rpmStr(s.ExtractRPM)).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PlainSensorCell("exhaust_rpm", "exhaust rpm", ui.RPMStr(s.ExtractRPM)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -148,7 +147,9 @@ func sensorsGrid(name string, s ui.SensorsView) templ.Component {
 	})
 }
 
-func plainSensorCell(key, label, value string) templ.Component {
+// PlainSensorCell renders a plain (non-editable) sensor reading cell.
+// Exported for use from the push render pipeline in package main.
+func PlainSensorCell(key, label, value string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -176,7 +177,7 @@ func plainSensorCell(key, label, value string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 43, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 44, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -189,7 +190,7 @@ func plainSensorCell(key, label, value string) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 44, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 45, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -202,7 +203,7 @@ func plainSensorCell(key, label, value string) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 45, Col: 14}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/sensors_block.templ`, Line: 46, Col: 14}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -214,41 +215,6 @@ func plainSensorCell(key, label, value string) templ.Component {
 		}
 		return nil
 	})
-}
-
-func fmtTempC(v *float64) string {
-	if v == nil {
-		return "—"
-	}
-	return fmt.Sprintf("%.1f°C", *v)
-}
-
-func fmtOptPct(v *int) string {
-	if v == nil {
-		return "—"
-	}
-	return fmt.Sprintf("%d%%", *v)
-}
-
-func rpmStr(v *int) string {
-	if v == nil {
-		return "—"
-	}
-	if *v == 0 {
-		return "off"
-	}
-	return fmt.Sprintf("%d rpm", *v)
-}
-
-func tempDeltaStr(a, b *float64) string {
-	if a == nil || b == nil {
-		return "—"
-	}
-	d := *a - *b
-	if d >= 0 {
-		return fmt.Sprintf("+%.1f°C", d)
-	}
-	return fmt.Sprintf("%.1f°C", d)
 }
 
 var _ = templruntime.GeneratedTemplate

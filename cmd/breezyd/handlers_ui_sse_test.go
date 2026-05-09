@@ -12,19 +12,23 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/a-h/templ"
 )
 
 // newSSETestHandler builds a Handler with one device's snapshot already
-// populated, then attaches a PushHub whose render closure produces a
-// minimal templ stub keyed on device name. Tests that need richer cards
-// can swap in a different render closure on the returned hub.
+// populated, then attaches a PushHub whose renderBlocks closure produces a
+// minimal PushEvent stub keyed on device name. Tests that need richer events
+// can swap in a different renderBlocks closure on the returned hub.
 func newSSETestHandler(t *testing.T, names ...string) *Handler {
 	t.Helper()
 	h := newUITestHandler(t, names...)
-	h.PushHub = NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
-		return stubComponent(`<div class="card" data-device="` + name + `"></div>`), nil
+	h.PushHub = NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
+		return &PushEvent{
+			DeviceName:  name,
+			SignalsJSON: []byte(`{"stale":false,"speedMode":"manual","airflowMode":"ventilation","lastPollAge":"","sensorsAlert":false}`),
+			Blocks: []BlockPatch{
+				{Selector: `.card[data-device="` + name + `"]`, HTML: `<div class="card" data-device="` + name + `"></div>`},
+			},
+		}, nil
 	})
 	return h
 }

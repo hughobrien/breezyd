@@ -81,13 +81,18 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if err := sse.PatchElements(
-				ev.HTML,
-				datastar.WithSelectorf(`.card[data-device=%q]`, ev.DeviceName),
-				datastar.WithModeOuter(),
-			); err != nil {
-				slog.Debug("sse: patch failed", "err", err, "device", ev.DeviceName)
-				return
+			// TODO(Task 5): emit signals + per-block patches. For now, send
+			// the first block (if any) so existing tests keep working until
+			// Task 5 rewrites this handler to drain the structured event properly.
+			if len(ev.Blocks) > 0 {
+				if err := sse.PatchElements(
+					ev.Blocks[0].HTML,
+					datastar.WithSelector(ev.Blocks[0].Selector),
+					datastar.WithModeOuter(),
+				); err != nil {
+					slog.Debug("sse: patch failed", "err", err, "device", ev.DeviceName)
+					return
+				}
 			}
 		case <-keepalive.C:
 			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {

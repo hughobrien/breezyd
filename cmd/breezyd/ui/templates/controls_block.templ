@@ -5,7 +5,9 @@ import (
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
-templ controlsBlock(v ui.DeviceView) {
+// ControlsBlock renders the device controls section. Exported for use
+// from the push render pipeline in package main.
+templ ControlsBlock(v ui.DeviceView) {
 	<div class="controls" data-block="controls" data-attr:data-edit="$editor !== 0 ? 'true' : null">
 		<h3>Controls</h3>
 		<div class="ctrl">

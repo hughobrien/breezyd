@@ -77,17 +77,3 @@ templ HumidityCell(name string, s ui.SensorsView) {
 	@SensorThresholdRead(name, "humidity", "RH", "%", "", s.HumidityPct, s.HumidityAlert)
 }
 
-// co2Cell is retained for package-internal use by sensors_block.templ.
-templ co2Cell(name string, s ui.SensorsView) {
-	@CO2Cell(name, s)
-}
-
-// vocCell is retained for package-internal use by sensors_block.templ.
-templ vocCell(name string, s ui.SensorsView) {
-	@VOCCell(name, s)
-}
-
-// humidityCell is retained for package-internal use by sensors_block.templ.
-templ humidityCell(name string, s ui.SensorsView) {
-	@HumidityCell(name, s)
-}

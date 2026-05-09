@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"fmt"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 )
 
@@ -24,59 +23,26 @@ templ SensorsBlock(name string, s ui.SensorsView) {
 
 templ sensorsGrid(name string, s ui.SensorsView) {
 	<div class="sensor-grid">
-		@co2Cell(name, s)
-		@vocCell(name, s)
-		@humidityCell(name, s)
-		@plainSensorCell("recovery",      "recovery",      fmtOptPct(s.RecoveryPct))
-		@plainSensorCell("supply",        "supply",        fmtTempC(s.TempOutdoorC))
-		@plainSensorCell("exhaust",       "exhaust",       fmtTempC(s.TempExhaustInletC))
-		@plainSensorCell("supply_regen",  "supply_regen",  fmtTempC(s.TempSupplyC))
-		@plainSensorCell("exhaust_regen", "exhaust_regen", fmtTempC(s.TempExhaustOutC))
-		@plainSensorCell("delta_supply",  "Δ",             tempDeltaStr(s.TempSupplyC, s.TempOutdoorC))
-		@plainSensorCell("delta_exhaust", "Δ",             tempDeltaStr(s.TempExhaustOutC, s.TempExhaustInletC))
-		@plainSensorCell("supply_rpm",    "supply rpm",    rpmStr(s.SupplyRPM))
-		@plainSensorCell("exhaust_rpm",   "exhaust rpm",   rpmStr(s.ExtractRPM))
+		@CO2Cell(name, s)
+		@VOCCell(name, s)
+		@HumidityCell(name, s)
+		@PlainSensorCell("recovery",      "recovery",      ui.FmtOptPct(s.RecoveryPct))
+		@PlainSensorCell("supply",        "supply",        ui.FmtTempC(s.TempOutdoorC))
+		@PlainSensorCell("exhaust",       "exhaust",       ui.FmtTempC(s.TempExhaustInletC))
+		@PlainSensorCell("supply_regen",  "supply_regen",  ui.FmtTempC(s.TempSupplyC))
+		@PlainSensorCell("exhaust_regen", "exhaust_regen", ui.FmtTempC(s.TempExhaustOutC))
+		@PlainSensorCell("delta_supply",  "Δ",             ui.TempDeltaStr(s.TempSupplyC, s.TempOutdoorC))
+		@PlainSensorCell("delta_exhaust", "Δ",             ui.TempDeltaStr(s.TempExhaustOutC, s.TempExhaustInletC))
+		@PlainSensorCell("supply_rpm",    "supply rpm",    ui.RPMStr(s.SupplyRPM))
+		@PlainSensorCell("exhaust_rpm",   "exhaust rpm",   ui.RPMStr(s.ExtractRPM))
 	</div>
 }
 
-templ plainSensorCell(key, label, value string) {
+// PlainSensorCell renders a plain (non-editable) sensor reading cell.
+// Exported for use from the push render pipeline in package main.
+templ PlainSensorCell(key, label, value string) {
 	<div class="sensor-cell" data-sensor-cell={ key }>
 		<div class="sensor-label">{ label }</div>
 		<div>{ value }</div>
 	</div>
-}
-
-func fmtTempC(v *float64) string {
-	if v == nil {
-		return "—"
-	}
-	return fmt.Sprintf("%.1f°C", *v)
-}
-
-func fmtOptPct(v *int) string {
-	if v == nil {
-		return "—"
-	}
-	return fmt.Sprintf("%d%%", *v)
-}
-
-func rpmStr(v *int) string {
-	if v == nil {
-		return "—"
-	}
-	if *v == 0 {
-		return "off"
-	}
-	return fmt.Sprintf("%d rpm", *v)
-}
-
-func tempDeltaStr(a, b *float64) string {
-	if a == nil || b == nil {
-		return "—"
-	}
-	d := *a - *b
-	if d >= 0 {
-		return fmt.Sprintf("+%.1f°C", d)
-	}
-	return fmt.Sprintf("%.1f°C", d)
 }
