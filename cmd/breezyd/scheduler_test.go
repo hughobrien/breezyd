@@ -31,6 +31,7 @@ func (f *schedFakeClient) WriteParams(_ context.Context, ws []breezy.ParamWrite)
 	f.writes = append(f.writes, append([]breezy.ParamWrite(nil), ws...))
 	return nil
 }
+func (f *schedFakeClient) IsLocal() bool { return false }
 
 // flatWrites returns every ParamWrite in order across all WriteParams calls.
 func (f *schedFakeClient) flatWrites() []breezy.ParamWrite {
@@ -48,6 +49,7 @@ func (schedFakeRaw) ReadParams(_ context.Context, _ []breezy.ParamID) (map[breez
 	return nil, nil
 }
 func (schedFakeRaw) WriteParams(_ context.Context, _ []breezy.ParamWrite) error { return nil }
+func (schedFakeRaw) IsLocal() bool                                              { return false }
 func (schedFakeRaw) Close() error                                               { return nil }
 
 // newSchedTest builds a Scheduler wired to a fake client whose writes

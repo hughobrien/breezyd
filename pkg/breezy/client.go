@@ -127,6 +127,9 @@ func NewClient(addr, deviceID, password string, opts ...Option) (*Client, error)
 	return c, nil
 }
 
+// IsLocal returns false: *Client communicates over UDP and is never in-process.
+func (c *Client) IsLocal() bool { return false }
+
 // Close closes the underlying socket. After Close, in-flight reads/writes
 // unblock and any subsequent Read/Write returns an error. Close is
 // idempotent: a second call returns nil rather than the underlying

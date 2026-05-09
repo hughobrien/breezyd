@@ -1,40 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// global-setup.ts — spawns fakedevice + breezyd for the real-daemon
+// global-setup.ts — spawns breezyd (memory backend) for the real-daemon
 // Playwright test suite. Runs once before all tests.
+//
+// No fakedevice process is spawned. breezyd is built with the
+// breezyd_test_admin tag and run with --backend=memory --seed so the
+// in-process MemClient serves as the device. The /test/devices/{name}/...
+// admin surface is mounted on the same HTTP server.
 
 import { spawn, ChildProcess } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-/** Path to the env file that workers read for the admin URL. */
+/** Path to the env file that workers read for the daemon URL. */
 export const ENV_FILE = join(__dirname, "test-results", ".env.test");
 
 export const REPO_ROOT = resolve(__dirname, "..", "..");
 
-let fakedeviceProc: ChildProcess | undefined;
 let breezydProc: ChildProcess | undefined;
-
-/** Read one complete line from a readable stream, with a timeout. */
-function readFirstLine(stream: NodeJS.ReadableStream, timeoutMs: number): Promise<string> {
-  return new Promise((res, rej) => {
-    let buf = "";
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString();
-      const nl = buf.indexOf("\n");
-      if (nl >= 0) {
-        stream.off("data", onData);
-        res(buf.slice(0, nl).trim());
-      }
-    };
-    stream.on("data", onData);
-    setTimeout(() => {
-      stream.off("data", onData);
-      rej(new Error(`timeout waiting for fakedevice address line after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-}
 
 /** Poll an HTTP URL until it responds non-5xx, or timeout. */
 async function waitForHTTP(url: string, timeoutMs: number): Promise<void> {
@@ -58,47 +42,12 @@ export default async function globalSetup() {
   const logDir = join(__dirname, "test-results");
   mkdirSync(logDir, { recursive: true });
 
-  // Snapshot shipped with the fakedevice package.
+  // Snapshot shipped with the fakedevice package — used as the memory seed.
   const snapshotPath = join(REPO_ROOT, "pkg", "breezy", "fakedevice", "snapshot_148.json");
 
-  // 1. Spawn the fakedevice.
-  fakedeviceProc = spawn(
-    "go",
-    [
-      "run",
-      "-tags", "fakedevice_admin",
-      "./cmd/fakedevice",
-      "--snapshot", snapshotPath,
-      "--id", "BREEZY00000000A0",
-      "--password", "1111",
-    ],
-    { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
-  );
-
-  const fdLog = createWriteStream(join(logDir, "fakedevice.log"));
-  fakedeviceProc.stderr?.pipe(fdLog);
-
-  if (!fakedeviceProc.stdout) {
-    throw new Error("fakedevice process has no stdout");
-  }
-
-  // Parse the single address line printed to stdout before piping the rest.
-  const addrLine = await readFirstLine(fakedeviceProc.stdout, 60_000);
-  fakedeviceProc.stdout.pipe(fdLog);
-
-  const m = addrLine.match(/udp=(\S+)\s+admin=(\S+)/);
-  if (!m) {
-    throw new Error(`fakedevice did not print expected address line; got: ${JSON.stringify(addrLine)}`);
-  }
-  const [, udpAddr, adminAddr] = m;
-
-  // 2. Write a temp breezyd config pointing at the fakedevice.
+  // 1. Write a temp breezyd config.
   const tmpDir = mkdtempSync(join(tmpdir(), "breezyd-test-"));
   const configPath = join(tmpDir, "config.toml");
-  // Listen on a free port by binding to :0 — breezyd doesn't support :0,
-  // so we pick a high port via a simple counter.  Use a fixed port range
-  // well above system services; tests run serially so collision risk is low.
-  // We use a fixed high port per test run to keep config simple.
   const httpPort = await freePort();
 
   const configToml = [
@@ -110,22 +59,22 @@ export default async function globalSetup() {
     "[devices.alpha]",
     `id = "BREEZY00000000A0"`,
     `password = "1111"`,
-    // ip must include the port since fakedevice uses an ephemeral port,
-    // not 4000. buildDeviceMap adds :4000 only when there's no colon,
-    // so we pass the full host:port from the fakedevice.
-    `ip = "${udpAddr}"`,
+    // ip is required by config validation but unused in memory mode.
+    `ip = "127.0.0.1:0"`,
   ].join("\n");
 
   writeFileSync(configPath, configToml, { mode: 0o600 });
 
-  // 3. Spawn breezyd against that config.
+  // 2. Spawn breezyd with the memory backend and test-admin surface.
   breezydProc = spawn(
     "go",
     [
       "run",
-      "-tags", "fakedevice_admin",
+      "-tags", "breezyd_test_admin",
       "./cmd/breezyd",
       "--config", configPath,
+      "--backend=memory",
+      "--seed", snapshotPath,
     ],
     { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -134,7 +83,7 @@ export default async function globalSetup() {
   breezydProc.stdout?.pipe(bdLog);
   breezydProc.stderr?.pipe(bdLog);
 
-  // 4. Wait for the HTTP server to be ready.
+  // 3. Wait for the HTTP server to be ready.
   const daemonURL = `http://127.0.0.1:${httpPort}`;
   try {
     await waitForHTTP(daemonURL + "/healthz", 60_000);
@@ -149,14 +98,12 @@ export default async function globalSetup() {
     ENV_FILE,
     [
       `BREEZYD_URL=${daemonURL}`,
-      `BREEZYD_ADMIN_URL=http://${adminAddr}`,
       `BREEZYD_DEVICE_NAME=alpha`,
     ].join("\n") + "\n",
   );
 
   // Also set on the main process for playwright.config.ts baseURL resolution.
   process.env.BREEZYD_URL = daemonURL;
-  process.env.BREEZYD_ADMIN_URL = `http://${adminAddr}`;
   process.env.BREEZYD_DEVICE_NAME = "alpha";
 }
 
@@ -179,5 +126,5 @@ async function freePort(): Promise<number> {
 
 /** Exposed for global-teardown. */
 export function __processes() {
-  return { fakedevice: fakedeviceProc, breezyd: breezydProc };
+  return { breezyd: breezydProc };
 }

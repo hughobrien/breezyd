@@ -273,7 +273,8 @@ func (f *fakeClient) ReadParams(ctx context.Context, ids []breezy.ParamID) (map[
 	return out, nil
 }
 
-func (f *fakeClient) Close() error { return nil }
+func (f *fakeClient) Close() error  { return nil }
+func (f *fakeClient) IsLocal() bool { return false }
 
 func (f *fakeClient) seenIDs() []breezy.ParamID {
 	f.mu.Lock()
@@ -454,6 +455,52 @@ func TestPoller_NoticeWrite_TimerWriteSetsSettle(t *testing.T) {
 	}
 	if !hasPower {
 		t.Errorf("settle-tick should still read non-fan params; got=%v", got)
+	}
+}
+
+func TestPoller_FanSettle_SkippedForLocalClient(t *testing.T) {
+	// A MemClient is in-process; writes land instantly, so the firmware settle
+	// delay does not apply. NoticeWrite should not set a settle deadline when
+	// the last dialed client reports IsLocal() == true.
+	state := NewState()
+
+	mc, err := breezy.NewMemClientFromFile(pollerSnapshotPath(t))
+	if err != nil {
+		t.Fatalf("breezy.NewMemClientFromFile: %v", err)
+	}
+
+	p := &Poller{
+		Name:     "local",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001, 0x0044, 0x004A, 0x004B},
+		NewClient: func() (PollerClient, error) {
+			return mc, nil
+		},
+	}
+
+	ctx := context.Background()
+
+	// Run one tick so dial() records the MemClient in p.lastClient.
+	p.tick(ctx)
+
+	// Now fire a fan-affecting write (0x0002 = speed_mode).
+	p.NoticeWrite(0x0002)
+
+	// idsForThisTick must include fan-sensitive reads — no suppression.
+	ids := p.idsForThisTick()
+	idSet := make(map[breezy.ParamID]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	if !idSet[0x004A] {
+		t.Errorf("0x004A (fan_supply_rpm) was suppressed for a local client; want it present in ids=%v", ids)
+	}
+	if !idSet[0x004B] {
+		t.Errorf("0x004B (fan_extract_rpm) was suppressed for a local client; want it present in ids=%v", ids)
 	}
 }
 
@@ -647,6 +694,91 @@ func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
 		// expected: unblocked once first released
 	case <-time.After(time.Second):
 		t.Fatal("second LockUDP never returned after first unlocked")
+	}
+}
+
+// TestPoller_FanSettle_DropsSensitiveReads_OverUDP exercises the settle window
+// end-to-end through real fakedevice UDP. A *breezy.Client dials the server,
+// we issue a fan-affecting NoticeWrite, and we verify that the next tick drops
+// 0x4A/0x4B from its read-IDs — then re-admits them once virtual time passes
+// the window. No actual sleeping: we inject Now to control the clock.
+func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
+	srv := newFakeServer(t)
+	state := NewState()
+
+	// Controllable clock: start well away from zero so deadline comparisons
+	// against time.Time{} (IsZero) behave correctly.
+	base := time.Unix(1_700_000_000, 0)
+	var offset atomic.Int64 // nanoseconds added to base
+	virtualNow := func() time.Time { return base.Add(time.Duration(offset.Load())) }
+
+	// NewClient injects a real *breezy.Client over UDP — this is what makes the
+	// test exercise the production path rather than an in-process stub.
+	p := &Poller{
+		Name:     "udp-settle",
+		IP:       srv.Addr(),
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour, // manual ticks only
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001, 0x0044, 0x004A, 0x004B},
+		NewClient: func() (PollerClient, error) {
+			return breezy.NewClient(srv.Addr(), pollerTestDeviceID, pollerTestPassword)
+		},
+		Now: virtualNow,
+	}
+
+	ctx := context.Background()
+
+	// 1. Tick before any write: all IDs should be read (and p.lastClient gets set).
+	p.tick(ctx)
+	snap, ok := state.Get("udp-settle")
+	if !ok || snap.LastErr != nil {
+		t.Fatalf("pre-write tick failed: ok=%v err=%v", ok, snap.LastErr)
+	}
+
+	// 2. Note a fan-affecting write (0x0002 = speed_mode).
+	p.NoticeWrite(0x0002)
+
+	// 3. Confirm settle window is active: idsForThisTick must exclude fan RPMs.
+	ids := p.idsForThisTick()
+	idSet := make(map[breezy.ParamID]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	if idSet[0x004A] {
+		t.Errorf("0x004A present in read-IDs during settle window; want dropped (ids=%v)", ids)
+	}
+	if idSet[0x004B] {
+		t.Errorf("0x004B present in read-IDs during settle window; want dropped (ids=%v)", ids)
+	}
+	// Non-sensitive params must still be present.
+	if !idSet[0x0001] {
+		t.Errorf("0x0001 missing during settle window; want present (ids=%v)", ids)
+	}
+	if !idSet[0x0044] {
+		t.Errorf("0x0044 missing during settle window; want present (ids=%v)", ids)
+	}
+
+	// 4. Advance virtual time past the window; fan RPMs must reappear.
+	offset.Store(int64(fanSettleDuration + time.Second))
+	ids = p.idsForThisTick()
+	idSet = make(map[breezy.ParamID]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	if !idSet[0x004A] {
+		t.Errorf("0x004A absent after settle expired; want present (ids=%v)", ids)
+	}
+	if !idSet[0x004B] {
+		t.Errorf("0x004B absent after settle expired; want present (ids=%v)", ids)
+	}
+
+	// 5. Do a real tick over UDP post-settle to confirm the server responds.
+	p.tick(ctx)
+	snap, ok = state.Get("udp-settle")
+	if !ok || snap.LastErr != nil {
+		t.Fatalf("post-settle tick failed: ok=%v err=%v", ok, snap.LastErr)
 	}
 }
 

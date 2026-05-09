@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// global-teardown.ts — SIGTERMs the fakedevice and breezyd processes
-// that globalSetup spawned, and asserts clean exits.
+// global-teardown.ts — SIGTERMs the breezyd process that globalSetup
+// spawned, and asserts a clean exit.
 
 import type { ChildProcess } from "node:child_process";
 import { __processes } from "./global-setup";
@@ -29,21 +29,13 @@ function killAndWait(p: ChildProcess): Promise<number> {
 }
 
 export default async function globalTeardown() {
-  const { fakedevice, breezyd } = __processes();
+  const { breezyd } = __processes();
 
-  // Kill breezyd first so it stops trying to talk UDP to the fakedevice.
   if (breezyd) {
     const code = await killAndWait(breezyd);
     // 0 = clean exit, 143 = SIGTERM (128+15), both are acceptable.
     if (code !== 0 && code !== 143) {
       throw new Error(`breezyd exited with unexpected code ${code}`);
-    }
-  }
-
-  if (fakedevice) {
-    const code = await killAndWait(fakedevice);
-    if (code !== 0 && code !== 143) {
-      throw new Error(`fakedevice exited with unexpected code ${code}`);
     }
   }
 }
