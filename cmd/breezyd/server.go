@@ -50,6 +50,9 @@ import (
 type HandlerClient interface {
 	ReadParams(ctx context.Context, ids []breezy.ParamID) (map[breezy.ParamID][]byte, error)
 	WriteParams(ctx context.Context, writes []breezy.ParamWrite) error
+	// IsLocal reports whether the client is in-process. Forwarded from
+	// breezy.DeviceClient so recordingClient can satisfy that interface.
+	IsLocal() bool
 	Close() error
 }
 
@@ -247,6 +250,12 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /ui/vendor/{file}", h.getVendor)
 	mux.HandleFunc("GET /favicon.svg", h.getFavicon)
 	mux.HandleFunc("GET /favicon.ico", h.getFavicon)
+
+	// mountTestAdmin is a no-op in production builds; it registers
+	// /test/devices/{name}/... routes only when compiled with
+	// -tags breezyd_test_admin. The off-stub in handlers_test_admin_off.go
+	// provides the symbol unconditionally so this call always compiles.
+	mountTestAdmin(mux, h)
 
 	return mux
 }

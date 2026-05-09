@@ -28,6 +28,7 @@ func (r *recordingClient) WriteParams(ctx context.Context, ws []ParamWrite) erro
 	r.writes = append(r.writes, ws)
 	return r.writeErr
 }
+func (r *recordingClient) IsLocal() bool { return false }
 
 func TestOps_Power(t *testing.T) {
 	c := &recordingClient{}

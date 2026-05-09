@@ -17,6 +17,11 @@ import (
 type DeviceClient interface {
 	ReadParams(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error)
 	WriteParams(ctx context.Context, writes []ParamWrite) error
+	// IsLocal reports whether the client is in-process (no network I/O).
+	// Used to gate UDP-protocol-specific behaviour like the fan-settle
+	// suppression window in the poller. UDP *Client returns false;
+	// *MemClient returns true.
+	IsLocal() bool
 }
 
 // ErrInvalidArg is the sentinel for ops that reject caller-supplied

@@ -51,6 +51,8 @@ var (
 	flagAddr     = flag.String("addr", "", "listen address (overrides config)")
 	flagLogLevel = flag.String("log-level", "info", "log level (debug|info|warn|error)")
 	flagVersion  = flag.Bool("version", false, "print version information and exit")
+	flagBackend  = flag.String("backend", "udp", "client backend (udp|memory)")
+	flagSeed     = flag.String("seed", "", "fakedevice JSON snapshot for --backend=memory")
 )
 
 // Build metadata. These are populated by goreleaser via -ldflags at build
@@ -106,6 +108,33 @@ func run(parent context.Context) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
+	// Validate --backend and --seed before doing any further setup.
+	if *flagSeed != "" && *flagBackend != "memory" {
+		return fmt.Errorf("--seed is only valid with --backend=memory")
+	}
+	if *flagBackend != "udp" && *flagBackend != "memory" {
+		return fmt.Errorf("--backend: unknown value %q (allowed: udp, memory)", *flagBackend)
+	}
+
+	// Build one MemClient per configured device when backend=memory. All
+	// callers (poller, handler) share the same instance per device so
+	// writes from handlers are immediately visible to poller reads.
+	var memClients map[string]*breezy.MemClient
+	if *flagBackend == "memory" {
+		memClients = make(map[string]*breezy.MemClient, len(cfg.Devices))
+		for name := range cfg.Devices {
+			if *flagSeed != "" {
+				c, err := breezy.NewMemClientFromFile(*flagSeed)
+				if err != nil {
+					return fmt.Errorf("device %q: %w", name, err)
+				}
+				memClients[name] = c
+			} else {
+				memClients[name] = breezy.NewMemClient(nil)
+			}
+		}
+	}
+
 	listen := cfg.Daemon.Listen
 	if listen == "" {
 		listen = "127.0.0.1:9876" // hardcoded default when [daemon].listen is absent; --addr still overrides below
@@ -132,7 +161,7 @@ func run(parent context.Context) error {
 	handler := &Handler{
 		State:         state,
 		Devices:       devices,
-		ClientFactory: makeClientFactory(devices),
+		ClientFactory: makeClientFactory(devices, memClients),
 	}
 	// Render closure captures handler so PushHub can build a structured
 	// PushEvent for any (name, snap) tuple — both the poll path and the
@@ -159,7 +188,7 @@ func run(parent context.Context) error {
 	pollers, schedulers, pollersWg, startPollerGoroutines := startPollers(
 		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
 		stateDir, state, metrics, onPoll,
-		handler.scheduleDial,
+		handler.scheduleDial, memClients,
 	)
 	// Set the maps on the handler BEFORE spawning the goroutines so the
 	// onPoll → PushHub.Notify → buildView path always sees populated
@@ -336,6 +365,7 @@ func startPollers(
 	metrics *Metrics,
 	onPoll func(name string, snap Snapshot),
 	scheduleDialFor func(name string) func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error),
+	memClients map[string]*breezy.MemClient,
 ) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup, func()) {
 	pollers := map[string]*Poller{}
 	schedulers := map[string]*Scheduler{}
@@ -371,6 +401,9 @@ func startPollers(
 			OnPoll: onPoll,
 			Energy: tr,
 		}
+		if mc, ok := memClients[devName]; ok {
+			p.NewClient = func() (PollerClient, error) { return mc, nil }
+		}
 		pollers[devName] = p
 
 		sch := &Scheduler{
@@ -398,11 +431,16 @@ func startPollers(
 }
 
 // makeClientFactory returns the ClientFactory the HTTP handler hands
-// to each per-request UDP dial. The registry is consulted on every
-// request so periodic-discovery IP updates take effect immediately
-// without bouncing the connection.
-func makeClientFactory(devices *DeviceRegistry) func(name string) (HandlerClient, error) {
+// to each per-request dial. When memClients is non-nil (i.e. --backend=memory),
+// the factory returns the pre-built MemClient for the named device instead of
+// opening a UDP connection. The registry is consulted on every request so
+// periodic-discovery IP updates take effect immediately without bouncing the
+// connection (UDP path only).
+func makeClientFactory(devices *DeviceRegistry, memClients map[string]*breezy.MemClient) func(name string) (HandlerClient, error) {
 	return func(name string) (HandlerClient, error) {
+		if mc, ok := memClients[name]; ok {
+			return mc, nil
+		}
 		d, ok := devices.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("unknown device %q", name)

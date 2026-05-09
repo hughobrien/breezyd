@@ -14,12 +14,11 @@ just test-msan       # go test -msan ./...         (cgo+clang; uninit-memory rea
 just test-asan       # go test -asan ./...         (cgo+clang; OOB / UAF)
 just test-staticcheck# golangci-lint run ./...     (errcheck is the strict bit)
 just test-templ-drift# verify generated *_templ.go files are up-to-date
-just test-fakedevice-admin # go test -tags fakedevice_admin (build-tagged admin surface)
-just test-ui         # Playwright e2e against real breezyd+fakedevice (needs test-ui-install once)
+just test-ui         # Playwright e2e against real breezyd+memory backend (needs test-ui-install once)
 just lint            # go vet + gofmt-drift check
 just check           # lint + fast tests + templ-drift (pre-commit gate)
 just check-all       # lint + test + test-race + test-ui + templ-drift (pre-push gate)
-just ci              # everything CI runs on every PR: check-all + staticcheck + asan + msan + templ-drift + fakedevice-admin
+just ci              # everything CI runs on every PR: check-all + staticcheck + asan + msan + templ-drift
 just check-deep      # ci + race-flake             (~5 min; pre-tag gate)
 just tidy            # go mod tidy
 just clean           # remove binaries, test cache, Playwright artifacts
@@ -64,7 +63,7 @@ Three artefacts from one Go module (`github.com/hughobrien/breezyd`):
 The push channel lives in two pieces: `cmd/breezyd/push_hub.go::PushHub` owns the subscriber set and renders templ DeviceCards via an injected closure on every `Notify(name, snap)`; `cmd/breezyd/handlers_ui_sse.go::getUISSE` holds the long-lived response, sends initial-state cards on connect, then drains the subscriber's channel and emits `datastar-patch-elements` events via the datastar Go SDK (`github.com/starfederation/datastar-go/datastar`). The poller's `OnPoll` hook is composed in `main.go` as `SyncHomekit + PushHub.Notify`. Action handlers under `/ui/devices/{name}/...` return 200 + empty body on success (subscribers see the next push); validation/auth/backend failures emit a status-coded `datastar-patch-elements` event into `#global-error-banner`. The `dashboard.js` vendor helper centralises the preset-slider snap + match-speeds-mirror + implied-mode logic that's too gnarly for inline `data-on-*` expressions.
 3. **`cmd/breezy`** — CLI. Defaults to standalone mode (UDP directly to each configured device via `pkg/breezy/ops`). Opts into daemon mode when `--daemon URL` is passed or `[daemon].listen` is set in config. `breezy discover` always broadcasts on the LAN directly, independent of mode. `Discover()` enumerates every up, non-loopback IPv4 interface and sends to its directed-broadcast address in addition to a static fallback list — relevant when a host isn't on `192.168.0/1.0/24`.
 
-`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration Go test runs against it. `cmd/fakedevice` is a standalone build-tagged (`fakedevice_admin`) helper binary that exposes an admin control plane over HTTP so Playwright tests can drive it (change snapshot fields, trigger error states, etc.) without real hardware. `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that spawns a real `breezyd` process (pointed at `cmd/fakedevice`) and drives the actual dashboard — 84 tests total (83 active + 1 fixme). `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
+`internal/config` is the shared TOML loader. `pkg/breezy/fakedevice` is an in-process UDP server that replays a captured snapshot — every non-integration Go test runs against it. `cmd/fakedevice` was retired in v1.2; mid-test state mutation now happens via breezyd's build-tagged `/test/...` surface (see `cmd/breezyd/handlers_test_admin.go`). `tests/ui/` is a separate pnpm-managed Playwright suite (`@playwright/test`) that spawns a real `breezyd` process (with `--backend=memory`) and drives the actual dashboard — 84 tests total (83 active + 1 fixme). `tests/ui/screenshots/` holds committed PNGs that re-render on `just screenshot`; the README embeds the 3-col one.
 
 ### Standalone mode (default)
 
