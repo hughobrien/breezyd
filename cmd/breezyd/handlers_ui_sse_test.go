@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/matryer/is"
 )
 
 // newSSETestHandler builds a Handler with one device's snapshot already
@@ -62,6 +64,7 @@ func readUntil(t *testing.T, body io.Reader, needle string, deadline time.Durati
 }
 
 func TestGetUISSE_InitialStateAndPush(t *testing.T) {
+	is := is.New(t)
 	h := newSSETestHandler(t, "alpha", "bravo")
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -71,37 +74,23 @@ func TestGetUISSE_InitialStateAndPush(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
-		t.Errorf("Content-Type: %q, want text/event-stream prefix", got)
-	}
+	is.Equal(resp.StatusCode, http.StatusOK)
+	is.True(strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"))
 
 	body := readUntil(t, resp.Body, `data-device="bravo"`, 2*time.Second)
-	if !strings.Contains(body, "event: datastar-patch-elements") {
-		t.Errorf("initial state: missing patch-elements event; body=%q", body)
-	}
-	if !strings.Contains(body, `data-device="alpha"`) {
-		t.Errorf("initial state: missing alpha card; body=%q", body)
-	}
-	if !strings.Contains(body, `data-device="bravo"`) {
-		t.Errorf("initial state: missing bravo card; body=%q", body)
-	}
+	is.True(strings.Contains(body, "event: datastar-patch-elements")) // initial state emits patch-elements
+	is.True(strings.Contains(body, `data-device="alpha"`))            // initial state includes alpha card
+	is.True(strings.Contains(body, `data-device="bravo"`))            // initial state includes bravo card
 
 	// Subscribe runs before any initial-state writes (post-#75), so by the
 	// time we've read the bravo card the subscriber is registered. The
 	// waitFor is left in place as a defence against the in-process
 	// scheduler reordering — it will resolve essentially immediately.
 	hub := h.PushHub.(*PushHub)
-	if err := waitFor(1*time.Second, func() bool { return subscriberCount(hub) == 1 }); err != nil {
-		t.Fatalf("subscribe never registered: %v", err)
-	}
+	is.NoErr(waitFor(1*time.Second, func() bool { return subscriberCount(hub) == 1 }))
 
 	priorAlpha := strings.Count(body, `data-device="alpha"`)
 	// Use a sentinel device name the initial state didn't emit, so any
@@ -110,12 +99,8 @@ func TestGetUISSE_InitialStateAndPush(t *testing.T) {
 
 	body2 := readUntil(t, resp.Body, `data-device="charlie"`, 1*time.Second)
 	combined := body + body2
-	if !strings.Contains(combined, `data-device="charlie"`) {
-		t.Errorf("expected charlie push event; combined=%q", combined)
-	}
-	if got := strings.Count(combined, `data-device="alpha"`); got != priorAlpha {
-		t.Errorf("alpha count drifted unexpectedly: before=%d after=%d", priorAlpha, got)
-	}
+	is.True(strings.Contains(combined, `data-device="charlie"`))         // push event arrived after Notify
+	is.Equal(strings.Count(combined, `data-device="alpha"`), priorAlpha) // alpha cards must not drift
 }
 
 // waitFor polls cond until it returns true or deadline elapses. Used to
@@ -133,6 +118,7 @@ func waitFor(deadline time.Duration, cond func() bool) error {
 }
 
 func TestGetUISSE_ContextCancelCleansUpSubscriber(t *testing.T) {
+	is := is.New(t)
 	h := newSSETestHandler(t, "alpha")
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -141,18 +127,14 @@ func TestGetUISSE_ContextCancelCleansUpSubscriber(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 
 	// Wait for the handler to subscribe. Post-#75 Subscribe runs before
 	// initial-state, so observing the alpha card guarantees Subscribe ran too.
 	_ = readUntil(t, resp.Body, `data-device="alpha"`, 1*time.Second)
 	// Give the handler one more scheduler tick to reach the subscribe loop.
 	time.Sleep(50 * time.Millisecond)
-	if got := subscriberCount(hub); got != 1 {
-		t.Fatalf("subscriber count after connect: got %d, want 1", got)
-	}
+	is.Equal(subscriberCount(hub), 1) // exactly one subscriber after connect
 
 	cancel()
 	_ = resp.Body.Close()
@@ -166,10 +148,11 @@ func TestGetUISSE_ContextCancelCleansUpSubscriber(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Errorf("subscriber count after cancel: got %d, want 0", subscriberCount(hub))
+	is.Equal(subscriberCount(hub), 0) // subscriber must drop after cancel
 }
 
 func TestGetUISSE_KeepaliveOnIdleConnection(t *testing.T) {
+	is := is.New(t)
 	orig := keepaliveInterval
 	keepaliveInterval = 50 * time.Millisecond
 	t.Cleanup(func() { keepaliveInterval = orig })
@@ -183,18 +166,15 @@ func TestGetUISSE_KeepaliveOnIdleConnection(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
 	body := readUntil(t, resp.Body, ": keepalive", 1*time.Second)
-	if !strings.Contains(body, ": keepalive") {
-		t.Errorf("expected keepalive comment within 1s; got body=%q", body)
-	}
+	is.True(strings.Contains(body, ": keepalive")) // keepalive comment must arrive on idle stream
 }
 
 func TestGetUISSE_XAccelBufferingHeader(t *testing.T) {
+	is := is.New(t)
 	h := newSSETestHandler(t, "alpha")
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -204,30 +184,23 @@ func TestGetUISSE_XAccelBufferingHeader(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
-	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
-		t.Errorf("X-Accel-Buffering: %q, want %q", got, "no")
-	}
+	is.Equal(resp.Header.Get("X-Accel-Buffering"), "no")
 }
 
 func TestGetUISSE_NoPushHub_500(t *testing.T) {
+	is := is.New(t)
 	h := newUITestHandler(t, "alpha")
 	// PushHub left nil to force the guard.
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/sse")
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("status: %d, want 500", resp.StatusCode)
-	}
+	is.Equal(resp.StatusCode, http.StatusInternalServerError)
 }
 
 // subscriberCount peeks the unexported subs map for tests. This is the
@@ -240,6 +213,7 @@ func subscriberCount(h *PushHub) int {
 }
 
 func TestGetUISSE_ColdLoadUsesAppendMode(t *testing.T) {
+	is := is.New(t)
 	h := newSSETestHandler(t, "alpha")
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -250,21 +224,16 @@ func TestGetUISSE_ColdLoadUsesAppendMode(t *testing.T) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	// No Last-Event-ID — cold load path.
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
 	body := readUntil(t, resp.Body, `data-device="alpha"`, 2*time.Second)
-	if !strings.Contains(body, `selector #device-list`) {
-		t.Errorf("cold load: expected mode=append against #device-list; body=%q", body)
-	}
-	if !strings.Contains(body, `mode append`) {
-		t.Errorf("cold load: expected `mode append`; body=%q", body)
-	}
+	is.True(strings.Contains(body, `selector #device-list`)) // cold load must target #device-list
+	is.True(strings.Contains(body, `mode append`))           // cold load must use append mode
 }
 
 func TestGetUISSE_ReconnectUsesOuterMode(t *testing.T) {
+	is := is.New(t)
 	h := newSSETestHandler(t, "alpha")
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -275,18 +244,12 @@ func TestGetUISSE_ReconnectUsesOuterMode(t *testing.T) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	req.Header.Set("Last-Event-ID", "device:alpha")
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
 	body := readUntil(t, resp.Body, `data-device="alpha"`, 2*time.Second)
-	if !strings.Contains(body, `selector .card[data-device=`) {
-		t.Errorf("reconnect: expected mode=outer with .card selector; body=%q", body)
-	}
-	if strings.Contains(body, `selector #device-list`) {
-		t.Errorf("reconnect: should not use append against #device-list; body=%q", body)
-	}
+	is.True(strings.Contains(body, `selector .card[data-device=`)) // reconnect must target .card with outer mode
+	is.True(!strings.Contains(body, `selector #device-list`))      // reconnect must not append against #device-list
 }
 
 // TestGetUISSE_NotifyDuringInitialStateLands_Regression75 pins the #75
@@ -300,6 +263,7 @@ func TestGetUISSE_ReconnectUsesOuterMode(t *testing.T) {
 // handler subscribes, before the first initial-state write. It deterministically
 // drives a Notify into the exact window the bug describes.
 func TestGetUISSE_NotifyDuringInitialStateLands_Regression75(t *testing.T) {
+	is := is.New(t)
 	h := newSSETestHandler(t, "alpha")
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
@@ -314,18 +278,15 @@ func TestGetUISSE_NotifyDuringInitialStateLands_Regression75(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
 	body := readUntil(t, resp.Body, `data-device="charlie"`, 2*time.Second)
-	if !strings.Contains(body, `data-device="charlie"`) {
-		t.Errorf("Notify fired between Subscribe and initial-state was lost: %q", body)
-	}
+	is.True(strings.Contains(body, `data-device="charlie"`)) // #75 regression: Notify in Subscribe→initial-state window must land
 }
 
 func TestGetUISSE_PushEventEmitsSignalsAndBlocks(t *testing.T) {
+	is := is.New(t)
 	orig := keepaliveInterval
 	keepaliveInterval = 50 * time.Millisecond
 	t.Cleanup(func() { keepaliveInterval = orig })
@@ -339,9 +300,7 @@ func TestGetUISSE_PushEventEmitsSignalsAndBlocks(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /ui/sse: %v", err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
 	// Drain initial state.
@@ -349,20 +308,14 @@ func TestGetUISSE_PushEventEmitsSignalsAndBlocks(t *testing.T) {
 
 	// Wait for subscriber registration.
 	hub := h.PushHub.(*PushHub)
-	if err := waitFor(1*time.Second, func() bool { return subscriberCount(hub) == 1 }); err != nil {
-		t.Fatalf("subscribe never registered: %v", err)
-	}
+	is.NoErr(waitFor(1*time.Second, func() bool { return subscriberCount(hub) == 1 }))
 
 	h.PushHub.Notify("alpha", Snapshot{})
 
 	body := readUntil(t, resp.Body, "datastar-patch-signals", 1*time.Second)
-	if !strings.Contains(body, "event: datastar-patch-signals") {
-		t.Errorf("push: expected datastar-patch-signals event; body=%q", body)
-	}
+	is.True(strings.Contains(body, "event: datastar-patch-signals")) // push emits a signals event
 
 	body2 := readUntil(t, resp.Body, "datastar-patch-elements", 1*time.Second)
 	combined := body + body2
-	if !strings.Contains(combined, "event: datastar-patch-elements") {
-		t.Errorf("push: expected datastar-patch-elements event; combined=%q", combined)
-	}
+	is.True(strings.Contains(combined, "event: datastar-patch-elements")) // push emits a patch-elements event
 }

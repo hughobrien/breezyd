@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 // newUITestHandler builds a Handler with the supplied device names,
@@ -62,57 +63,35 @@ func testSnap() Snapshot {
 }
 
 func TestUIReadIndex_ServesDatastar(t *testing.T) {
+	is := is.New(t)
 	h := &Handler{}
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != 200 {
-		t.Fatalf("status: %d", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
-		t.Errorf("content-type: %q", got)
-	}
-	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
-		t.Errorf("cache-control: %q, want no-store", got)
-	}
+	is.Equal(resp.StatusCode, 200)
+	is.True(strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html")) // content-type must be text/html
+	is.Equal(resp.Header.Get("Cache-Control"), "no-store")
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	if !strings.Contains(bs, "<!doctype html") {
-		t.Errorf("body does not look like HTML: %q", bs[:min(100, len(bs))])
-	}
-	if !strings.Contains(bs, "datastar-1.0.1.min.js") {
-		t.Errorf("layout missing datastar script reference; got: %s", bs)
-	}
-	if !strings.Contains(bs, `data-init="@get('/ui/sse')"`) {
-		t.Errorf("layout missing data-init to /ui/sse; got: %s", bs)
-	}
-	if strings.Contains(bs, "htmx") {
-		t.Errorf("layout unexpectedly contains htmx reference; got: %s", bs)
-	}
+	is.True(strings.Contains(bs, "<!doctype html"))              // body should look like HTML
+	is.True(strings.Contains(bs, "datastar-1.0.1.min.js"))       // layout must reference datastar script
+	is.True(strings.Contains(bs, `data-init="@get('/ui/sse')"`)) // layout must wire data-init to /ui/sse
+	is.True(!strings.Contains(bs, "htmx"))                       // layout must not contain htmx leftovers
 }
 
 func TestCollectViews_HappyPath(t *testing.T) {
+	is := is.New(t)
 	h := newUITestHandler(t, "alpha", "bravo")
 	views := h.collectViews()
-	if len(views) != 2 {
-		t.Fatalf("got %d views, want 2", len(views))
-	}
+	is.Equal(len(views), 2)
 	for i, want := range []string{"alpha", "bravo"} {
-		if views[i].Name != want {
-			t.Errorf("view %d name: got %q, want %q", i, views[i].Name, want)
-		}
-		if views[i].Unreachable {
-			t.Errorf("view %d unexpectedly unreachable", i)
-		}
-		if views[i].Serial == "" {
-			t.Errorf("view %d serial empty (must come from registry)", i)
-		}
+		is.Equal(views[i].Name, want)  // view name must match registry order
+		is.True(!views[i].Unreachable) // view must not be Unreachable
+		is.True(views[i].Serial != "") // serial must come from registry
 	}
 }
 
@@ -121,6 +100,7 @@ func TestCollectViews_HappyPath(t *testing.T) {
 // up in the SSE initial-state pass as a placeholder, not be silently
 // hidden.
 func TestCollectViews_Unreachable(t *testing.T) {
+	is := is.New(t)
 	devices := map[string]DeviceConfig{
 		"ghost": {ID: "BREEZYGHOST00001", Password: "1111", IP: "10.0.0.99:4000"},
 	}
@@ -131,44 +111,28 @@ func TestCollectViews_Unreachable(t *testing.T) {
 		Schedulers: map[string]*Scheduler{},
 	}
 	views := h.collectViews()
-	if len(views) != 1 {
-		t.Fatalf("got %d views, want 1", len(views))
-	}
+	is.Equal(len(views), 1)
 	v := views[0]
-	if !v.Unreachable {
-		t.Error("ghost should be Unreachable=true")
-	}
-	if v.Name != "ghost" {
-		t.Errorf("name: got %q, want ghost", v.Name)
-	}
-	if v.IP != "10.0.0.99:4000" {
-		t.Errorf("IP: got %q, want 10.0.0.99:4000", v.IP)
-	}
+	is.True(v.Unreachable) // ghost device should be Unreachable=true
+	is.Equal(v.Name, "ghost")
+	is.Equal(v.IP, "10.0.0.99:4000")
 }
 
 func TestViewFor_PopulatesSerial(t *testing.T) {
+	is := is.New(t)
 	h := newUITestHandler(t, "alpha")
 	v, ok := h.viewFor("alpha")
-	if !ok {
-		t.Fatal("viewFor returned ok=false")
-	}
+	is.True(ok) // viewFor must return ok=true
 	// newUITestHandler assigns ID = "TESTID00000000" + name[:2], so
 	// "alpha" → "TESTID00000000al".
-	if v.Serial != "TESTID00000000al" {
-		t.Errorf("Serial: got %q, want TESTID00000000al", v.Serial)
-	}
+	is.Equal(v.Serial, "TESTID00000000al")
 }
 
 func TestBuildView_DefaultsAreClean(t *testing.T) {
+	is := is.New(t)
 	h := newUITestHandler(t, "alpha")
 	v := h.buildView("alpha", testSnap())
-	if v.Name != "alpha" {
-		t.Errorf("Name: got %q, want alpha", v.Name)
-	}
-	if !v.Power {
-		t.Error("Power: got false, want true")
-	}
-	if v.Stale {
-		t.Error("Stale: got true, want false")
-	}
+	is.Equal(v.Name, "alpha")
+	is.True(v.Power)  // Power must be true
+	is.True(!v.Stale) // Stale must be false
 }

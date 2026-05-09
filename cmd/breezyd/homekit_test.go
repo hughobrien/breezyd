@@ -13,67 +13,45 @@ import (
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
 	"github.com/hughobrien/breezyd/pkg/homekit"
+	"github.com/matryer/is"
 )
 
 func TestHomekit_PinPersists(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
+	is.NoErr(os.MkdirAll(dir, 0o700))
 	pin1, err := loadOrGeneratePin(dir)
-	if err != nil {
-		t.Fatalf("first generate: %v", err)
-	}
-	if len(pin1) != 8 {
-		t.Errorf("pin length = %d, want 8", len(pin1))
-	}
-	if weakPins[pin1] {
-		t.Errorf("generated pin %q is in weak list", pin1)
-	}
+	is.NoErr(err)
+	is.Equal(len(pin1), 8)
+	is.True(!weakPins[pin1]) // generated pin must not be in weak list
 	pin2, err := loadOrGeneratePin(dir)
-	if err != nil {
-		t.Fatalf("second load: %v", err)
-	}
-	if pin1 != pin2 {
-		t.Errorf("PIN changed across runs: %q != %q", pin1, pin2)
-	}
+	is.NoErr(err)
+	is.Equal(pin1, pin2) // PIN must persist across runs
 }
 
 func TestHomekit_PinFileMode(t *testing.T) {
+	is := is.New(t)
 	dir := t.TempDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if _, err := loadOrGeneratePin(dir); err != nil {
-		t.Fatalf("generate: %v", err)
-	}
+	is.NoErr(os.MkdirAll(dir, 0o700))
+	_, err := loadOrGeneratePin(dir)
+	is.NoErr(err)
 	st, err := os.Stat(filepath.Join(dir, "pin.txt"))
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if mode := st.Mode().Perm(); mode != 0o600 {
-		t.Errorf("pin.txt mode = %#o, want 0600", mode)
-	}
+	is.NoErr(err)
+	is.Equal(st.Mode().Perm(), os.FileMode(0o600))
 }
 
 func TestHomekit_PinFormat(t *testing.T) {
-	if got := formatPinDisplay("12345678"); got != "1234-5678" {
-		t.Errorf("formatPinDisplay = %q, want '1234-5678'", got)
-	}
+	is := is.New(t)
+	is.Equal(formatPinDisplay("12345678"), "1234-5678")
 }
 
 func TestHomekit_StartDisabledIsNoop(t *testing.T) {
+	is := is.New(t)
 	h := &Handler{}
 	stop, err := h.StartHomekit(context.Background(), config.Homekit{Enabled: false}, nil)
-	if err != nil {
-		t.Fatalf("StartHomekit: %v", err)
-	}
-	if stop == nil {
-		t.Fatal("stop is nil")
-	}
-	if err := stop(); err != nil {
-		t.Errorf("stop: %v", err)
-	}
+	is.NoErr(err)
+	is.True(stop != nil) // stop must not be nil even when disabled
+	is.NoErr(stop())
 }
 
 // homekitSnapshotPath returns the absolute path to the fakedevice snapshot.
@@ -90,6 +68,7 @@ func homekitSnapshotPath(t *testing.T) string {
 // calls SyncHomekit with a snapshot containing humidity=65, and asserts
 // the HumiditySensor's CurrentRelativeHumidity characteristic reflects 65.
 func TestHomekit_SyncRoundTrip(t *testing.T) {
+	is := is.New(t)
 	const (
 		devID   = "TESTID0000000001"
 		devPwd  = "1111"
@@ -99,9 +78,7 @@ func TestHomekit_SyncRoundTrip(t *testing.T) {
 
 	// Start fakedevice so the DeviceConfig has a valid IP.
 	srv, err := fakedevice.NewServer(homekitSnapshotPath(t), devID, devPwd)
-	if err != nil {
-		t.Fatalf("fakedevice.NewServer: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
 	stateDir := t.TempDir()
@@ -129,9 +106,7 @@ func TestHomekit_SyncRoundTrip(t *testing.T) {
 	t.Cleanup(cancel)
 
 	stop, err := h.StartHomekit(ctx, cfg, devices.Snapshot())
-	if err != nil {
-		t.Fatalf("StartHomekit: %v", err)
-	}
+	is.NoErr(err)
 	t.Cleanup(func() { _ = stop() })
 
 	// Build a snapshot with humidity=65 (param 0x0025 is a single byte).
@@ -147,14 +122,9 @@ func TestHomekit_SyncRoundTrip(t *testing.T) {
 
 	// Retrieve the accessory and check the characteristic.
 	a, ok := h.homekitAccessories[devName]
-	if !ok {
-		t.Fatalf("accessory %q not found in homekitAccessories", devName)
-	}
+	is.True(ok) // accessory must be registered in homekitAccessories
 
-	got := a.Humidity.CurrentRelativeHumidity.Value()
-	if got != wantHum {
-		t.Errorf("CurrentRelativeHumidity = %v, want %v", got, wantHum)
-	}
+	is.Equal(a.Humidity.CurrentRelativeHumidity.Value(), wantHum)
 }
 
 // TestHomekit_SyncNilMap is a no-op guard: SyncHomekit returns early when

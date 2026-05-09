@@ -24,6 +24,7 @@ import (
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
+	"github.com/matryer/is"
 )
 
 const (
@@ -191,33 +192,25 @@ func snapshotAllParams(t *testing.T) map[breezy.ParamID][]byte {
 // ------------------------------------------------------------------------
 
 func TestHandler_Healthz(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/healthz", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
+	is.Equal(rec.Code, http.StatusOK)
 }
 
 func TestHandler_ListDevices(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp struct {
 		Devices []map[string]any `json:"devices"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
-	}
-	if len(resp.Devices) != 1 {
-		t.Fatalf("len(devices) = %d, want 1; body=%s", len(resp.Devices), rec.Body.String())
-	}
-	if resp.Devices[0]["name"] != "playroom" {
-		t.Errorf("device name = %v, want playroom", resp.Devices[0]["name"])
-	}
+	is.NoErr(json.Unmarshal(rec.Body.Bytes(), &resp))
+	is.Equal(len(resp.Devices), 1)
+	is.Equal(resp.Devices[0]["name"], "playroom")
 }
 
 // ------------------------------------------------------------------------
@@ -225,93 +218,58 @@ func TestHandler_ListDevices(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_GetDevice_StructuredSnapshot(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
-	}
+	is.NoErr(json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	// Top-level identity.
-	if resp["name"] != "playroom" {
-		t.Errorf("name = %v, want playroom", resp["name"])
-	}
-	if resp["id"] != srvDeviceID {
-		t.Errorf("id = %v, want %s", resp["id"], srvDeviceID)
-	}
+	is.Equal(resp["name"], "playroom")
+	is.Equal(resp["id"], srvDeviceID)
 
 	// Block presence and a few decoded fields.
 	cfg, _ := resp["configured"].(map[string]any)
-	if cfg == nil {
-		t.Fatalf("configured block missing: %s", rec.Body.String())
-	}
-	if cfg["power"] != true {
-		t.Errorf("configured.power = %v, want true", cfg["power"])
-	}
-	if cfg["speed_mode"] != "manual" {
-		t.Errorf("configured.speed_mode = %v, want manual", cfg["speed_mode"])
-	}
-	if v, _ := cfg["manual_pct"].(float64); v != 100 {
-		t.Errorf("configured.manual_pct = %v, want 100", cfg["manual_pct"])
-	}
-	if cfg["airflow_mode"] != "extract" {
-		t.Errorf("configured.airflow_mode = %v, want extract", cfg["airflow_mode"])
-	}
-	if v, _ := cfg["co2_threshold_ppm"].(float64); v != 800 {
-		t.Errorf("configured.co2_threshold_ppm = %v, want 800", cfg["co2_threshold_ppm"])
-	}
+	is.True(cfg != nil) // configured block must be present
+	is.Equal(cfg["power"], true)
+	is.Equal(cfg["speed_mode"], "manual")
+	v, _ := cfg["manual_pct"].(float64)
+	is.Equal(v, float64(100))
+	is.Equal(cfg["airflow_mode"], "extract")
+	v, _ = cfg["co2_threshold_ppm"].(float64)
+	is.Equal(v, float64(800))
 
 	live, _ := resp["live"].(map[string]any)
-	if live == nil {
-		t.Fatalf("live block missing")
-	}
-	if v, _ := live["fan_extract_rpm"].(float64); v != 5400 {
-		t.Errorf("live.fan_extract_rpm = %v, want 5400", live["fan_extract_rpm"])
-	}
-	if live["in_user_control"] != true {
-		t.Errorf("live.in_user_control = %v, want true (no timer, no heater, no alerts)", live["in_user_control"])
-	}
+	is.True(live != nil) // live block must be present
+	v, _ = live["fan_extract_rpm"].(float64)
+	is.Equal(v, float64(5400))
+	is.Equal(live["in_user_control"], true) // no timer, no heater, no alerts
 
 	sensors, _ := resp["sensors"].(map[string]any)
-	if sensors == nil {
-		t.Fatalf("sensors block missing")
-	}
-	if v, _ := sensors["humidity_pct"].(float64); v != 54 {
-		t.Errorf("sensors.humidity_pct = %v, want 54", sensors["humidity_pct"])
-	}
-	if v, _ := sensors["temp_outdoor_c"].(float64); v <= 21.0 || v >= 21.4 {
-		t.Errorf("sensors.temp_outdoor_c = %v, want ~21.2", sensors["temp_outdoor_c"])
-	}
-	if v, _ := sensors["recovery_efficiency_pct"].(float64); v != 85 {
-		t.Errorf("sensors.recovery_efficiency_pct = %v, want 85", sensors["recovery_efficiency_pct"])
-	}
+	is.True(sensors != nil) // sensors block must be present
+	v, _ = sensors["humidity_pct"].(float64)
+	is.Equal(v, float64(54))
+	v, _ = sensors["temp_outdoor_c"].(float64)
+	is.True(v > 21.0 && v < 21.4) // temp_outdoor_c ~ 21.2
+	v, _ = sensors["recovery_efficiency_pct"].(float64)
+	is.Equal(v, float64(85))
 
 	service, _ := resp["service"].(map[string]any)
-	if service == nil {
-		t.Fatalf("service block missing")
-	}
-	if v, _ := service["rtc_battery_volts"].(float64); v <= 3.30 || v >= 3.40 {
-		t.Errorf("service.rtc_battery_volts = %v, want ~3.34", service["rtc_battery_volts"])
-	}
-	if service["filter_status"] != "clean" {
-		t.Errorf("service.filter_status = %v, want clean", service["filter_status"])
-	}
+	is.True(service != nil) // service block must be present
+	v, _ = service["rtc_battery_volts"].(float64)
+	is.True(v > 3.30 && v < 3.40) // rtc_battery_volts ~ 3.34
+	is.Equal(service["filter_status"], "clean")
 
 	fw, _ := resp["firmware"].(map[string]any)
-	if fw == nil {
-		t.Fatalf("firmware block missing")
-	}
-	if fw["version"] != "0.11" {
-		t.Errorf("firmware.version = %v, want 0.11", fw["version"])
-	}
+	is.True(fw != nil) // firmware block must be present
+	is.Equal(fw["version"], "0.11")
 }
 
 func TestHandler_GetDevice_InUserControlFalseOnAlert(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
 	// Light up the CO2 alert byte (index 1).
@@ -319,19 +277,14 @@ func TestHandler_GetDevice_InUserControlFalseOnAlert(t *testing.T) {
 	seedSnapshot(t, h, "playroom", v)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	live := resp["live"].(map[string]any)
-	if live["in_user_control"] != false {
-		t.Errorf("in_user_control = %v, want false (CO2 alert)", live["in_user_control"])
-	}
+	is.Equal(live["in_user_control"], false) // CO2 alert removes user control
 	alerts, _ := live["sensor_alerts"].(map[string]any)
-	if alerts == nil || alerts["co2"] != true {
-		t.Errorf("sensor_alerts.co2 = %v, want true; alerts=%+v", alerts["co2"], alerts)
-	}
+	is.True(alerts != nil)        // sensor_alerts map must be present
+	is.Equal(alerts["co2"], true) // CO2 alert flag must be set
 }
 
 // TestHandler_GetDevice_InUserControl_HeaterToggleStillUser confirms that
@@ -339,6 +292,7 @@ func TestHandler_GetDevice_InUserControlFalseOnAlert(t *testing.T) {
 // in_user_control should remain true. The override signal for unexpected
 // heater behavior is frost-protection (0x030B), tested separately below.
 func TestHandler_GetDevice_InUserControl_HeaterToggleStillUser(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
 	v[0x0068] = []byte{0x01} // user asked for heat — that's configuration
@@ -347,12 +301,11 @@ func TestHandler_GetDevice_InUserControl_HeaterToggleStillUser(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	live := resp["live"].(map[string]any)
-	if live["in_user_control"] != true {
-		t.Errorf("in_user_control = %v, want true (heater_control=1 is user configuration, not override)", live["in_user_control"])
-	}
+	is.Equal(live["in_user_control"], true) // heater_control=1 is user configuration, not override
 }
 
 func TestHandler_GetDevice_InUserControlFalseOnFrostProtection(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
 	v[0x030B] = []byte{0x01} // frost protection actively running
@@ -361,12 +314,11 @@ func TestHandler_GetDevice_InUserControlFalseOnFrostProtection(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	live := resp["live"].(map[string]any)
-	if live["in_user_control"] != false {
-		t.Errorf("in_user_control = %v, want false (frost protection active)", live["in_user_control"])
-	}
+	is.Equal(live["in_user_control"], false) // frost protection takes user out of control
 }
 
 func TestHandler_GetDevice_InUserControlFalseOnTimer(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
 	v[0x0007] = []byte{0x02} // turbo timer
@@ -375,12 +327,11 @@ func TestHandler_GetDevice_InUserControlFalseOnTimer(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	live := resp["live"].(map[string]any)
-	if live["in_user_control"] != false {
-		t.Errorf("in_user_control = %v, want false (turbo timer)", live["in_user_control"])
-	}
+	is.Equal(live["in_user_control"], false) // turbo timer takes user out of control
 }
 
 func TestHandler_GetDevice_IncludesEnergy(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	dir := t.TempDir()
 	today := time.Now().Local().Format("2006-01-02")
@@ -401,43 +352,26 @@ func TestHandler_GetDevice_IncludesEnergy(t *testing.T) {
 	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	is.NoErr(json.Unmarshal(rec.Body.Bytes(), &resp))
 	service, ok := resp["service"].(map[string]any)
-	if !ok {
-		t.Fatalf("service block missing or wrong type: %v", resp)
-	}
+	is.True(ok) // service block present and is an object
 	energy, ok := service["energy"].(map[string]any)
-	if !ok {
-		t.Fatalf("service.energy missing or wrong type: %v", service)
-	}
-	if energy["heating_today_kwh"] != 1.234 {
-		t.Errorf("heating_today_kwh = %v, want 1.234", energy["heating_today_kwh"])
-	}
-	if energy["heating_month_kwh"] != 30.0 {
-		t.Errorf("heating_month_kwh = %v, want 30.0", energy["heating_month_kwh"])
-	}
-	if energy["heating_lifetime_kwh"] != 234.5 {
-		t.Errorf("heating_lifetime_kwh = %v, want 234.5", energy["heating_lifetime_kwh"])
-	}
+	is.True(ok) // service.energy present and is an object
+	is.Equal(energy["heating_today_kwh"], 1.234)
+	is.Equal(energy["heating_month_kwh"], 30.0)
+	is.Equal(energy["heating_lifetime_kwh"], 234.5)
 }
 
 func TestHandler_GetDevice_NotFound(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/nope", nil)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusNotFound)
 	var env errEnvelope
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
-	if env.Code != "not_found" {
-		t.Errorf("code = %q, want not_found", env.Code)
-	}
+	is.Equal(env.Code, "not_found")
 }
 
 // ------------------------------------------------------------------------
@@ -445,67 +379,59 @@ func TestHandler_GetDevice_NotFound(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_Firmware(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/firmware", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["version"] != "0.11" {
-		t.Errorf("version = %v, want 0.11", resp["version"])
-	}
+	is.Equal(resp["version"], "0.11")
 }
 
 func TestHandler_Firmware_BadBytes(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
 	v[0x0086] = []byte{0x01, 0x02} // wrong length: 2 bytes, decoder wants 6
 	seedSnapshot(t, h, "playroom", v)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/firmware", nil)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status=%d, want 500; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusInternalServerError) // bad-length payload must surface as 500
 }
 
 func TestHandler_Efficiency(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/efficiency", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if v, _ := resp["recovery_efficiency_pct"].(float64); v != 85 {
-		t.Errorf("recovery_efficiency_pct = %v, want 85", resp["recovery_efficiency_pct"])
-	}
+	v, _ := resp["recovery_efficiency_pct"].(float64)
+	is.Equal(v, float64(85))
 }
 
 func TestHandler_Faults_Empty(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
 	v[0x007F] = []byte{} // no faults; encoded as zero-length value
 	seedSnapshot(t, h, "playroom", v)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/faults", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp struct {
 		Faults []map[string]any `json:"faults"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if len(resp.Faults) != 0 {
-		t.Errorf("len(faults) = %d, want 0", len(resp.Faults))
-	}
+	is.Equal(len(resp.Faults), 0)
 }
 
 func TestHandler_Faults_TwoCodes(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	v := snapshotAllParams(t)
 	// 0x7F payload: each entry is (code uint8, kind uint8). 0=alarm, 1=warning.
@@ -513,25 +439,16 @@ func TestHandler_Faults_TwoCodes(t *testing.T) {
 	seedSnapshot(t, h, "playroom", v)
 
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/faults", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp struct {
 		Faults []map[string]any `json:"faults"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if len(resp.Faults) != 2 {
-		t.Fatalf("len(faults) = %d, want 2; body=%s", len(resp.Faults), rec.Body.String())
-	}
-	if v, _ := resp.Faults[0]["code"].(float64); v != 1 {
-		t.Errorf("faults[0].code = %v, want 1", resp.Faults[0]["code"])
-	}
-	if resp.Faults[0]["kind"] != "alarm" {
-		t.Errorf("faults[0].kind = %v, want alarm", resp.Faults[0]["kind"])
-	}
-	if resp.Faults[1]["kind"] != "warning" {
-		t.Errorf("faults[1].kind = %v, want warning", resp.Faults[1]["kind"])
-	}
+	is.Equal(len(resp.Faults), 2)
+	v0, _ := resp.Faults[0]["code"].(float64)
+	is.Equal(v0, float64(1))
+	is.Equal(resp.Faults[0]["kind"], "alarm")
+	is.Equal(resp.Faults[1]["kind"], "warning")
 }
 
 // ------------------------------------------------------------------------
@@ -539,17 +456,14 @@ func TestHandler_Faults_TwoCodes(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_GetParam_Raw(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0001", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	// Power is on → 0x01 byte.
-	if resp["hex"] != "01" {
-		t.Errorf("hex = %v, want 01", resp["hex"])
-	}
+	is.Equal(resp["hex"], "01")
 }
 
 // ------------------------------------------------------------------------
@@ -557,28 +471,24 @@ func TestHandler_GetParam_Raw(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_PostPower(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": false})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	// Verify the value was written by reading it back via the cache passthrough.
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0001", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "00" {
-		t.Errorf("after power off, hex = %v, want 00", resp["hex"])
-	}
+	is.Equal(resp["hex"], "00") // power off bytes through to 0x01
 }
 
 func TestHandler_PostPower_BadBody(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	// Missing "on" key.
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 // ------------------------------------------------------------------------
@@ -586,84 +496,67 @@ func TestHandler_PostPower_BadBody(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_PostSpeed_Preset(t *testing.T) {
+	is := is.New(t)
 	h, rp, _ := newServerHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"preset": 2})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	// Verify 0x02 was set to 2.
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0002", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "02" {
-		t.Errorf("speed_mode hex = %v, want 02", resp["hex"])
-	}
+	is.Equal(resp["hex"], "02") // preset 2 lands at 0x02
 	// NoticeWrite should have been called for 0x02.
-	if !hasNotice(rp.all(), "playroom", 0x0002) {
-		t.Errorf("NoticeWrite(0x0002) was not called; got=%+v", rp.all())
-	}
+	is.True(hasNotice(rp.all(), "playroom", 0x0002)) // NoticeWrite(0x0002) must fire
 }
 
 func TestHandler_PostSpeed_Manual(t *testing.T) {
+	is := is.New(t)
 	h, rp, _ := newServerHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"manual": 30})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	// 0x44 = 30, 0x02 = 0xFF (manual flag).
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0044", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "1e" {
-		t.Errorf("manual hex = %v, want 1e", resp["hex"])
-	}
+	is.Equal(resp["hex"], "1e") // manual=30 lands at 0x44
 	rec3 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0002", nil)
 	var resp2 map[string]any
 	_ = json.Unmarshal(rec3.Body.Bytes(), &resp2)
-	if resp2["hex"] != "ff" {
-		t.Errorf("speed_mode hex after manual = %v, want ff", resp2["hex"])
-	}
+	is.Equal(resp2["hex"], "ff") // manual flag set on 0x02
 	notices := rp.all()
-	if !hasNotice(notices, "playroom", 0x0044) || !hasNotice(notices, "playroom", 0x0002) {
-		t.Errorf("expected notices for 0x44 and 0x02; got=%+v", notices)
-	}
+	is.True(hasNotice(notices, "playroom", 0x0044)) // NoticeWrite(0x0044) must fire
+	is.True(hasNotice(notices, "playroom", 0x0002)) // NoticeWrite(0x0002) must fire
 }
 
 func TestHandler_PostSpeed_ManualBelowFloor(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"manual": 5})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "10") {
-		t.Errorf("error message should mention firmware floor 10; got %s", rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
+	is.True(strings.Contains(rec.Body.String(), "10")) // error message should mention firmware floor 10
 }
 
 func TestHandler_PostSpeed_BadPreset(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"preset": 7})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 func TestHandler_PostSpeed_NeitherFieldSet(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 func TestHandler_PostSpeed_BothFieldsSet(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"preset": 1, "manual": 30})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 // ------------------------------------------------------------------------
@@ -682,41 +575,35 @@ func TestHandler_PostMode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {
+			is := is.New(t)
 			h, rp, _ := newServerHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/mode", map[string]any{"mode": tc.mode})
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusOK)
 			rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x00B7", nil)
 			var resp map[string]any
 			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-			if resp["hex"] != tc.expect {
-				t.Errorf("0xB7 = %v, want %v", resp["hex"], tc.expect)
-			}
-			if !hasNotice(rp.all(), "playroom", 0x00B7) {
-				t.Errorf("NoticeWrite(0x00B7) was not called")
-			}
+			is.Equal(resp["hex"], tc.expect)                 // 0xB7 must reflect the requested mode
+			is.True(hasNotice(rp.all(), "playroom", 0x00B7)) // NoticeWrite(0x00B7) must fire
 		})
 	}
 }
 
 func TestHandler_PostMode_Bad(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/mode", map[string]any{"mode": "moonshot"})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 func TestHandler_PostMode_MissingField(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/mode", map[string]any{})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 func TestHandler_PostPreset(t *testing.T) {
+	is := is.New(t)
 	for _, c := range []struct {
 		preset                    int
 		supply, extract           int
@@ -732,31 +619,21 @@ func TestHandler_PostPreset(t *testing.T) {
 		rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/preset", map[string]any{
 			"preset": c.preset, "supply": c.supply, "extract": c.extract,
 		})
-		if rec.Code != http.StatusOK {
-			t.Fatalf("preset=%d status=%d body=%s", c.preset, rec.Code, rec.Body.String())
-		}
+		is.Equal(rec.Code, http.StatusOK) // each preset POST must succeed
 		recS := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/"+c.supplyParam, nil)
 		var rs map[string]any
 		_ = json.Unmarshal(recS.Body.Bytes(), &rs)
-		if rs["hex"] != c.supplyHex {
-			t.Errorf("preset=%d supply hex = %v, want %s", c.preset, rs["hex"], c.supplyHex)
-		}
+		is.Equal(rs["hex"], c.supplyHex) // supply param matches expected hex
 		recE := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/"+c.extParam, nil)
 		var re map[string]any
 		_ = json.Unmarshal(recE.Body.Bytes(), &re)
-		if re["hex"] != c.extHex {
-			t.Errorf("preset=%d extract hex = %v, want %s", c.preset, re["hex"], c.extHex)
-		}
+		is.Equal(re["hex"], c.extHex) // extract param matches expected hex
 		// Both preset writes must trip the fan-settle window — editing the
 		// active preset ramps the running fan, so 0x3A/3B/3C/3D/3E/3F must
 		// be in fanWriteIDs (poller.go) and notified to the poller.
 		notices := rp.all()
-		if !hasNotice(notices, "playroom", c.supplyParamID) {
-			t.Errorf("preset=%d: NoticeWrite(%#04x) not called; got=%+v", c.preset, c.supplyParamID, notices)
-		}
-		if !hasNotice(notices, "playroom", c.extParamID) {
-			t.Errorf("preset=%d: NoticeWrite(%#04x) not called; got=%+v", c.preset, c.extParamID, notices)
-		}
+		is.True(hasNotice(notices, "playroom", c.supplyParamID)) // supply NoticeWrite must fire
+		is.True(hasNotice(notices, "playroom", c.extParamID))    // extract NoticeWrite must fire
 	}
 }
 
@@ -770,11 +647,10 @@ func TestHandler_PostPreset_BadInputs(t *testing.T) {
 		"extract too high":    {"preset": 1, "supply": 50, "extract": 150},
 	} {
 		t.Run(name, func(t *testing.T) {
+			is := is.New(t)
 			h, _, _ := newServerHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/preset", body)
-			if rec.Code != http.StatusBadRequest {
-				t.Errorf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusBadRequest)
 		})
 	}
 }
@@ -784,17 +660,14 @@ func TestHandler_PostPreset_BadInputs(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_PostHeater(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/heater", map[string]any{"on": true})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0068", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "01" {
-		t.Errorf("heater_control = %v, want 01", resp["hex"])
-	}
+	is.Equal(resp["hex"], "01") // heater_control byte must be 01
 }
 
 func TestHandler_PostTimer(t *testing.T) {
@@ -807,43 +680,34 @@ func TestHandler_PostTimer(t *testing.T) {
 		{"turbo", "02"},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
+			is := is.New(t)
 			h, rp, _ := newServerHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/timer", map[string]any{"mode": mode.name})
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusOK)
 			rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0007", nil)
 			var resp map[string]any
 			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-			if resp["hex"] != mode.hex {
-				t.Errorf("timer mode = %v, want %s", resp["hex"], mode.hex)
-			}
-			if !hasNotice(rp.all(), "playroom", 0x0007) {
-				t.Errorf("NoticeWrite(0x0007) was not called for mode=%q", mode.name)
-			}
+			is.Equal(resp["hex"], mode.hex)                  // timer mode lands at 0x07
+			is.True(hasNotice(rp.all(), "playroom", 0x0007)) // NoticeWrite(0x0007) must fire
 		})
 	}
 }
 
 func TestHandler_PostTimer_BadMode(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/timer", map[string]any{"mode": "sleep"})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 	var env map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
-	if env["code"] != "bad_request" {
-		t.Errorf("error code = %v, want bad_request", env["code"])
-	}
+	is.Equal(env["code"], "bad_request")
 }
 
 func TestHandler_PostTimer_MissingMode(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/timer", map[string]any{})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 func TestHandler_PostThreshold(t *testing.T) {
@@ -858,18 +722,15 @@ func TestHandler_PostThreshold(t *testing.T) {
 		{"voc", 200, "0x031F", "c800"},
 	} {
 		t.Run(c.kind, func(t *testing.T) {
+			is := is.New(t)
 			h, _, _ := newServerHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold",
 				map[string]any{"kind": c.kind, "value": c.value})
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusOK)
 			rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/"+c.id, nil)
 			var resp map[string]any
 			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-			if resp["hex"] != c.hex {
-				t.Errorf("%s threshold = %v, want %s", c.kind, resp["hex"], c.hex)
-			}
+			is.Equal(resp["hex"], c.hex) // threshold value lands at expected hex
 		})
 	}
 }
@@ -887,16 +748,13 @@ func TestHandler_PostThreshold_BadInputs(t *testing.T) {
 		{"out of range voc", map[string]any{"kind": "voc", "value": 300}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			is := is.New(t)
 			h, _, _ := newServerHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold", c.body)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusBadRequest)
 			var env map[string]any
 			_ = json.Unmarshal(rec.Body.Bytes(), &env)
-			if env["code"] != "bad_request" {
-				t.Errorf("error code = %v, want bad_request", env["code"])
-			}
+			is.Equal(env["code"], "bad_request")
 		})
 	}
 }
@@ -913,18 +771,15 @@ func TestHandler_PostThreshold_EnabledOnly(t *testing.T) {
 		{"voc", true, "01", "0x0315"},
 	} {
 		t.Run(c.kind, func(t *testing.T) {
+			is := is.New(t)
 			h, _, _ := newServerHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold",
 				map[string]any{"kind": c.kind, "enabled": c.enabled})
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusOK)
 			rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/"+c.paramID, nil)
 			var resp map[string]any
 			_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-			if resp["hex"] != c.paramHex {
-				t.Errorf("%s enable = %v, want %s", c.kind, resp["hex"], c.paramHex)
-			}
+			is.Equal(resp["hex"], c.paramHex) // enable byte lands at expected hex
 		})
 	}
 }
@@ -937,6 +792,7 @@ func TestHandler_PostThreshold_EnabledOnly(t *testing.T) {
 // helpers. If you ever flip the two defer lines in doDeviceOp, all
 // three tests still pass; rely on code review for that invariant.
 func TestDoDeviceOp_ReleasesLockOnSuccess(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	// newServerHandler wires NoticeFunc but leaves Pollers empty; install a
 	// real Poller so LockUDP returns a real mutex (the no-op fallback in
@@ -949,12 +805,8 @@ func TestDoDeviceOp_ReleasesLockOnSuccess(t *testing.T) {
 		called = true
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("doDeviceOp: %v", err)
-	}
-	if !called {
-		t.Error("op was not invoked")
-	}
+	is.NoErr(err)
+	is.True(called) // op closure must be invoked
 	// Lock must be released — taking it again must not block.
 	done := make(chan struct{})
 	go func() {
@@ -970,6 +822,7 @@ func TestDoDeviceOp_ReleasesLockOnSuccess(t *testing.T) {
 }
 
 func TestDoDeviceOp_ReleasesLockOnError(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	h.Pollers = map[string]*Poller{"playroom": {Name: "playroom"}}
 
@@ -978,9 +831,7 @@ func TestDoDeviceOp_ReleasesLockOnError(t *testing.T) {
 	got := h.doDeviceOp(req, "playroom", func(ctx context.Context, rc *recordingClient) error {
 		return want
 	})
-	if !errors.Is(got, want) {
-		t.Fatalf("doDeviceOp err: got %v, want %v", got, want)
-	}
+	is.True(errors.Is(got, want)) // op error must propagate unwrapped
 	done := make(chan struct{})
 	go func() {
 		unlock := h.Pollers["playroom"].LockUDP()
@@ -995,6 +846,7 @@ func TestDoDeviceOp_ReleasesLockOnError(t *testing.T) {
 }
 
 func TestDoDeviceRead_ReleasesLockOnError(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	h.Pollers = map[string]*Poller{"playroom": {Name: "playroom"}}
 
@@ -1003,9 +855,7 @@ func TestDoDeviceRead_ReleasesLockOnError(t *testing.T) {
 	got := h.doDeviceRead(req, "playroom", func(ctx context.Context, c HandlerClient) error {
 		return want
 	})
-	if !errors.Is(got, want) {
-		t.Fatalf("doDeviceRead err: got %v, want %v", got, want)
-	}
+	is.True(errors.Is(got, want)) // read error must propagate unwrapped
 	done := make(chan struct{})
 	go func() {
 		unlock := h.Pollers["playroom"].LockUDP()
@@ -1020,53 +870,42 @@ func TestDoDeviceRead_ReleasesLockOnError(t *testing.T) {
 }
 
 func TestHandler_PostThreshold_ValueAndEnabled(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/threshold",
 		map[string]any{"kind": "humidity", "value": 65, "enabled": false})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	// Both params should reflect the write.
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0019", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "41" {
-		t.Errorf("humidity threshold hex = %v, want 41", resp["hex"])
-	}
+	is.Equal(resp["hex"], "41") // humidity threshold lands at 0x19
 	rec3 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x000F", nil)
 	var resp3 map[string]any
 	_ = json.Unmarshal(rec3.Body.Bytes(), &resp3)
-	if resp3["hex"] != "00" {
-		t.Errorf("humidity enable hex = %v, want 00", resp3["hex"])
-	}
+	is.Equal(resp3["hex"], "00") // humidity enable lands at 0x0F
 }
 
 func TestHandler_PostFilterReset(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/filter/reset", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0065", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "01" {
-		t.Errorf("0x65 = %v, want 01", resp["hex"])
-	}
+	is.Equal(resp["hex"], "01") // filter reset lands at 0x65
 }
 
 func TestHandler_PostFaultsReset(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/faults/reset", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0080", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "01" {
-		t.Errorf("0x80 = %v, want 01", resp["hex"])
-	}
+	is.Equal(resp["hex"], "01") // faults reset lands at 0x80
 }
 
 // ------------------------------------------------------------------------
@@ -1074,33 +913,27 @@ func TestHandler_PostFaultsReset(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_PostRTC(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/rtc", map[string]any{"time": "2026-05-03T22:36:30Z"})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	// Read 0x6F: should be [sec=30, min=36, hr=22] = 1E 24 16
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x006F", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "1e2416" {
-		t.Errorf("0x6F = %v, want 1e2416", resp["hex"])
-	}
+	is.Equal(resp["hex"], "1e2416") // RTC time bytes [sec, min, hr]
 	// Read 0x70: should be [day=3, dow=7, month=5, year=26] (2026-05-03 is a Sunday)
 	rec3 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0070", nil)
 	var resp2 map[string]any
 	_ = json.Unmarshal(rec3.Body.Bytes(), &resp2)
-	if resp2["hex"] != "0307051a" {
-		t.Errorf("0x70 = %v, want 0307051a", resp2["hex"])
-	}
+	is.Equal(resp2["hex"], "0307051a") // RTC date bytes [day, dow, month, year]
 }
 
 func TestHandler_PostRTC_BadTime(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/rtc", map[string]any{"time": "not-a-time"})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 // ------------------------------------------------------------------------
@@ -1108,39 +941,32 @@ func TestHandler_PostRTC_BadTime(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_PostParam_Raw(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/params/0x0019", map[string]any{"hex": "50"})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0019", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
-	if resp["hex"] != "50" {
-		t.Errorf("0x19 = %v, want 50", resp["hex"])
-	}
+	is.Equal(resp["hex"], "50") // raw write must round-trip through cache
 }
 
 func TestHandler_PostParam_ReadOnly(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	// 0x004A (fan_supply_rpm) is read-only.
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/params/0x004A", map[string]any{"hex": "0000"})
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status=%d, want 403; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusForbidden)
 	var env errEnvelope
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
-	if env.Code != "read_only" {
-		t.Errorf("code = %q, want read_only", env.Code)
-	}
+	is.Equal(env.Code, "read_only")
 }
 
 func TestHandler_PostParam_BadHex(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/params/0x0019", map[string]any{"hex": "ZZ"})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadRequest)
 }
 
 // ------------------------------------------------------------------------
@@ -1148,6 +974,7 @@ func TestHandler_PostParam_BadHex(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_PostPower_WriteThroughVisibleInGetDevice(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	// Seed cache with power=off.
 	v := snapshotAllParams(t)
@@ -1158,45 +985,36 @@ func TestHandler_PostPower_WriteThroughVisibleInGetDevice(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
 	var pre map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &pre)
-	if cfg, _ := pre["configured"].(map[string]any); cfg["power"] != false {
-		t.Fatalf("pre-write power = %v, want false; body=%s", cfg["power"], rec.Body.String())
-	}
+	cfg, _ := pre["configured"].(map[string]any)
+	is.Equal(cfg["power"], false) // pre-write cache reflects seeded power=off
 
 	// Issue the write.
 	rec2 := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": true})
-	if rec2.Code != http.StatusOK {
-		t.Fatalf("POST status=%d body=%s", rec2.Code, rec2.Body.String())
-	}
+	is.Equal(rec2.Code, http.StatusOK)
 
 	// GET should reflect the new value immediately, without a poll tick.
 	rec3 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
 	var post map[string]any
 	_ = json.Unmarshal(rec3.Body.Bytes(), &post)
-	cfg, _ := post["configured"].(map[string]any)
-	if cfg["power"] != true {
-		t.Errorf("post-write power = %v, want true (write-through); body=%s", cfg["power"], rec3.Body.String())
-	}
+	cfg2, _ := post["configured"].(map[string]any)
+	is.Equal(cfg2["power"], true) // write-through: GET reflects POST without a poll tick
 }
 
 func TestHandler_PostSpeed_WriteThroughManual(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/speed", map[string]any{"manual": 42})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
 	var resp map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
 	cfg, _ := resp["configured"].(map[string]any)
-	if v, _ := cfg["manual_pct"].(float64); v != 42 {
-		t.Errorf("manual_pct = %v, want 42 (write-through); body=%s", cfg["manual_pct"], rec2.Body.String())
-	}
-	if cfg["speed_mode"] != "manual" {
-		t.Errorf("speed_mode = %v, want manual (write-through); body=%s", cfg["speed_mode"], rec2.Body.String())
-	}
+	v, _ := cfg["manual_pct"].(float64)
+	is.Equal(v, float64(42))              // write-through: manual_pct reflects POST
+	is.Equal(cfg["speed_mode"], "manual") // write-through: speed_mode flips to manual
 }
 
 // ------------------------------------------------------------------------
@@ -1204,34 +1022,28 @@ func TestHandler_PostSpeed_WriteThroughManual(t *testing.T) {
 // ------------------------------------------------------------------------
 
 func TestHandler_AuthFailed(t *testing.T) {
+	is := is.New(t)
 	h, _, addr := newServerHandler(t)
 	h.Devices.Set("playroom", DeviceConfig{ID: srvDeviceID, Password: "WRONG", IP: addr})
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": true})
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status=%d, want 502; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadGateway)
 	var env errEnvelope
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
-	if env.Code != "auth_failed" {
-		t.Errorf("code = %q, want auth_failed", env.Code)
-	}
+	is.Equal(env.Code, "auth_failed")
 }
 
 func TestHandler_DeviceUnreachable(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	// 192.0.2.0/24 is the TEST-NET-1 range — guaranteed unrouteable.
 	h.Devices.Set("playroom", DeviceConfig{ID: srvDeviceID, Password: srvPassword, IP: "192.0.2.1:4000"})
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": true})
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status=%d, want 502; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusBadGateway)
 	var env errEnvelope
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
-	if env.Code != "device_unreachable" {
-		t.Errorf("code = %q, want device_unreachable", env.Code)
-	}
+	is.Equal(env.Code, "device_unreachable")
 }
 
 // ------------------------------------------------------------------------
@@ -1253,10 +1065,9 @@ func TestHandler_NotFound_OnUnknownDevice(t *testing.T) {
 	}
 	for _, ep := range endpoints {
 		t.Run(ep.method+" "+ep.path, func(t *testing.T) {
+			is := is.New(t)
 			rec := doRequest(t, h, ep.method, ep.path, map[string]any{"on": true})
-			if rec.Code != http.StatusNotFound {
-				t.Fatalf("status=%d, want 404; body=%s", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusNotFound)
 		})
 	}
 }
@@ -1275,37 +1086,33 @@ func hasNotice(notices []recordedNotice, dev string, id breezy.ParamID) bool {
 }
 
 func TestHandler_ParamGet_RawHexParse(t *testing.T) {
+	is := is.New(t)
 	// An ID without "0x" prefix should also be accepted.
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0001", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0xdeadbeef", nil)
-	if rec2.Code == http.StatusOK {
-		t.Errorf("expected non-OK for too-large id; got %d", rec2.Code)
-	}
+	is.True(rec2.Code != http.StatusOK) // too-large id must not be accepted
 }
 
 func TestHandler_FactoryError(t *testing.T) {
+	is := is.New(t)
 	h, _, _ := newServerHandler(t)
 	wantErr := errors.New("factory boom")
 	h.ClientFactory = func(name string) (HandlerClient, error) {
 		return nil, wantErr
 	}
 	rec := doRequest(t, h, http.MethodPost, "/v1/devices/playroom/power", map[string]any{"on": true})
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status=%d, want 500; body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusInternalServerError)
 }
 
 func TestErrEnvelope_Shape(t *testing.T) {
+	is := is.New(t)
 	// Catch any future regression that drops required fields.
 	want := errEnvelope{Error: "boom", Code: "bad_request"}
 	b, _ := json.Marshal(want)
-	if !bytes.Contains(b, []byte(`"error":`)) || !bytes.Contains(b, []byte(`"code":`)) {
-		t.Errorf("envelope JSON missing fields: %s", b)
-	}
+	is.True(bytes.Contains(b, []byte(`"error":`))) // envelope JSON must include "error" field
+	is.True(bytes.Contains(b, []byte(`"code":`)))  // envelope JSON must include "code" field
 }
 
 // ------------------------------------------------------------------------
@@ -1327,22 +1134,19 @@ func newServerHandlerWithSchedule(t *testing.T) (h *Handler, rp *recordingPoller
 }
 
 func TestHandler_GetSchedule_Empty(t *testing.T) {
+	is := is.New(t)
 	h, _, _, _ := newServerHandlerWithSchedule(t)
 	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/schedule", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	var body map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body["enabled"] != false {
-		t.Errorf("enabled=%v, want false", body["enabled"])
-	}
-	if entries, _ := body["entries"].([]any); len(entries) != 0 {
-		t.Errorf("entries=%v, want empty", entries)
-	}
+	is.Equal(body["enabled"], false) // unconfigured scheduler is disabled
+	entries, _ := body["entries"].([]any)
+	is.Equal(len(entries), 0) // unconfigured scheduler has no entries
 }
 
 func TestHandler_PutSchedule_Roundtrip(t *testing.T) {
+	is := is.New(t)
 	h, _, _, _ := newServerHandlerWithSchedule(t)
 	put := map[string]any{
 		"enabled": true,
@@ -1352,19 +1156,13 @@ func TestHandler_PutSchedule_Roundtrip(t *testing.T) {
 		},
 	}
 	rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", put)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	rec2 := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/schedule", nil)
 	var got map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &got)
-	if got["enabled"] != true {
-		t.Errorf("enabled=%v, want true", got["enabled"])
-	}
+	is.Equal(got["enabled"], true) // enabled flag round-trips
 	entries, _ := got["entries"].([]any)
-	if len(entries) != 2 {
-		t.Fatalf("entries=%v, want 2", entries)
-	}
+	is.Equal(len(entries), 2) // both entries round-trip
 }
 
 func TestHandler_PutSchedule_Validation(t *testing.T) {
@@ -1383,64 +1181,49 @@ func TestHandler_PutSchedule_Validation(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			is := is.New(t)
 			h, _, _, _ := newServerHandlerWithSchedule(t)
 			rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", c.body)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
-			}
+			is.Equal(rec.Code, http.StatusBadRequest)
 		})
 	}
 }
 
 func TestHandler_GetDevice_IncludesSchedule(t *testing.T) {
+	is := is.New(t)
 	h, _, _, _ := newServerHandlerWithSchedule(t)
 	put := map[string]any{
 		"enabled": true,
 		"entries": []map[string]any{{"at": "08:00", "action": "regeneration", "pct": 60}},
 	}
-	if rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", put); rec.Code != http.StatusOK {
-		t.Fatalf("seed PUT failed: %s", rec.Body.String())
-	}
-	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", put)
+	is.Equal(rec.Code, http.StatusOK) // seed PUT must succeed
+	rec = doRequest(t, h, http.MethodGet, "/v1/devices/playroom", nil)
+	is.Equal(rec.Code, http.StatusOK)
 	var body map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 	svc, _ := body["service"].(map[string]any)
 	sched, _ := svc["schedule"].(map[string]any)
-	if sched == nil {
-		t.Fatalf("service.schedule missing from response: %s", rec.Body.String())
-	}
-	if sched["enabled"] != true {
-		t.Errorf("service.schedule.enabled=%v, want true", sched["enabled"])
-	}
-	if entries, _ := sched["entries"].([]any); len(entries) != 1 {
-		t.Errorf("service.schedule.entries=%v, want 1", entries)
-	}
-	if _, ok := sched["alert"]; !ok {
-		t.Errorf("service.schedule.alert missing")
-	}
-	if _, present := sched["last_apply"]; present {
-		t.Errorf("service.schedule.last_apply should be absent when no fire has happened; got %v", sched["last_apply"])
-	}
+	is.True(sched != nil) // service.schedule must be present
+	is.Equal(sched["enabled"], true)
+	entries, _ := sched["entries"].([]any)
+	is.Equal(len(entries), 1)
+	_, ok := sched["alert"]
+	is.True(ok) // service.schedule.alert key must be present
+	_, present := sched["last_apply"]
+	is.True(!present) // last_apply must be absent before any fire
 }
 
 func TestHandler_PutSchedule_Persists(t *testing.T) {
+	is := is.New(t)
 	h, _, _, stateDir := newServerHandlerWithSchedule(t)
 	put := map[string]any{
 		"enabled": true,
 		"entries": []map[string]any{{"at": "08:00", "action": "regeneration", "pct": 60}},
 	}
 	rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", put)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	is.Equal(rec.Code, http.StatusOK)
 	data, err := os.ReadFile(filepath.Join(stateDir, "schedule_playroom.json"))
-	if err != nil {
-		t.Fatalf("read file: %v", err)
-	}
-	if !strings.Contains(string(data), `"action":"regeneration"`) {
-		t.Errorf("file missing entry: %s", data)
-	}
+	is.NoErr(err)
+	is.True(strings.Contains(string(data), `"action":"regeneration"`)) // schedule file must contain the entry
 }

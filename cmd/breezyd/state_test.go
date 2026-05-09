@@ -5,15 +5,16 @@ package main
 import (
 	"context"
 	"errors"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 func TestState_RoundTrip(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	now := time.Now().UTC().Truncate(time.Second)
 	in := Snapshot{
@@ -28,49 +29,35 @@ func TestState_RoundTrip(t *testing.T) {
 	s.Set("playroom", in)
 
 	got, ok := s.Get("playroom")
-	if !ok {
-		t.Fatalf("Get returned ok=false after Set")
-	}
-	if got.IP != in.IP {
-		t.Errorf("IP: got %q want %q", got.IP, in.IP)
-	}
-	if !got.LastPoll.Equal(in.LastPoll) {
-		t.Errorf("LastPoll: got %v want %v", got.LastPoll, in.LastPoll)
-	}
-	if got.LastErr != nil {
-		t.Errorf("LastErr: got %v want nil", got.LastErr)
-	}
-	if !reflect.DeepEqual(got.Values, in.Values) {
-		t.Errorf("Values mismatch: got %v want %v", got.Values, in.Values)
-	}
+	is.True(ok) // Get must return ok=true after Set
+	is.Equal(got.IP, in.IP)
+	is.True(got.LastPoll.Equal(in.LastPoll)) // LastPoll must round-trip
+	is.Equal(got.LastErr, nil)
+	is.Equal(got.Values, in.Values)
 }
 
 func TestState_RoundTrip_WithError(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	wantErr := errors.New("timeout")
 	s.Set("a", Snapshot{IP: "10.0.0.1", LastErr: wantErr})
 
 	got, ok := s.Get("a")
-	if !ok {
-		t.Fatalf("Get returned ok=false")
-	}
-	if got.LastErr == nil || got.LastErr.Error() != "timeout" {
-		t.Errorf("LastErr: got %v want %v", got.LastErr, wantErr)
-	}
+	is.True(ok)                 // Get must return ok=true
+	is.True(got.LastErr != nil) // LastErr must round-trip
+	is.Equal(got.LastErr.Error(), "timeout")
 }
 
 func TestState_Get_Missing(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	got, ok := s.Get("nonexistent")
-	if ok {
-		t.Fatalf("Get returned ok=true for missing key")
-	}
-	if !reflect.DeepEqual(got, Snapshot{}) {
-		t.Errorf("expected zero Snapshot, got %+v", got)
-	}
+	is.True(!ok) // Get must return ok=false for missing key
+	is.Equal(got, Snapshot{})
 }
 
 func TestState_DeepCopy_OnGet(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	s.Set("a", Snapshot{Values: map[breezy.ParamID][]byte{0x01: {1, 2, 3}}})
 
@@ -79,15 +66,13 @@ func TestState_DeepCopy_OnGet(t *testing.T) {
 	got.Values[0x02] = []byte{42}
 
 	again, _ := s.Get("a")
-	if again.Values[0x01][0] == 99 {
-		t.Fatal("mutation of returned slice leaked into storage")
-	}
-	if _, ok := again.Values[0x02]; ok {
-		t.Fatal("addition of new key leaked into storage")
-	}
+	is.True(again.Values[0x01][0] != 99) // mutation of returned slice must not leak into storage
+	_, ok := again.Values[0x02]
+	is.True(!ok) // addition of new key must not leak into storage
 }
 
 func TestState_DeepCopy_OnSet(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	src := map[breezy.ParamID][]byte{0x01: {1, 2, 3}}
 	s.Set("a", Snapshot{Values: src})
@@ -97,15 +82,13 @@ func TestState_DeepCopy_OnSet(t *testing.T) {
 	src[0x02] = []byte{42}
 
 	got, _ := s.Get("a")
-	if got.Values[0x01][0] == 99 {
-		t.Fatal("mutation of caller's slice leaked into storage")
-	}
-	if _, ok := got.Values[0x02]; ok {
-		t.Fatal("addition to caller's map leaked into storage")
-	}
+	is.True(got.Values[0x01][0] != 99) // mutation of caller's slice must not leak into storage
+	_, ok := got.Values[0x02]
+	is.True(!ok) // addition to caller's map must not leak into storage
 }
 
 func TestState_UpdateIP(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	now := time.Now().UTC()
 	s.Set("a", Snapshot{
@@ -117,43 +100,27 @@ func TestState_UpdateIP(t *testing.T) {
 	s.UpdateIP("a", "2.2.2.2")
 
 	got, ok := s.Get("a")
-	if !ok {
-		t.Fatalf("Get returned ok=false")
-	}
-	if got.IP != "2.2.2.2" {
-		t.Errorf("IP: got %q want 2.2.2.2", got.IP)
-	}
-	if !got.LastPoll.Equal(now) {
-		t.Errorf("LastPoll mutated: got %v want %v", got.LastPoll, now)
-	}
-	if !reflect.DeepEqual(got.Values, map[breezy.ParamID][]byte{0x01: {1}}) {
-		t.Errorf("Values disturbed by UpdateIP: %v", got.Values)
-	}
+	is.True(ok) // Get must return ok=true
+	is.Equal(got.IP, "2.2.2.2")
+	is.True(got.LastPoll.Equal(now))                           // LastPoll must not be mutated by UpdateIP
+	is.Equal(got.Values, map[breezy.ParamID][]byte{0x01: {1}}) // Values must not be disturbed by UpdateIP
 }
 
 func TestState_UpdateIP_NoExistingSnapshot(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	s.UpdateIP("a", "10.0.0.5")
 
 	got, ok := s.Get("a")
-	if !ok {
-		t.Fatalf("Get returned ok=false; UpdateIP should have created snapshot")
-	}
-	if got.IP != "10.0.0.5" {
-		t.Errorf("IP: got %q want 10.0.0.5", got.IP)
-	}
-	if got.Values != nil {
-		t.Errorf("Values: got %v want nil", got.Values)
-	}
-	if !got.LastPoll.IsZero() {
-		t.Errorf("LastPoll: got %v want zero", got.LastPoll)
-	}
-	if got.LastErr != nil {
-		t.Errorf("LastErr: got %v want nil", got.LastErr)
-	}
+	is.True(ok) // UpdateIP must create snapshot for missing key
+	is.Equal(got.IP, "10.0.0.5")
+	is.Equal(got.Values, map[breezy.ParamID][]byte(nil))
+	is.True(got.LastPoll.IsZero()) // LastPoll must be zero on a fresh snapshot
+	is.Equal(got.LastErr, nil)
 }
 
 func TestState_RecordPoll(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	snap := Snapshot{
 		IP:       "1.2.3.4",
@@ -163,18 +130,13 @@ func TestState_RecordPoll(t *testing.T) {
 	s.RecordPoll("a", snap)
 
 	got, ok := s.Get("a")
-	if !ok {
-		t.Fatalf("Get returned ok=false after RecordPoll")
-	}
-	if got.IP != snap.IP {
-		t.Errorf("IP mismatch")
-	}
-	if !reflect.DeepEqual(got.Values, snap.Values) {
-		t.Errorf("Values mismatch")
-	}
+	is.True(ok) // Get must return ok=true after RecordPoll
+	is.Equal(got.IP, snap.IP)
+	is.Equal(got.Values, snap.Values)
 }
 
 func TestState_Devices_Sorted(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	s.Set("zulu", Snapshot{})
 	s.Set("alpha", Snapshot{})
@@ -182,56 +144,48 @@ func TestState_Devices_Sorted(t *testing.T) {
 
 	got := s.Devices()
 	want := []string{"alpha", "mike", "zulu"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Devices: got %v want %v", got, want)
-	}
+	is.Equal(got, want)
 }
 
 func TestState_Devices_Empty(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	got := s.Devices()
-	if len(got) != 0 {
-		t.Errorf("expected empty slice, got %v", got)
-	}
+	is.Equal(len(got), 0)
 }
 
 func TestState_Delete(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	s.Set("a", Snapshot{IP: "1.1.1.1"})
 	s.Set("b", Snapshot{IP: "2.2.2.2"})
 
 	s.Delete("a")
 
-	if _, ok := s.Get("a"); ok {
-		t.Errorf("a should be gone after Delete")
-	}
-	if _, ok := s.Get("b"); !ok {
-		t.Errorf("b should still be present")
-	}
+	_, ok := s.Get("a")
+	is.True(!ok) // a must be gone after Delete
+	_, ok = s.Get("b")
+	is.True(ok) // b must still be present
 
 	// Deleting a missing key must not panic.
 	s.Delete("nonexistent")
 }
 
 func TestState_WriteThrough_FreshSnapshot(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	s.WriteThrough("a", []breezy.ParamWrite{
 		{ID: 0x0001, Value: []byte{0x01}},
 		{ID: 0x0044, Value: []byte{0x32}},
 	})
 	got, ok := s.Get("a")
-	if !ok {
-		t.Fatalf("Get returned ok=false; WriteThrough should have created snapshot")
-	}
-	if !reflect.DeepEqual(got.Values[0x0001], []byte{0x01}) {
-		t.Errorf("0x0001: got %x, want 01", got.Values[0x0001])
-	}
-	if !reflect.DeepEqual(got.Values[0x0044], []byte{0x32}) {
-		t.Errorf("0x0044: got %x, want 32", got.Values[0x0044])
-	}
+	is.True(ok) // WriteThrough must create snapshot for missing key
+	is.Equal(got.Values[0x0001], []byte{0x01})
+	is.Equal(got.Values[0x0044], []byte{0x32})
 }
 
 func TestState_WriteThrough_PreservesPollMetadata(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	now := time.Now().UTC().Truncate(time.Second)
 	wantErr := errors.New("transport")
@@ -248,53 +202,39 @@ func TestState_WriteThrough_PreservesPollMetadata(t *testing.T) {
 		{ID: 0x0001, Value: []byte{0x01}}, // user turns power on
 	})
 	got, ok := s.Get("a")
-	if !ok {
-		t.Fatalf("Get returned ok=false")
-	}
-	if got.IP != "1.1.1.1" {
-		t.Errorf("IP changed: %q", got.IP)
-	}
-	if !got.LastPoll.Equal(now) {
-		t.Errorf("LastPoll changed: %v", got.LastPoll)
-	}
-	if got.LastErr == nil || got.LastErr.Error() != "transport" {
-		t.Errorf("LastErr changed: %v", got.LastErr)
-	}
-	if !reflect.DeepEqual(got.Values[0x0001], []byte{0x01}) {
-		t.Errorf("0x0001 not updated: %x", got.Values[0x0001])
-	}
-	// Existing values for params we didn't write must be preserved.
-	if !reflect.DeepEqual(got.Values[0x004A], []byte{0x10, 0x27}) {
-		t.Errorf("0x004A not preserved: %x", got.Values[0x004A])
-	}
+	is.True(ok) // Get must return ok=true
+	is.Equal(got.IP, "1.1.1.1")
+	is.True(got.LastPoll.Equal(now)) // LastPoll must be preserved
+	is.True(got.LastErr != nil)      // LastErr must be preserved
+	is.Equal(got.LastErr.Error(), "transport")
+	is.Equal(got.Values[0x0001], []byte{0x01})       // 0x0001 must be updated
+	is.Equal(got.Values[0x004A], []byte{0x10, 0x27}) // unwritten params must be preserved
 }
 
 func TestState_WriteThrough_DeepCopiesValues(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	val := []byte{0x42}
 	s.WriteThrough("a", []breezy.ParamWrite{{ID: 0x0001, Value: val}})
 	val[0] = 0x99
 	got, _ := s.Get("a")
-	if got.Values[0x0001][0] != 0x42 {
-		t.Errorf("WriteThrough did not deep-copy: stored %x", got.Values[0x0001])
-	}
+	is.Equal(got.Values[0x0001][0], byte(0x42)) // WriteThrough must deep-copy
 }
 
 func TestState_WriteThrough_Empty(t *testing.T) {
+	is := is.New(t)
 	s := NewState()
 	s.WriteThrough("a", nil)
-	if _, ok := s.Get("a"); ok {
-		t.Errorf("empty WriteThrough created a snapshot for missing device")
-	}
+	_, ok := s.Get("a")
+	is.True(!ok) // empty WriteThrough must not create a snapshot for missing device
 	s.Set("b", Snapshot{IP: "1.1.1.1"})
 	s.WriteThrough("b", []breezy.ParamWrite{})
 	got, _ := s.Get("b")
-	if got.IP != "1.1.1.1" {
-		t.Errorf("empty WriteThrough disturbed existing snapshot: %+v", got)
-	}
+	is.Equal(got.IP, "1.1.1.1") // empty WriteThrough must not disturb existing snapshot
 }
 
 func TestParsePeriodicDiscovery(t *testing.T) {
+	is := is.New(t)
 	cases := []struct {
 		in     string
 		want   time.Duration
@@ -309,17 +249,15 @@ func TestParsePeriodicDiscovery(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got, ok := parsePeriodicDiscovery(tc.in)
-		if ok != tc.wantOk {
-			t.Errorf("parsePeriodicDiscovery(%q) ok = %v, want %v", tc.in, ok, tc.wantOk)
-			continue
-		}
-		if ok && got != tc.want {
-			t.Errorf("parsePeriodicDiscovery(%q) = %v, want %v", tc.in, got, tc.want)
+		is.Equal(ok, tc.wantOk) // ok must match expected for input tc.in
+		if ok {
+			is.Equal(got, tc.want) // duration must match expected for input tc.in
 		}
 	}
 }
 
 func TestRunDiscoveryWith_UpdatesIPViaRegistry(t *testing.T) {
+	is := is.New(t)
 	devices := NewDeviceRegistry(map[string]DeviceConfig{
 		"playroom": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
 	})
@@ -328,13 +266,9 @@ func TestRunDiscoveryWith_UpdatesIPViaRegistry(t *testing.T) {
 			{DeviceID: "TESTID0000000001", IP: "10.0.0.5", UnitType: 17},
 		}, nil
 	}
-	if err := runDiscoveryWith(context.Background(), devices, stub); err != nil {
-		t.Fatalf("runDiscoveryWith: %v", err)
-	}
+	is.NoErr(runDiscoveryWith(context.Background(), devices, stub))
 	d, _ := devices.Get("playroom")
-	if d.IP != "10.0.0.5:4000" {
-		t.Errorf("after discovery IP = %q, want 10.0.0.5:4000", d.IP)
-	}
+	is.Equal(d.IP, "10.0.0.5:4000") // registry IP must be updated by discovery
 }
 
 func TestDeviceRegistry_ConcurrentReadAndUpdate(t *testing.T) {

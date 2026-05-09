@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
@@ -74,6 +75,7 @@ func representativeSnapshot() Snapshot {
 // registered against the registry after NewMetrics. We do this by
 // gathering the registry and pulling out the unique metric names.
 func TestMetricsRegistration(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	// Touch every gauge with a sample so it shows up in Gather().
@@ -81,9 +83,7 @@ func TestMetricsRegistration(t *testing.T) {
 	m.RecordPollError("dev", "ID0000000000000A", "timeout")
 
 	mfs, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("Gather: %v", err)
-	}
+	is.NoErr(err)
 
 	got := map[string]bool{}
 	for _, mf := range mfs {
@@ -125,9 +125,7 @@ func TestMetricsRegistration(t *testing.T) {
 		"breezy_info",
 	}
 	for _, n := range want {
-		if !got[n] {
-			t.Errorf("metric %q not registered/exposed", n)
-		}
+		is.True(got[n]) // every documented metric name must be registered
 	}
 }
 
@@ -136,6 +134,7 @@ func TestMetricsRegistration(t *testing.T) {
 // computed remaining-seconds, and the multi-label fan/temperature/sensor
 // variants.
 func TestMetricsUpdateValues(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 
@@ -144,100 +143,57 @@ func TestMetricsUpdateValues(t *testing.T) {
 
 	dl := prometheus.Labels{"device": "playroom", "id": "DEVID0000000000A"}
 
-	if got := testutil.ToFloat64(m.power.With(dl)); got != 1 {
-		t.Errorf("power = %v, want 1", got)
-	}
-	if got := testutil.ToFloat64(m.airflowMode.With(dl)); got != 2 {
-		t.Errorf("airflow_mode = %v, want 2 (supply)", got)
-	}
-	if got := testutil.ToFloat64(m.speedMode.With(dl)); got != 255 {
-		t.Errorf("speed_mode = %v, want 255 (manual)", got)
-	}
-	if got := testutil.ToFloat64(m.speedManualPct.With(dl)); got != 50 {
-		t.Errorf("speed_manual_pct = %v, want 50", got)
-	}
-	if got := testutil.ToFloat64(m.co2Threshold.With(dl)); got != 2000 {
-		t.Errorf("co2_threshold = %v, want 2000", got)
-	}
-	if got := testutil.ToFloat64(m.vocThreshold.With(dl)); got != 150 {
-		t.Errorf("voc_threshold = %v, want 150", got)
-	}
-	if got := testutil.ToFloat64(m.specialMode.With(dl)); got != 1 {
-		t.Errorf("special_mode = %v, want 1 (night)", got)
-	}
+	is.Equal(testutil.ToFloat64(m.power.With(dl)), float64(1))
+	is.Equal(testutil.ToFloat64(m.airflowMode.With(dl)), float64(2)) // supply
+	is.Equal(testutil.ToFloat64(m.speedMode.With(dl)), float64(255)) // manual
+	is.Equal(testutil.ToFloat64(m.speedManualPct.With(dl)), float64(50))
+	is.Equal(testutil.ToFloat64(m.co2Threshold.With(dl)), float64(2000))
+	is.Equal(testutil.ToFloat64(m.vocThreshold.With(dl)), float64(150))
+	is.Equal(testutil.ToFloat64(m.specialMode.With(dl)), float64(1)) // night
 	// Remaining = 30 + 5*60 + 1*3600 = 3930
-	if got := testutil.ToFloat64(m.specialModeRemaining.With(dl)); got != 3930 {
-		t.Errorf("special_mode_remaining_seconds = %v, want 3930", got)
-	}
-	if got := testutil.ToFloat64(m.recoveryEfficiency.With(dl)); got != 85 {
-		t.Errorf("recovery_efficiency_pct = %v, want 85", got)
-	}
-	if got := testutil.ToFloat64(m.humidityPct.With(dl)); got != 45 {
-		t.Errorf("humidity_percent = %v, want 45", got)
-	}
-	if got := testutil.ToFloat64(m.eco2PPM.With(dl)); got != 500 {
-		t.Errorf("eco2_ppm = %v, want 500", got)
-	}
-	if got := testutil.ToFloat64(m.vocIndex.With(dl)); got != 100 {
-		t.Errorf("voc_index = %v, want 100", got)
-	}
-	if got := testutil.ToFloat64(m.rtcBatteryVolts.With(dl)); got < 3.011 || got > 3.013 {
-		t.Errorf("rtc_battery_volts = %v, want ~3.012", got)
-	}
+	is.Equal(testutil.ToFloat64(m.specialModeRemaining.With(dl)), float64(3930))
+	is.Equal(testutil.ToFloat64(m.recoveryEfficiency.With(dl)), float64(85))
+	is.Equal(testutil.ToFloat64(m.humidityPct.With(dl)), float64(45))
+	is.Equal(testutil.ToFloat64(m.eco2PPM.With(dl)), float64(500))
+	is.Equal(testutil.ToFloat64(m.vocIndex.With(dl)), float64(100))
+	rtc := testutil.ToFloat64(m.rtcBatteryVolts.With(dl))
+	is.True(rtc >= 3.011 && rtc <= 3.013) // rtc_battery_volts ≈ 3.012
 
 	// Multi-label variants.
 	supplyRPM := testutil.ToFloat64(m.fanRPM.With(prometheus.Labels{
 		"device": "playroom", "id": "DEVID0000000000A", "fan": "supply",
 	}))
-	if supplyRPM != 10000 {
-		t.Errorf("fan_rpm{fan=supply} = %v, want 10000", supplyRPM)
-	}
+	is.Equal(supplyRPM, float64(10000))
 	extractRPM := testutil.ToFloat64(m.fanRPM.With(prometheus.Labels{
 		"device": "playroom", "id": "DEVID0000000000A", "fan": "extract",
 	}))
-	if extractRPM != 10016 {
-		t.Errorf("fan_rpm{fan=extract} = %v, want 10016", extractRPM)
-	}
+	is.Equal(extractRPM, float64(10016))
 
 	tempOutdoor := testutil.ToFloat64(m.temperature.With(prometheus.Labels{
 		"device": "playroom", "id": "DEVID0000000000A", "position": "outdoor",
 	}))
-	if tempOutdoor < 19.99 || tempOutdoor > 20.01 {
-		t.Errorf("temperature_celsius{position=outdoor} = %v, want 20.0", tempOutdoor)
-	}
+	is.True(tempOutdoor >= 19.99 && tempOutdoor <= 20.01) // ≈ 20.0
 	tempSupply := testutil.ToFloat64(m.temperature.With(prometheus.Labels{
 		"device": "playroom", "id": "DEVID0000000000A", "position": "supply",
 	}))
-	if tempSupply < 22.39 || tempSupply > 22.41 {
-		t.Errorf("temperature_celsius{position=supply} = %v, want 22.4", tempSupply)
-	}
+	is.True(tempSupply >= 22.39 && tempSupply <= 22.41) // ≈ 22.4
 
 	// Sensor alerts: only co2 should be 1.
 	co2Alert := testutil.ToFloat64(m.sensorAlert.With(prometheus.Labels{
 		"device": "playroom", "id": "DEVID0000000000A", "sensor": "co2",
 	}))
-	if co2Alert != 1 {
-		t.Errorf("sensor_alert{sensor=co2} = %v, want 1", co2Alert)
-	}
+	is.Equal(co2Alert, float64(1))
 	humAlert := testutil.ToFloat64(m.sensorAlert.With(prometheus.Labels{
 		"device": "playroom", "id": "DEVID0000000000A", "sensor": "humidity",
 	}))
-	if humAlert != 0 {
-		t.Errorf("sensor_alert{sensor=humidity} = %v, want 0", humAlert)
-	}
+	is.Equal(humAlert, float64(0))
 
 	// Daemon health.
-	if got := testutil.ToFloat64(m.lastPollTimestamp.With(dl)); got != 1_700_000_000 {
-		t.Errorf("last_poll_timestamp = %v, want 1700000000", got)
-	}
-	if got := testutil.ToFloat64(m.up.With(dl)); got != 1 {
-		t.Errorf("up = %v, want 1", got)
-	}
+	is.Equal(testutil.ToFloat64(m.lastPollTimestamp.With(dl)), float64(1_700_000_000))
+	is.Equal(testutil.ToFloat64(m.up.With(dl)), float64(1))
 
 	// in_user_control: special_mode is 1 (night), so should be false (0).
-	if got := testutil.ToFloat64(m.inUserControl.With(dl)); got != 0 {
-		t.Errorf("in_user_control = %v, want 0 (special mode active)", got)
-	}
+	is.Equal(testutil.ToFloat64(m.inUserControl.With(dl)), float64(0)) // special mode active
 }
 
 // TestMetricsUpdateMissingParams confirms a snapshot missing every
@@ -245,6 +201,7 @@ func TestMetricsUpdateValues(t *testing.T) {
 // those params. The "up=0 / last_poll set" assertions also exercise
 // the LastErr path.
 func TestMetricsUpdateMissingParams(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 
@@ -256,12 +213,8 @@ func TestMetricsUpdateMissingParams(t *testing.T) {
 	m.Update("dev", "ID0000000000001A", snap)
 
 	dl := prometheus.Labels{"device": "dev", "id": "ID0000000000001A"}
-	if got := testutil.ToFloat64(m.lastPollTimestamp.With(dl)); got != 1_700_000_100 {
-		t.Errorf("last_poll_timestamp = %v, want 1700000100", got)
-	}
-	if got := testutil.ToFloat64(m.up.With(dl)); got != 0 {
-		t.Errorf("up = %v, want 0", got)
-	}
+	is.Equal(testutil.ToFloat64(m.lastPollTimestamp.With(dl)), float64(1_700_000_100))
+	is.Equal(testutil.ToFloat64(m.up.With(dl)), float64(0)) // up=0 when LastErr is set
 	// in_user_control still set even with empty values: function returns
 	// true when all relevant guards are absent. That's fine.
 }
@@ -269,6 +222,7 @@ func TestMetricsUpdateMissingParams(t *testing.T) {
 // TestMetricsUpdateUnsetTemperatureSentinel ensures the -32768 / 32767
 // "not measured" sentinels do NOT land in the temperature gauge.
 func TestMetricsUpdateUnsetTemperatureSentinel(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	snap := Snapshot{
@@ -284,9 +238,7 @@ func TestMetricsUpdateUnsetTemperatureSentinel(t *testing.T) {
 		if mf.GetName() != "breezy_temperature_celsius" {
 			continue
 		}
-		if len(mf.Metric) > 0 {
-			t.Errorf("expected temperature metric to have no series for sentinel, got %d", len(mf.Metric))
-		}
+		is.Equal(len(mf.Metric), 0) // sentinel value must produce zero series
 	}
 }
 
@@ -294,6 +246,7 @@ func TestMetricsUpdateUnsetTemperatureSentinel(t *testing.T) {
 // label gets its own series; the same kind incrementing twice should
 // be visible as 2.
 func TestMetricsRecordPollError(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 
@@ -304,28 +257,23 @@ func TestMetricsRecordPollError(t *testing.T) {
 	timeoutCt := testutil.ToFloat64(m.pollErrorsTotal.With(prometheus.Labels{
 		"device": "a", "id": "ID1", "kind": "timeout",
 	}))
-	if timeoutCt != 2 {
-		t.Errorf("timeout count = %v, want 2", timeoutCt)
-	}
+	is.Equal(timeoutCt, float64(2))
 	checksumCt := testutil.ToFloat64(m.pollErrorsTotal.With(prometheus.Labels{
 		"device": "a", "id": "ID1", "kind": "checksum",
 	}))
-	if checksumCt != 1 {
-		t.Errorf("checksum count = %v, want 1", checksumCt)
-	}
+	is.Equal(checksumCt, float64(1))
 }
 
 // TestMetricsInfoLabels verifies breezy_info renders the expected
 // firmware/build_date label values from the 0x86 data block.
 func TestMetricsInfoLabels(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	m.Update("dev", "ID0000000000002A", representativeSnapshot())
 
 	mfs, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("Gather: %v", err)
-	}
+	is.NoErr(err)
 	var found *dto.Metric
 	for _, mf := range mfs {
 		if mf.GetName() != "breezy_info" {
@@ -337,26 +285,19 @@ func TestMetricsInfoLabels(t *testing.T) {
 		found = mf.Metric[0]
 		break
 	}
-	if found == nil {
-		t.Fatal("breezy_info series not found")
-	}
+	is.True(found != nil) // breezy_info series must be present
 
 	labels := map[string]string{}
 	for _, lp := range found.Label {
 		labels[lp.GetName()] = lp.GetValue()
 	}
-	if labels["firmware"] != "0.11" {
-		t.Errorf("firmware label = %q, want \"0.11\"", labels["firmware"])
-	}
-	if labels["build_date"] != "2025-03-21" {
-		t.Errorf("build_date label = %q, want \"2025-03-21\"", labels["build_date"])
-	}
-	if got := found.Gauge.GetValue(); got != 1 {
-		t.Errorf("breezy_info value = %v, want 1", got)
-	}
+	is.Equal(labels["firmware"], "0.11")
+	is.Equal(labels["build_date"], "2025-03-21")
+	is.Equal(found.Gauge.GetValue(), float64(1))
 }
 
 func TestMetrics_SetEnergy_Supported(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	m.SetEnergy("playroom", breezy.EnergyValues{
@@ -372,9 +313,7 @@ func TestMetrics_SetEnergy_Supported(t *testing.T) {
 		ConsumedLifetimeKWh: 12.3,
 	})
 	families, err := reg.Gather()
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	want := map[string]float64{
 		"breezyd_energy_recovered_watts":       245,
 		"breezyd_energy_consumed_watts":        18,
@@ -392,17 +331,14 @@ func TestMetrics_SetEnergy_Supported(t *testing.T) {
 			continue
 		}
 		got := fam.GetMetric()[0].GetGauge().GetValue()
-		if got != w {
-			t.Errorf("%s = %v, want %v", fam.GetName(), got, w)
-		}
+		is.Equal(got, w) // gauge value must match expected for this energy metric
 		delete(want, fam.GetName())
 	}
-	for name := range want {
-		t.Errorf("expected metric %s not emitted", name)
-	}
+	is.Equal(len(want), 0) // every expected energy metric must have been emitted
 }
 
 func TestMetrics_SetEnergy_UnsupportedDropsLabels(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	// Set all 8 with non-zero values, then flip to unsupported and
@@ -437,10 +373,7 @@ func TestMetrics_SetEnergy_UnsupportedDropsLabels(t *testing.T) {
 		if !energyGauges[fam.GetName()] {
 			continue
 		}
-		if len(fam.GetMetric()) > 0 {
-			t.Errorf("%s: expected zero samples after unsupported update; got %d",
-				fam.GetName(), len(fam.GetMetric()))
-		}
+		is.Equal(len(fam.GetMetric()), 0) // unsupported update must drop all energy series
 	}
 }
 
@@ -453,34 +386,28 @@ func (e errStub) Error() string { return string(e) }
 // Sanity-check that we can re-Update a metric and the gauge takes the
 // new value (rather than e.g. accumulating).
 func TestMetricsUpdateOverwrites(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	dl := prometheus.Labels{"device": "d", "id": "I"}
 
 	m.Update("d", "I", Snapshot{LastPoll: time.Unix(1, 0), Values: map[breezy.ParamID][]byte{0x0001: {1}}})
-	if got := testutil.ToFloat64(m.power.With(dl)); got != 1 {
-		t.Fatalf("first update: power = %v", got)
-	}
+	is.Equal(testutil.ToFloat64(m.power.With(dl)), float64(1)) // first update sets power=1
 	m.Update("d", "I", Snapshot{LastPoll: time.Unix(2, 0), Values: map[breezy.ParamID][]byte{0x0001: {0}}})
-	if got := testutil.ToFloat64(m.power.With(dl)); got != 0 {
-		t.Errorf("second update: power = %v, want 0", got)
-	}
+	is.Equal(testutil.ToFloat64(m.power.With(dl)), float64(0)) // second update overwrites, doesn't accumulate
 }
 
 // TestMetricsHelpStringsNonEmpty ensures every collector has a Help
 // line — Prom is grumpy about empty Help.
 func TestMetricsHelpStringsNonEmpty(t *testing.T) {
+	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	m.Update("d", "I", representativeSnapshot())
 	m.RecordPollError("d", "I", "timeout")
 	mfs, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("Gather: %v", err)
-	}
+	is.NoErr(err)
 	for _, mf := range mfs {
-		if strings.TrimSpace(mf.GetHelp()) == "" {
-			t.Errorf("metric %q has empty help", mf.GetName())
-		}
+		is.True(strings.TrimSpace(mf.GetHelp()) != "") // every collector must declare a Help string
 	}
 }

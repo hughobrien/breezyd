@@ -13,6 +13,7 @@ import (
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
+	"github.com/matryer/is"
 )
 
 const (
@@ -61,6 +62,7 @@ func waitForSnapshot(t *testing.T, state *State, name string, deadline time.Dura
 }
 
 func TestPoller_HappyPath_SingleTick(t *testing.T) {
+	is := is.New(t)
 	srv := newFakeServer(t)
 	state := NewState()
 
@@ -87,20 +89,16 @@ func TestPoller_HappyPath_SingleTick(t *testing.T) {
 	cancel()
 	<-done
 
-	if snap.LastErr != nil {
-		t.Fatalf("snap.LastErr = %v, want nil", snap.LastErr)
-	}
-	if snap.IP != srv.Addr() {
-		t.Errorf("snap.IP = %q, want %q", snap.IP, srv.Addr())
-	}
+	is.NoErr(snap.LastErr)        // happy-path tick must record no error
+	is.Equal(snap.IP, srv.Addr()) // snapshot records the dialled IP
 	for _, id := range []breezy.ParamID{0x0001, 0x00B9, 0x0044} {
-		if _, ok := snap.Values[id]; !ok {
-			t.Errorf("missing value for 0x%04X in snapshot", id)
-		}
+		_, ok := snap.Values[id]
+		is.True(ok) // each requested non-fan id must land in snapshot
 	}
 }
 
 func TestPoller_RecordsLatestSnapshot_MultipleTicks(t *testing.T) {
+	is := is.New(t)
 	srv := newFakeServer(t)
 	state := NewState()
 
@@ -137,18 +135,14 @@ func TestPoller_RecordsLatestSnapshot_MultipleTicks(t *testing.T) {
 	cancel()
 	<-done
 
-	if !latest.LastPoll.After(first.LastPoll) {
-		t.Fatalf("expected later LastPoll than %v, got %v", first.LastPoll, latest.LastPoll)
-	}
-	if latest.LastErr != nil {
-		t.Errorf("latest.LastErr = %v, want nil", latest.LastErr)
-	}
-	if _, ok := latest.Values[0x0001]; !ok {
-		t.Errorf("latest snapshot missing 0x0001")
-	}
+	is.True(latest.LastPoll.After(first.LastPoll)) // a later tick must have fired
+	is.NoErr(latest.LastErr)                       // multi-tick run must stay error-free
+	_, ok := latest.Values[0x0001]
+	is.True(ok) // latest snapshot must contain 0x0001
 }
 
 func TestPoller_AuthError_ClassifiedCorrectly(t *testing.T) {
+	is := is.New(t)
 	srv := newFakeServer(t)
 	state := NewState()
 
@@ -196,23 +190,14 @@ func TestPoller_AuthError_ClassifiedCorrectly(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(kinds) == 0 {
-		t.Fatalf("OnError was never called")
-	}
-	if kinds[0] != "auth" {
-		t.Errorf("first OnError kind = %q, want %q (all=%v)", kinds[0], "auth", kinds)
-	}
+	is.True(len(kinds) > 0)    // OnError must fire at least once for auth failure
+	is.Equal(kinds[0], "auth") // first error must classify as "auth"
 
 	// The cache should still record the failed poll, with LastErr set.
 	snap, ok := state.Get("bad")
-	if !ok {
-		t.Fatalf("no snapshot recorded for failed device")
-	}
-	if snap.LastErr == nil {
-		t.Errorf("snap.LastErr is nil; want auth error recorded")
-	} else if !errors.Is(snap.LastErr, breezy.ErrAuth) {
-		t.Errorf("snap.LastErr = %v, want errors.Is(., ErrAuth)", snap.LastErr)
-	}
+	is.True(ok)                                      // failed device still has a snapshot
+	is.True(snap.LastErr != nil)                     // LastErr recorded for failed poll
+	is.True(errors.Is(snap.LastErr, breezy.ErrAuth)) // LastErr unwraps to ErrAuth
 }
 
 func TestPoller_ContextCancellation_Stops(t *testing.T) {
@@ -287,6 +272,7 @@ func (f *fakeClient) seenIDs() []breezy.ParamID {
 }
 
 func TestPoller_NoticeWrite_SkipsFanReadsDuringSettleWindow(t *testing.T) {
+	is := is.New(t)
 	state := NewState()
 
 	fc := &fakeClient{
@@ -331,9 +317,7 @@ func TestPoller_NoticeWrite_SkipsFanReadsDuringSettleWindow(t *testing.T) {
 				break
 			}
 		}
-		if !found {
-			t.Errorf("pre-write tick missing 0x%04X", id)
-		}
+		is.True(found) // pre-write tick must include every id (no settle suppression)
 	}
 
 	// Reset batches and notice a fan-affecting write.
@@ -346,9 +330,7 @@ func TestPoller_NoticeWrite_SkipsFanReadsDuringSettleWindow(t *testing.T) {
 	p.tick(ctx)
 	got = fc.seenIDs()
 	for _, id := range got {
-		if id == 0x004A || id == 0x004B {
-			t.Errorf("0x%04X read during settle window; want skipped (got=%v)", id, got)
-		}
+		is.True(id != 0x004A && id != 0x004B) // fan RPM ids must be skipped during settle window
 	}
 	// And 0x0001 / 0x0044 should still be polled.
 	hasPower, hasManual := false, false
@@ -360,9 +342,8 @@ func TestPoller_NoticeWrite_SkipsFanReadsDuringSettleWindow(t *testing.T) {
 			hasManual = true
 		}
 	}
-	if !hasPower || !hasManual {
-		t.Errorf("settle-tick should still read 0x0001 and 0x0044; got=%v", got)
-	}
+	is.True(hasPower)  // settle-tick still reads 0x0001
+	is.True(hasManual) // settle-tick still reads 0x0044
 
 	// Advance the clock past the settle window.
 	nowAtomic.Add(int64(fanSettleDuration + time.Second))
@@ -382,12 +363,12 @@ func TestPoller_NoticeWrite_SkipsFanReadsDuringSettleWindow(t *testing.T) {
 			hasB = true
 		}
 	}
-	if !hasA || !hasB {
-		t.Errorf("post-settle tick should read fan RPMs; got=%v", got)
-	}
+	is.True(hasA) // post-settle tick reads 0x004A again
+	is.True(hasB) // post-settle tick reads 0x004B again
 }
 
 func TestPoller_NoticeWrite_NonFanWriteDoesNotSetSettle(t *testing.T) {
+	is := is.New(t)
 	state := NewState()
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x004A: {0, 0}}}
 
@@ -414,12 +395,11 @@ func TestPoller_NoticeWrite_NonFanWriteDoesNotSetSettle(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Errorf("non-fan write should not have set settle deadline; got=%v", got)
-	}
+	is.True(found) // non-fan write must not set settle deadline (0x004A still polled)
 }
 
 func TestPoller_NoticeWrite_TimerWriteSetsSettle(t *testing.T) {
+	is := is.New(t)
 	state := NewState()
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x004A: {0, 0}, 0x0001: {1}}}
 
@@ -443,9 +423,7 @@ func TestPoller_NoticeWrite_TimerWriteSetsSettle(t *testing.T) {
 	p.tick(context.Background())
 	got := fc.seenIDs()
 	for _, id := range got {
-		if id == 0x004A {
-			t.Errorf("0x004A read during settle window after timer write; want skipped (got=%v)", got)
-		}
+		is.True(id != 0x004A) // 0x004A must be skipped during settle window after timer write
 	}
 	hasPower := false
 	for _, id := range got {
@@ -453,21 +431,18 @@ func TestPoller_NoticeWrite_TimerWriteSetsSettle(t *testing.T) {
 			hasPower = true
 		}
 	}
-	if !hasPower {
-		t.Errorf("settle-tick should still read non-fan params; got=%v", got)
-	}
+	is.True(hasPower) // settle-tick must still read non-fan params
 }
 
 func TestPoller_FanSettle_SkippedForLocalClient(t *testing.T) {
+	is := is.New(t)
 	// A MemClient is in-process; writes land instantly, so the firmware settle
 	// delay does not apply. NoticeWrite should not set a settle deadline when
 	// the last dialed client reports IsLocal() == true.
 	state := NewState()
 
 	mc, err := breezy.NewMemClientFromFile(pollerSnapshotPath(t))
-	if err != nil {
-		t.Fatalf("breezy.NewMemClientFromFile: %v", err)
-	}
+	is.NoErr(err)
 
 	p := &Poller{
 		Name:     "local",
@@ -496,15 +471,12 @@ func TestPoller_FanSettle_SkippedForLocalClient(t *testing.T) {
 	for _, id := range ids {
 		idSet[id] = true
 	}
-	if !idSet[0x004A] {
-		t.Errorf("0x004A (fan_supply_rpm) was suppressed for a local client; want it present in ids=%v", ids)
-	}
-	if !idSet[0x004B] {
-		t.Errorf("0x004B (fan_extract_rpm) was suppressed for a local client; want it present in ids=%v", ids)
-	}
+	is.True(idSet[0x004A]) // local-client writes must not suppress 0x004A
+	is.True(idSet[0x004B]) // local-client writes must not suppress 0x004B
 }
 
 func TestPoller_BatchesLargeReadList(t *testing.T) {
+	is := is.New(t)
 	state := NewState()
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{}}
 
@@ -530,25 +502,13 @@ func TestPoller_BatchesLargeReadList(t *testing.T) {
 
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if len(fc.batches) != 3 {
-		t.Fatalf("want 3 batches, got %d (sizes=%v)", len(fc.batches), batchSizes(fc.batches))
-	}
+	is.Equal(len(fc.batches), 3) // 75 ids / batch size 30 => 3 batches
 	for i, b := range fc.batches {
-		if i < 2 && len(b) != pollBatchSize {
-			t.Errorf("batch %d size = %d, want %d", i, len(b), pollBatchSize)
+		if i < 2 {
+			is.Equal(len(b), pollBatchSize) // first two batches saturate to pollBatchSize
 		}
 	}
-	if len(fc.batches[2]) != 15 {
-		t.Errorf("last batch size = %d, want 15", len(fc.batches[2]))
-	}
-}
-
-func batchSizes(bs [][]breezy.ParamID) []int {
-	out := make([]int, len(bs))
-	for i, b := range bs {
-		out[i] = len(b)
-	}
-	return out
+	is.Equal(len(fc.batches[2]), 15) // last batch holds the remainder
 }
 
 func TestPoller_ErrorClassification(t *testing.T) {
@@ -565,6 +525,7 @@ func TestPoller_ErrorClassification(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
 			var got string
 			p := &Poller{
 				Name: "n",
@@ -573,9 +534,7 @@ func TestPoller_ErrorClassification(t *testing.T) {
 				},
 			}
 			p.recordErr(tc.err)
-			if got != tc.want {
-				t.Errorf("kind = %q, want %q", got, tc.want)
-			}
+			is.Equal(got, tc.want) // error kind classification
 		})
 	}
 }
@@ -588,6 +547,7 @@ func (e *fakeNetErr) Timeout() bool   { return e.timeout }
 func (e *fakeNetErr) Temporary() bool { return false }
 
 func TestPoller_OnPollFiresOnSuccess(t *testing.T) {
+	is := is.New(t)
 	srv := newFakeServer(t)
 	state := NewState()
 
@@ -621,12 +581,11 @@ func TestPoller_OnPollFiresOnSuccess(t *testing.T) {
 	mu.Lock()
 	got := calls
 	mu.Unlock()
-	if got < 2 {
-		t.Errorf("OnPoll called %d times, want >= 2", got)
-	}
+	is.True(got >= 2) // OnPoll should fire at least twice across 200ms × 50ms interval
 }
 
 func TestPoller_ReadError_RecordedInSnapshot(t *testing.T) {
+	is := is.New(t)
 	state := NewState()
 	wantErr := errors.New("read failed")
 	fc := &fakeClient{err: wantErr}
@@ -653,17 +612,12 @@ func TestPoller_ReadError_RecordedInSnapshot(t *testing.T) {
 	p.tick(context.Background())
 
 	snap, ok := state.Get("err")
-	if !ok {
-		t.Fatalf("expected snapshot to be recorded even on error")
-	}
-	if snap.LastErr == nil {
-		t.Errorf("snap.LastErr = nil; want non-nil")
-	}
+	is.True(ok)                  // snapshot recorded even on error
+	is.True(snap.LastErr != nil) // LastErr is set on failed tick
 	mu.Lock()
 	defer mu.Unlock()
-	if len(kinds) != 1 || kinds[0] != "other" {
-		t.Errorf("OnError kinds = %v, want [other]", kinds)
-	}
+	is.Equal(len(kinds), 1)     // exactly one OnError fire
+	is.Equal(kinds[0], "other") // generic error classifies as "other"
 }
 
 func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
@@ -703,6 +657,7 @@ func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
 // 0x4A/0x4B from its read-IDs — then re-admits them once virtual time passes
 // the window. No actual sleeping: we inject Now to control the clock.
 func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
+	is := is.New(t)
 	srv := newFakeServer(t)
 	state := NewState()
 
@@ -733,9 +688,8 @@ func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
 	// 1. Tick before any write: all IDs should be read (and p.lastClient gets set).
 	p.tick(ctx)
 	snap, ok := state.Get("udp-settle")
-	if !ok || snap.LastErr != nil {
-		t.Fatalf("pre-write tick failed: ok=%v err=%v", ok, snap.LastErr)
-	}
+	is.True(ok)            // pre-write tick must record a snapshot
+	is.NoErr(snap.LastErr) // pre-write tick must succeed
 
 	// 2. Note a fan-affecting write (0x0002 = speed_mode).
 	p.NoticeWrite(0x0002)
@@ -746,19 +700,11 @@ func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
 	for _, id := range ids {
 		idSet[id] = true
 	}
-	if idSet[0x004A] {
-		t.Errorf("0x004A present in read-IDs during settle window; want dropped (ids=%v)", ids)
-	}
-	if idSet[0x004B] {
-		t.Errorf("0x004B present in read-IDs during settle window; want dropped (ids=%v)", ids)
-	}
+	is.True(!idSet[0x004A]) // 0x004A dropped during settle window
+	is.True(!idSet[0x004B]) // 0x004B dropped during settle window
 	// Non-sensitive params must still be present.
-	if !idSet[0x0001] {
-		t.Errorf("0x0001 missing during settle window; want present (ids=%v)", ids)
-	}
-	if !idSet[0x0044] {
-		t.Errorf("0x0044 missing during settle window; want present (ids=%v)", ids)
-	}
+	is.True(idSet[0x0001]) // 0x0001 still present during settle window
+	is.True(idSet[0x0044]) // 0x0044 still present during settle window
 
 	// 4. Advance virtual time past the window; fan RPMs must reappear.
 	offset.Store(int64(fanSettleDuration + time.Second))
@@ -767,22 +713,18 @@ func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
 	for _, id := range ids {
 		idSet[id] = true
 	}
-	if !idSet[0x004A] {
-		t.Errorf("0x004A absent after settle expired; want present (ids=%v)", ids)
-	}
-	if !idSet[0x004B] {
-		t.Errorf("0x004B absent after settle expired; want present (ids=%v)", ids)
-	}
+	is.True(idSet[0x004A]) // 0x004A re-admitted after settle expires
+	is.True(idSet[0x004B]) // 0x004B re-admitted after settle expires
 
 	// 5. Do a real tick over UDP post-settle to confirm the server responds.
 	p.tick(ctx)
 	snap, ok = state.Get("udp-settle")
-	if !ok || snap.LastErr != nil {
-		t.Fatalf("post-settle tick failed: ok=%v err=%v", ok, snap.LastErr)
-	}
+	is.True(ok)            // post-settle tick records snapshot
+	is.NoErr(snap.LastErr) // post-settle tick succeeds
 }
 
 func TestPoller_EnergyTickCalled(t *testing.T) {
+	is := is.New(t)
 	// Wire a real EnergyTracker (with t.TempDir for state) onto a poller
 	// running against a fakeClient; assert Tick advances LastTick (proxy
 	// for "Tick was actually called after a successful poll").
@@ -821,7 +763,5 @@ func TestPoller_EnergyTickCalled(t *testing.T) {
 	lastTick := tr.LastTick
 	tr.mu.Unlock()
 
-	if lastTick.IsZero() {
-		t.Fatal("tr.LastTick is zero after successful poll; expected Tick to have been called")
-	}
+	is.True(!lastTick.IsZero()) // EnergyTracker.Tick must have run after a successful poll
 }
