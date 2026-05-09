@@ -81,22 +81,6 @@ export async function setDeviceState(
 }
 
 /**
- * Simulate a fan-settle delay.
- *
- * NOT SUPPORTED by the memory backend. The fan-settle window is a
- * UDP-protocol fact; this scenario is ported to Go in T6.
- *
- * Throws always so that any test calling this produces a clear failure
- * rather than a silent no-op.
- */
-export async function simulateFanSettle(_name: string, _ms: number): Promise<void> {
-  throw new Error(
-    "simulateFanSettle is not supported by the memory backend; " +
-    "this scenario is ported to Go (poller_test.go) in T6",
-  );
-}
-
-/**
  * Toggle auth-failure mode: when `on` (default), every request returns
  * FUNC=0x07 (auth failure) regardless of the password supplied.
  */
