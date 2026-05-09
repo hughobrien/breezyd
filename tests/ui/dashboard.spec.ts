@@ -223,12 +223,8 @@ test.describe("controls", () => {
   // should produce exactly one POST, not one per intermediate value. Pins
   // the debounce attribute against accidental removal/relaxation.
   //
-  // Targets the preset-2 supply slider rather than the manual slider —
-  // both carry the same debounce attribute, but the manual slider has a
-  // separate signal-reseed bug worth its own issue (the @post reads
-  // $manualPct, which doesn't update from synthesized events because of
-  // a data-bind:manualPct case quirk; the preset expression reads
-  // evt.target.value directly so it works under synthesis).
+  // Targets the preset-2 supply slider; the manual slider's drag-value
+  // round-trip is pinned by the dedicated #116 test below.
   test("preset slider drag debounces — one POST per drag", async ({ page }) => {
     await reset(DEVICE);
     await presets.asPresetSpeed(DEVICE, 1);
@@ -297,6 +293,57 @@ test.describe("controls", () => {
     // Exactly one POST, carrying the final dragged value.
     expect(presetPosts).toHaveLength(1);
     expect(presetPosts[0].supply).toBe(80);
+  });
+
+  // Pins #116: the manual slider's @post must carry the value the user
+  // dragged to, not the value frozen in a stale $manualPct signal at
+  // initial render. Pre-fix, `data-bind:manualPct` was lowercased by the
+  // HTML parser to `data-bind:manualpct`, autocreating a separate
+  // `$manualpct` signal. The user's input updated the lowercased signal;
+  // the @post expression read camelCase `$manualPct`, frozen at the
+  // initial-render seed. The fix drops the bind entirely and reads
+  // `evt.target.valueAsNumber` in the @post — the input's own value is
+  // the source of truth.
+  test("manual slider drag posts dragged value (closes #116)", async ({ page }) => {
+    await reset(DEVICE);
+    // Force the slider to render: speed_mode=manual + special-mode=off
+    // (the snapshot's default timer=turbo suppresses the manual slider
+    // via ControlsBlock's `SpecialMode == "off"` guard).
+    await presets.asManualSpeed(DEVICE, 50);
+    await presets.withTimer(DEVICE, "off");
+    const card = await loadCard(page);
+
+    const manualSlider = card.locator('input[name="manual"]');
+    await expect(manualSlider).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
+
+    const manualPosts: number[] = [];
+    page.on("request", (req) => {
+      if (
+        req.method() === "POST" &&
+        req.url().endsWith(`/ui/devices/${DEVICE}/speed`)
+      ) {
+        try {
+          const body = JSON.parse(req.postData() || "{}");
+          if (typeof body.manual === "number") {
+            manualPosts.push(body.manual);
+          }
+        } catch {
+          // Non-JSON / non-manual bodies don't pass the filter; ignore.
+        }
+      }
+    });
+
+    // Drag to 75: set value, dispatch change. The @post reads
+    // evt.target.valueAsNumber directly.
+    await manualSlider.evaluate((el: HTMLInputElement) => {
+      el.value = "75";
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await expect
+      .poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT })
+      .toBeGreaterThanOrEqual(1);
+    expect(manualPosts[0]).toBe(75);
   });
 });
 
