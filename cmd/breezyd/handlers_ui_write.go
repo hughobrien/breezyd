@@ -101,11 +101,6 @@ func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	if r.ProtoMajor == 1 {
-		w.Header().Set("Connection", "keep-alive")
-	}
 	sse := newSSE(w, r)
 	empty := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
 	if err := sse.PatchElementTempl(
@@ -249,11 +244,6 @@ func (h *Handler) notifyAfterWrite(name string) {
 // fragment endpoints (the dashboard's @get / @put expect SSE event
 // streams, not raw HTML).
 func patchFragmentSSE(w http.ResponseWriter, r *http.Request, selector string, cmp templ.Component) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	if r.ProtoMajor == 1 {
-		w.Header().Set("Connection", "keep-alive")
-	}
 	sse := newSSE(w, r)
 	if err := sse.PatchElementTempl(
 		cmp,
@@ -269,15 +259,10 @@ func patchFragmentSSE(w http.ResponseWriter, r *http.Request, selector string, c
 // non-2xx response bodies, so we encode the error in the SSE payload
 // itself and exit cleanly. The `status` parameter survives only as a
 // custom Datastar-Status response header for observability/debugging.
+// newSSE flushes the response head (status 200 implicit) on construction;
+// Datastar-Status must be set BEFORE that flush, so it precedes newSSE.
 func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg string) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Datastar-Status", strconv.Itoa(status))
-	w.Header().Set("X-Accel-Buffering", "no")
-	if r.ProtoMajor == 1 {
-		w.Header().Set("Connection", "keep-alive")
-	}
-	w.WriteHeader(http.StatusOK)
 	sse := newSSE(w, r)
 	htmlFragment := `<div class="err-banner" role="alert">` + html.EscapeString(msg) + `</div>`
 	if err := sse.PatchElements(
