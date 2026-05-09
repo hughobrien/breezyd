@@ -131,9 +131,9 @@ async function main() {
         .locator('button:nth-of-type(2)');
       await chip.scrollIntoViewIfNeeded();
       await chip.click();
-      const editor = page
-        .locator('.card:first-of-type .preset-editor[data-preset-editor="2"]')
-        .first();
+      // The data-preset-editor="2" attribute is unique within a card; combined
+      // with .card:first-of-type, the locator resolves to exactly one element.
+      const editor = page.locator('.card:first-of-type .preset-editor[data-preset-editor="2"]');
       await editor.waitFor({ state: "visible", timeout: 5_000 });
       await editor.scrollIntoViewIfNeeded();
     });
