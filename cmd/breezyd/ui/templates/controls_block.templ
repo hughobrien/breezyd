@@ -115,7 +115,8 @@ templ manualSliderRow(v ui.DeviceView) {
 			max="100"
 			step="1"
 			value={ fmt.Sprintf("%d", v.ManualPct) }
-			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
+			data-bind:manualPct
+			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: $manualPct}") }
 		/>
 		<span class="val">{ fmt.Sprintf("%d%%", v.ManualPct) }</span>
 	</div>
