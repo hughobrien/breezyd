@@ -15,6 +15,7 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 		<details
 			id={ "schedule-" + name }
 			class={ "block", "schedule", templ.KV("alert", s.Alert) }
+			data-block="schedule"
 			data-attr:open="$detailsOpen.schedule"
 		>
 			<summary><h3>SCHEDULE</h3></summary>
@@ -78,7 +79,7 @@ templ scheduleReadRow(e ui.ScheduleEntryView) {
 
 // ScheduleBlockEdit renders the edit variant of the SCHEDULE block.
 templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg string) {
-	<details class="block schedule" open>
+	<details class="block schedule" data-block="schedule" data-edit="true" open>
 		<summary><h3>SCHEDULE</h3></summary>
 		<form
 			data-on:submit__prevent={ scheduleSubmitExpr(name) }

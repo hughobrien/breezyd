@@ -10,7 +10,7 @@ import (
 // threshold sensor. Click → @get the edit-variant SSE fragment, which
 // patches the cell in place with the editor.
 templ SensorThresholdRead(name, kind, label, suffix, tooltip string, value int, alerting bool) {
-	<div class="sensor-cell" data-threshold-cell={ kind } if tooltip != "" { title={ tooltip } }>
+	<div class="sensor-cell" data-threshold-cell={ kind } data-sensor-cell={ kind } if tooltip != "" { title={ tooltip } }>
 		<div class="sensor-label">{ label }</div>
 		<div
 			class={ "value-clickable", templ.KV("alert-fire", alerting) }
@@ -23,7 +23,7 @@ templ SensorThresholdRead(name, kind, label, suffix, tooltip string, value int, 
 // sensor. The form's submit fires @put which sends the form fields and
 // receives the read-variant SSE patch back.
 templ SensorThresholdEdit(name, kind, label string, min, max, step, threshold int, autoFan, disabled bool) {
-	<div class="sensor-cell" data-threshold-cell={ kind }>
+	<div class="sensor-cell" data-threshold-cell={ kind } data-sensor-cell={ kind } data-edit="true">
 		<div class="sensor-label">{ label }</div>
 		<form
 			class="thresh-edit-inline"

@@ -34,7 +34,7 @@ func controlsBlock(v ui.DeviceView) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"controls\"><h3>Controls</h3><div class=\"ctrl\"><span class=\"ctrl-label\">SPEED</span><div class=\"seg\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"controls\" data-block=\"controls\" data-attr:data-edit=\"$editor !== 0 ? 'true' : null\"><h3>Controls</h3><div class=\"ctrl\"><span class=\"ctrl-label\">SPEED</span><div class=\"seg\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

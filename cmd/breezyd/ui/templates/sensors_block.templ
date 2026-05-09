@@ -12,7 +12,9 @@ import (
 templ SensorsBlock(name string, s ui.SensorsView) {
 	<details
 		id={ "sensors-" + name }
-		class={ "block", "sensors", templ.KV("alert", s.AlertActive) }
+		class="block sensors"
+		data-block="sensors"
+		data-class:alert="$sensorsAlert"
 		data-attr:open="$detailsOpen.sensors"
 	>
 		<summary><h3>Sensors</h3></summary>
@@ -25,20 +27,20 @@ templ sensorsGrid(name string, s ui.SensorsView) {
 		@co2Cell(name, s)
 		@vocCell(name, s)
 		@humidityCell(name, s)
-		@plainSensorCell("recovery", fmtOptPct(s.RecoveryPct))
-		@plainSensorCell("supply", fmtTempC(s.TempOutdoorC))
-		@plainSensorCell("exhaust", fmtTempC(s.TempExhaustInletC))
-		@plainSensorCell("supply_regen", fmtTempC(s.TempSupplyC))
-		@plainSensorCell("exhaust_regen", fmtTempC(s.TempExhaustOutC))
-		@plainSensorCell("Δ", tempDeltaStr(s.TempSupplyC, s.TempOutdoorC))
-		@plainSensorCell("Δ", tempDeltaStr(s.TempExhaustOutC, s.TempExhaustInletC))
-		@plainSensorCell("supply rpm", rpmStr(s.SupplyRPM))
-		@plainSensorCell("exhaust rpm", rpmStr(s.ExtractRPM))
+		@plainSensorCell("recovery",      "recovery",      fmtOptPct(s.RecoveryPct))
+		@plainSensorCell("supply",        "supply",        fmtTempC(s.TempOutdoorC))
+		@plainSensorCell("exhaust",       "exhaust",       fmtTempC(s.TempExhaustInletC))
+		@plainSensorCell("supply_regen",  "supply_regen",  fmtTempC(s.TempSupplyC))
+		@plainSensorCell("exhaust_regen", "exhaust_regen", fmtTempC(s.TempExhaustOutC))
+		@plainSensorCell("delta_supply",  "Δ",             tempDeltaStr(s.TempSupplyC, s.TempOutdoorC))
+		@plainSensorCell("delta_exhaust", "Δ",             tempDeltaStr(s.TempExhaustOutC, s.TempExhaustInletC))
+		@plainSensorCell("supply_rpm",    "supply rpm",    rpmStr(s.SupplyRPM))
+		@plainSensorCell("exhaust_rpm",   "exhaust rpm",   rpmStr(s.ExtractRPM))
 	</div>
 }
 
-templ plainSensorCell(label, value string) {
-	<div class="sensor-cell">
+templ plainSensorCell(key, label, value string) {
+	<div class="sensor-cell" data-sensor-cell={ key }>
 		<div class="sensor-label">{ label }</div>
 		<div>{ value }</div>
 	</div>

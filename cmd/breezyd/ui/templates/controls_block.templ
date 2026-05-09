@@ -6,7 +6,7 @@ import (
 )
 
 templ controlsBlock(v ui.DeviceView) {
-	<div class="controls">
+	<div class="controls" data-block="controls" data-attr:data-edit="$editor !== 0 ? 'true' : null">
 		<h3>Controls</h3>
 		<div class="ctrl">
 			<span class="ctrl-label">SPEED</span>

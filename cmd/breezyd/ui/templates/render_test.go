@@ -253,6 +253,68 @@ func TestRenderDeviceCard_ReactiveOuter(t *testing.T) {
 	}
 }
 
+func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
+	v := loadView(t, "snapshot_settling")
+	var sb strings.Builder
+	if err := DeviceCard(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	for _, s := range []string{
+		`data-block="info"`,
+		`data-block="energy"`,
+		`data-block="sensors"`,
+		`data-block="schedule"`,
+		`data-block="controls"`,
+		`data-class:alert="$sensorsAlert"`,
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in card render", s)
+		}
+	}
+	// Plain sensor cells get data-sensor-cell="<key>".
+	for _, k := range []string{"recovery", "supply", "exhaust", "supply_regen", "exhaust_regen", "delta_supply", "delta_exhaust", "supply_rpm", "exhaust_rpm"} {
+		want := `data-sensor-cell="` + k + `"`
+		if !strings.Contains(got, want) {
+			t.Errorf("missing plain cell marker %q", want)
+		}
+	}
+	// Controls block reactive data-edit binding. The attribute is a static
+	// literal in the templ file so single quotes are not HTML-escaped.
+	if !strings.Contains(got, `data-attr:data-edit="$editor !== 0 ? 'true' : null"`) {
+		t.Errorf("controls reactive data-edit binding missing")
+	}
+}
+
+func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
+	var sb strings.Builder
+	sv := ui.ScheduleView{Present: true}
+	if err := ScheduleBlockEdit("alpha", sv, false, "").Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	if !strings.Contains(got, `data-edit="true"`) {
+		t.Errorf("ScheduleBlockEdit missing data-edit; got=%q", got)
+	}
+	if !strings.Contains(got, `data-block="schedule"`) {
+		t.Errorf("ScheduleBlockEdit missing data-block=schedule; got=%q", got)
+	}
+}
+
+func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
+	var sb strings.Builder
+	if err := SensorThresholdEdit("alpha", "co2", "eCO₂", 400, 2000, 10, 800, true, false).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	if !strings.Contains(got, `data-edit="true"`) {
+		t.Errorf("SensorThresholdEdit missing data-edit; got=%q", got)
+	}
+	if !strings.Contains(got, `data-sensor-cell="co2"`) {
+		t.Errorf("SensorThresholdEdit missing data-sensor-cell; got=%q", got)
+	}
+}
+
 func TestCardSignalsFor_JSON(t *testing.T) {
 	v := ui.DeviceView{
 		Stale:       true,
