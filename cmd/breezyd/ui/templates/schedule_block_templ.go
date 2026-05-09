@@ -71,7 +71,7 @@ func ScheduleBlock(name string, s ui.ScheduleView, stale bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-block=\"schedule\" data-attr:open=\"$detailsOpen.schedule\"><summary><h3>SCHEDULE</h3></summary><div class=\"schedule-toolbar\"><label><input type=\"checkbox\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-block=\"schedule\" data-attr:open=\"$detailsOpen.schedule\"><summary data-on:click=\"$detailsOpen.schedule = !$detailsOpen.schedule\"><h3>SCHEDULE</h3></summary><div class=\"schedule-toolbar\"><label><input type=\"checkbox\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
