@@ -133,11 +133,16 @@ func powerButtonExpr(v ui.DeviceView) string {
 // lastPollAge / sensorsAlert). The seed is what datastar shows before any
 // SSE arrives; subsequent pushes update only the runtime fields via
 // datastar-patch-signals.
+//
+// manualPct is also seeded so the manual slider's data-bind:manualPct
+// finds a numeric (not string) signal at first render — datastar's
+// type-preservation then keeps the bound value numeric across user drags.
 func initialCardSignals(v ui.DeviceView) string {
 	s := map[string]any{
 		"automode":    false,
 		"matchSpeeds": true,
 		"editor":      0,
+		"manualPct":   v.ManualPct,
 		"detailsOpen": map[string]bool{
 			"info":     false,
 			"sensors":  true,
