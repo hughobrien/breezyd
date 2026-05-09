@@ -155,6 +155,7 @@ func presetLabel(v ui.DeviceView, n int) string {
 templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 	<div
 		class="preset-editor"
+		style="display:none"
 		data-preset-editor={ fmt.Sprintf("%d", n) }
 		data-show={ fmt.Sprintf("$editor === %d", n) }
 	>
