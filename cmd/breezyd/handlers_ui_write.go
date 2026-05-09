@@ -106,7 +106,7 @@ func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
 	if r.ProtoMajor == 1 {
 		w.Header().Set("Connection", "keep-alive")
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := newSSE(w, r)
 	empty := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
 	if err := sse.PatchElementTempl(
 		templates.ScheduleEditRow(empty),
@@ -254,7 +254,7 @@ func patchFragmentSSE(w http.ResponseWriter, r *http.Request, selector string, c
 	if r.ProtoMajor == 1 {
 		w.Header().Set("Connection", "keep-alive")
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := newSSE(w, r)
 	if err := sse.PatchElementTempl(
 		cmp,
 		datastar.WithSelector(selector),
@@ -273,11 +273,12 @@ func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg stri
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Datastar-Status", strconv.Itoa(status))
+	w.Header().Set("X-Accel-Buffering", "no")
 	if r.ProtoMajor == 1 {
 		w.Header().Set("Connection", "keep-alive")
 	}
 	w.WriteHeader(http.StatusOK)
-	sse := datastar.NewSSE(w, r)
+	sse := newSSE(w, r)
 	htmlFragment := `<div class="err-banner" role="alert">` + html.EscapeString(msg) + `</div>`
 	if err := sse.PatchElements(
 		htmlFragment,
