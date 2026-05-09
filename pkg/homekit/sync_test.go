@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hughobrien/breezyd/pkg/breezy"
+	"github.com/matryer/is"
 )
 
 // newTestAccessory is a shorthand for the standard test accessory.
@@ -16,6 +17,7 @@ func newTestAccessory() *Accessory {
 // TestSync_PowerAndSpeed covers Active, RotationSpeed, TargetAirPurifierState,
 // and CurrentAirPurifierState (Purifying path).
 func TestSync_PowerAndSpeed(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	s := breezy.Status{
 		Configured: map[string]any{
@@ -30,24 +32,15 @@ func TestSync_PowerAndSpeed(t *testing.T) {
 	}
 	Sync(a, s)
 
-	if v := a.AirPurifier.Active.Value(); v != 1 {
-		t.Errorf("Active = %v, want 1 (powered)", v)
-	}
-	if v := a.RotationSpeed.Value(); v != 30.0 {
-		t.Errorf("RotationSpeed = %v, want 30", v)
-	}
-	// manual → TargetAirPurifierState = 0 (Manual)
-	if v := a.AirPurifier.TargetAirPurifierState.Value(); v != 0 {
-		t.Errorf("TargetAirPurifierState = %v, want 0 (Manual)", v)
-	}
-	// fans running → CurrentAirPurifierState = 2 (Purifying)
-	if v := a.AirPurifier.CurrentAirPurifierState.Value(); v != 2 {
-		t.Errorf("CurrentAirPurifierState = %v, want 2 (Purifying)", v)
-	}
+	is.Equal(a.AirPurifier.Active.Value(), 1)                  // Active should be 1 (powered)
+	is.Equal(a.RotationSpeed.Value(), 30.0)                    // RotationSpeed should be 30
+	is.Equal(a.AirPurifier.TargetAirPurifierState.Value(), 0)  // manual → Manual (0)
+	is.Equal(a.AirPurifier.CurrentAirPurifierState.Value(), 2) // fans running → Purifying (2)
 }
 
 // TestSync_PowerOff verifies Inactive state and Active=0 when power is false.
 func TestSync_PowerOff(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	s := breezy.Status{
 		Configured: map[string]any{
@@ -62,21 +55,14 @@ func TestSync_PowerOff(t *testing.T) {
 	}
 	Sync(a, s)
 
-	if v := a.AirPurifier.Active.Value(); v != 0 {
-		t.Errorf("Active = %v, want 0 (off)", v)
-	}
-	// preset1 → Auto
-	if v := a.AirPurifier.TargetAirPurifierState.Value(); v != 1 {
-		t.Errorf("TargetAirPurifierState = %v, want 1 (Auto)", v)
-	}
-	// not powered → Inactive = 0
-	if v := a.AirPurifier.CurrentAirPurifierState.Value(); v != 0 {
-		t.Errorf("CurrentAirPurifierState = %v, want 0 (Inactive)", v)
-	}
+	is.Equal(a.AirPurifier.Active.Value(), 0)                  // Active should be 0 (off)
+	is.Equal(a.AirPurifier.TargetAirPurifierState.Value(), 1)  // preset1 → Auto (1)
+	is.Equal(a.AirPurifier.CurrentAirPurifierState.Value(), 0) // not powered → Inactive (0)
 }
 
 // TestSync_IdleWhenPoweredNoFan covers the Idle path (powered, zero RPM).
 func TestSync_IdleWhenPoweredNoFan(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	s := breezy.Status{
 		Configured: map[string]any{"power": true},
@@ -87,9 +73,7 @@ func TestSync_IdleWhenPoweredNoFan(t *testing.T) {
 	}
 	Sync(a, s)
 
-	if v := a.AirPurifier.CurrentAirPurifierState.Value(); v != 1 {
-		t.Errorf("CurrentAirPurifierState = %v, want 1 (Idle)", v)
-	}
+	is.Equal(a.AirPurifier.CurrentAirPurifierState.Value(), 1) // powered, no fan → Idle (1)
 }
 
 // TestSync_PowerFieldAbsentLeavesStateUntouched protects the Sync
@@ -98,6 +82,7 @@ func TestSync_IdleWhenPoweredNoFan(t *testing.T) {
 // that happened to read fan RPMs but skipped 0x01 would falsely
 // flip the iOS Home tile to Inactive.
 func TestSync_PowerFieldAbsentLeavesStateUntouched(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	// Pre-set the characteristic so we can observe it being preserved.
 	_ = a.AirPurifier.CurrentAirPurifierState.SetValue(2) // Purifying
@@ -110,13 +95,12 @@ func TestSync_PowerFieldAbsentLeavesStateUntouched(t *testing.T) {
 	}
 	Sync(a, s)
 
-	if v := a.AirPurifier.CurrentAirPurifierState.Value(); v != 2 {
-		t.Errorf("CurrentAirPurifierState = %v, want 2 (untouched, was set to Purifying)", v)
-	}
+	is.Equal(a.AirPurifier.CurrentAirPurifierState.Value(), 2) // untouched, was set to Purifying
 }
 
 // TestSync_AutoModes verifies preset2/preset3 all map to Auto.
 func TestSync_AutoModes(t *testing.T) {
+	is := is.New(t)
 	for _, mode := range []string{"preset1", "preset2", "preset3"} {
 		a := newTestAccessory()
 		Sync(a, breezy.Status{
@@ -125,9 +109,7 @@ func TestSync_AutoModes(t *testing.T) {
 				"speed_mode": mode,
 			},
 		})
-		if v := a.AirPurifier.TargetAirPurifierState.Value(); v != 1 {
-			t.Errorf("mode=%s: TargetAirPurifierState = %v, want 1 (Auto)", mode, v)
-		}
+		is.Equal(a.AirPurifier.TargetAirPurifierState.Value(), 1) // preset modes → Auto (1)
 	}
 }
 
@@ -145,41 +127,34 @@ func TestSync_AirflowModeSwitches(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {
+			is := is.New(t)
 			a := newTestAccessory()
 			Sync(a, breezy.Status{Configured: map[string]any{"airflow_mode": tc.mode}})
-			if v := a.SupplyOnly.On.Value(); v != tc.supply {
-				t.Errorf("supply mode=%s: Supply.On = %v, want %v", tc.mode, v, tc.supply)
-			}
-			if v := a.ExtractOnly.On.Value(); v != tc.extract {
-				t.Errorf("extract mode=%s: Extract.On = %v, want %v", tc.mode, v, tc.extract)
-			}
+			is.Equal(a.SupplyOnly.On.Value(), tc.supply)
+			is.Equal(a.ExtractOnly.On.Value(), tc.extract)
 		})
 	}
 }
 
 // TestSync_Humidity covers CurrentRelativeHumidity.
 func TestSync_Humidity(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	Sync(a, breezy.Status{Sensors: map[string]any{"humidity_pct": 65}})
-	if v := a.Humidity.CurrentRelativeHumidity.Value(); v != 65.0 {
-		t.Errorf("Humidity = %v, want 65", v)
-	}
+	is.Equal(a.Humidity.CurrentRelativeHumidity.Value(), 65.0)
 }
 
 // TestSync_CO2Detection covers CarbonDioxideLevel and above/below-threshold detection.
 func TestSync_CO2Detection(t *testing.T) {
+	is := is.New(t)
 	// Above threshold → Detected = 1.
 	a := newTestAccessory()
 	Sync(a, breezy.Status{
 		Configured: map[string]any{"co2_threshold_ppm": 1000},
 		Sensors:    map[string]any{"eco2_ppm": 1200},
 	})
-	if v := a.CarbonDioxideLevel.Value(); v != 1200.0 {
-		t.Errorf("CarbonDioxideLevel = %v, want 1200", v)
-	}
-	if v := a.CO2.CarbonDioxideDetected.Value(); v != 1 {
-		t.Errorf("CarbonDioxideDetected = %v, want 1 (above threshold)", v)
-	}
+	is.Equal(a.CarbonDioxideLevel.Value(), 1200.0)
+	is.Equal(a.CO2.CarbonDioxideDetected.Value(), 1) // above threshold
 
 	// Below threshold → Detected = 0.
 	a2 := newTestAccessory()
@@ -187,13 +162,12 @@ func TestSync_CO2Detection(t *testing.T) {
 		Configured: map[string]any{"co2_threshold_ppm": 1000},
 		Sensors:    map[string]any{"eco2_ppm": 800},
 	})
-	if v := a2.CO2.CarbonDioxideDetected.Value(); v != 0 {
-		t.Errorf("CarbonDioxideDetected = %v, want 0 (below threshold)", v)
-	}
+	is.Equal(a2.CO2.CarbonDioxideDetected.Value(), 0) // below threshold
 }
 
 // TestSync_VOCToAirQuality covers VOCDensity and the AirQuality enum bucket.
 func TestSync_VOCToAirQuality(t *testing.T) {
+	is := is.New(t)
 	cases := []struct {
 		voc      int
 		wantEnum AirQualityLevel
@@ -207,18 +181,15 @@ func TestSync_VOCToAirQuality(t *testing.T) {
 	for _, tc := range cases {
 		a := newTestAccessory()
 		Sync(a, breezy.Status{Sensors: map[string]any{"voc_index": tc.voc}})
-		if v := a.VOCDensity.Value(); v != float64(tc.voc) {
-			t.Errorf("voc=%d: VOCDensity = %v, want %v", tc.voc, v, float64(tc.voc))
-		}
-		if v := a.AirQualitySvc.AirQuality.Value(); v != int(tc.wantEnum) {
-			t.Errorf("voc=%d: AirQuality enum = %v, want %v", tc.voc, v, int(tc.wantEnum))
-		}
+		is.Equal(a.VOCDensity.Value(), float64(tc.voc))
+		is.Equal(a.AirQualitySvc.AirQuality.Value(), int(tc.wantEnum))
 	}
 }
 
 // TestSync_TemperatureSentinelsSkipped verifies that implausible temperature
 // values (|v| ≥ 1000) are not written to the characteristic.
 func TestSync_TemperatureSentinelsSkipped(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	// Preset the Outdoor and Supply sensors to known values so we can confirm
 	// what changes and what doesn't.
@@ -232,18 +203,14 @@ func TestSync_TemperatureSentinelsSkipped(t *testing.T) {
 		"temp_exhaust_outlet_c": -1000.0, // sentinel (|v|≥1000) → skipped
 	}})
 
-	if v := a.TempOutdoor.CurrentTemperature.Value(); v != 12.5 {
-		t.Errorf("Outdoor temp = %v, want 12.5", v)
-	}
-	// Supply was preset to 18.5 but sentinel was presented → must remain 18.5.
-	if v := a.TempSupply.CurrentTemperature.Value(); v != 18.5 {
-		t.Errorf("Supply temp = %v, want 18.5 (sentinel, untouched)", v)
-	}
+	is.Equal(a.TempOutdoor.CurrentTemperature.Value(), 12.5)
+	is.Equal(a.TempSupply.CurrentTemperature.Value(), 18.5) // sentinel, untouched
 }
 
 // TestSync_TemperatureValid confirms all four sensors are written when present
 // and valid.
 func TestSync_TemperatureValid(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	Sync(a, breezy.Status{Sensors: map[string]any{
 		"temp_outdoor_c":        5.0,
@@ -264,9 +231,7 @@ func TestSync_TemperatureValid(t *testing.T) {
 		"exhaustOut": a.TempExhaustOut.CurrentTemperature.Value(),
 	}
 	for k, wv := range want {
-		if got[k] != wv {
-			t.Errorf("temp[%s] = %v, want %v", k, got[k], wv)
-		}
+		is.Equal(got[k], wv)
 	}
 }
 
@@ -285,6 +250,7 @@ func TestSync_MissingFieldsNoPanic(t *testing.T) {
 // TestSync_FloatFieldCoercion verifies that float64-typed values from JSON
 // decoding are handled correctly (JSON numbers decode to float64 by default).
 func TestSync_FloatFieldCoercion(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	s := breezy.Status{
 		Configured: map[string]any{
@@ -304,18 +270,13 @@ func TestSync_FloatFieldCoercion(t *testing.T) {
 	}
 	Sync(a, s)
 
-	if v := a.RotationSpeed.Value(); v != 45.0 {
-		t.Errorf("RotationSpeed (float64 input) = %v, want 45", v)
-	}
-	if v := a.CO2.CarbonDioxideDetected.Value(); v != 1 {
-		t.Errorf("CarbonDioxideDetected = %v, want 1 (1500 > 1000)", v)
-	}
-	if v := a.AirQualitySvc.AirQuality.Value(); v != int(AirQualityGood) {
-		t.Errorf("AirQuality = %v, want Good (voc=80)", v)
-	}
+	is.Equal(a.RotationSpeed.Value(), 45.0)                           // RotationSpeed via float64 input
+	is.Equal(a.CO2.CarbonDioxideDetected.Value(), 1)                  // 1500 > 1000
+	is.Equal(a.AirQualitySvc.AirQuality.Value(), int(AirQualityGood)) // voc=80 → Good
 }
 
 func TestSync_RotationSpeedPrefersLiveFanPct(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	s := breezy.Status{
 		Configured: map[string]any{
@@ -329,12 +290,11 @@ func TestSync_RotationSpeedPrefersLiveFanPct(t *testing.T) {
 		},
 	}
 	Sync(a, s)
-	if v := a.RotationSpeed.Value(); v != 60.0 {
-		t.Errorf("RotationSpeed = %v, want 60 (live.fan_supply_pct)", v)
-	}
+	is.Equal(a.RotationSpeed.Value(), 60.0) // prefers live.fan_supply_pct
 }
 
 func TestSync_RotationSpeedFallsBackToManualPct(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	s := breezy.Status{
 		Configured: map[string]any{
@@ -345,24 +305,20 @@ func TestSync_RotationSpeedFallsBackToManualPct(t *testing.T) {
 		Live: map[string]any{},
 	}
 	Sync(a, s)
-	if v := a.RotationSpeed.Value(); v != 35.0 {
-		t.Errorf("RotationSpeed = %v, want 35 (fallback to manual_pct)", v)
-	}
+	is.Equal(a.RotationSpeed.Value(), 35.0) // falls back to manual_pct
 }
 
 func TestSync_HeaterSwitch(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	Sync(a, breezy.Status{Configured: map[string]any{"heater_enabled": true}})
-	if !a.Heater.On.Value() {
-		t.Error("Heater.On = false, want true")
-	}
+	is.True(a.Heater.On.Value()) // Heater.On should be true
 	Sync(a, breezy.Status{Configured: map[string]any{"heater_enabled": false}})
-	if a.Heater.On.Value() {
-		t.Error("Heater.On = true, want false")
-	}
+	is.True(!a.Heater.On.Value()) // Heater.On should be false
 }
 
 func TestSync_TimerSwitches(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	cases := []struct {
 		mode  string
@@ -375,16 +331,13 @@ func TestSync_TimerSwitches(t *testing.T) {
 	}
 	for _, c := range cases {
 		Sync(a, breezy.Status{Live: map[string]any{"special_mode": c.mode}})
-		if a.Night.On.Value() != c.night {
-			t.Errorf("special_mode=%q: Night.On = %v, want %v", c.mode, a.Night.On.Value(), c.night)
-		}
-		if a.Turbo.On.Value() != c.turbo {
-			t.Errorf("special_mode=%q: Turbo.On = %v, want %v", c.mode, a.Turbo.On.Value(), c.turbo)
-		}
+		is.Equal(a.Night.On.Value(), c.night)
+		is.Equal(a.Turbo.On.Value(), c.turbo)
 	}
 }
 
 func TestSync_FilterMaintenance(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 
 	// Clean filter, 30 of 90 days remaining.
@@ -393,21 +346,16 @@ func TestSync_FilterMaintenance(t *testing.T) {
 		"filter_remaining_seconds": 30 * 86400,
 		"filter_total_seconds":     90 * 86400,
 	}})
-	if v := a.Filter.FilterChangeIndication.Value(); v != 0 {
-		t.Errorf("FilterChangeIndication = %v, want 0 (clean)", v)
-	}
-	if v := a.FilterLifeLevel.Value(); v != 33.0 {
-		t.Errorf("FilterLifeLevel = %v, want 33", v)
-	}
+	is.Equal(a.Filter.FilterChangeIndication.Value(), 0) // clean
+	is.Equal(a.FilterLifeLevel.Value(), 33.0)
 
 	// Soiled filter.
 	Sync(a, breezy.Status{Service: map[string]any{"filter_status": "soiled"}})
-	if v := a.Filter.FilterChangeIndication.Value(); v != 1 {
-		t.Errorf("FilterChangeIndication = %v, want 1 (soiled)", v)
-	}
+	is.Equal(a.Filter.FilterChangeIndication.Value(), 1) // soiled
 }
 
 func TestSync_BatteryLevelFromVolts(t *testing.T) {
+	is := is.New(t)
 	cases := []struct {
 		volts float64
 		pct   int
@@ -423,23 +371,16 @@ func TestSync_BatteryLevelFromVolts(t *testing.T) {
 	for _, c := range cases {
 		a := newTestAccessory()
 		Sync(a, breezy.Status{Service: map[string]any{"rtc_battery_volts": c.volts}})
-		if v := a.Battery.BatteryLevel.Value(); v != c.pct {
-			t.Errorf("volts=%v: BatteryLevel = %v, want %v", c.volts, v, c.pct)
-		}
-		if v := a.Battery.StatusLowBattery.Value(); v != c.low {
-			t.Errorf("volts=%v: StatusLowBattery = %v, want %v", c.volts, v, c.low)
-		}
+		is.Equal(a.Battery.BatteryLevel.Value(), c.pct)
+		is.Equal(a.Battery.StatusLowBattery.Value(), c.low)
 	}
 }
 
 func TestSync_StatusFault(t *testing.T) {
+	is := is.New(t)
 	a := newTestAccessory()
 	Sync(a, breezy.Status{Service: map[string]any{"fault_level": "none"}})
-	if v := a.StatusFault.Value(); v != 0 {
-		t.Errorf("StatusFault (none) = %v, want 0", v)
-	}
+	is.Equal(a.StatusFault.Value(), 0)
 	Sync(a, breezy.Status{Service: map[string]any{"fault_level": "alarm"}})
-	if v := a.StatusFault.Value(); v != 1 {
-		t.Errorf("StatusFault (alarm) = %v, want 1", v)
-	}
+	is.Equal(a.StatusFault.Value(), 1)
 }
