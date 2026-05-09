@@ -46,12 +46,12 @@ templ InfoDetails(v ui.DeviceView) {
 		data-block="info"
 		data-attr:open="$detailsOpen.info"
 	>
-		<summary>
+		<summary data-on:click="$detailsOpen.info = !$detailsOpen.info">
 			<h2>{ v.Name }</h2>
 			<button
 				type="button"
 				class="toggle toggle-inline"
-				data-on:click={ powerButtonExpr(v) }
+				data-on:click__stop={ powerButtonExpr(v) }
 				if v.Stale { disabled }
 				aria-pressed={ boolAttr(v.Power) }
 			>power</button>

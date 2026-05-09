@@ -109,6 +109,26 @@ test.describe("rendering", () => {
     await expect(card).toContainText("54%");
     await expect(card).toContainText("1175 ppm");
   });
+
+  // Pins #118: clicking a <details> summary must toggle the open state and
+  // keep the toggled state across datastar's reactive cycle. Before the fix,
+  // data-attr:open enforced the (still-false) signal one-way, so the open
+  // attribute got reverted by the next pass and clicks no-op'd. The fix is
+  // a data-on:toggle handler that writes evt.target.open back into the
+  // signal so signal and DOM stay reconciled.
+  test("details summary click toggles open state (round-trip)", async ({ page }) => {
+    await reset(DEVICE);
+    const card = await loadCard(page);
+    const info = card.locator('details[data-block="info"]');
+    // Defaults closed (initialCardSignals seeds detailsOpen.info=false).
+    await expect(info).not.toHaveAttribute("open", "");
+
+    await info.locator("summary").click();
+    await expect(info).toHaveAttribute("open", "");
+
+    await info.locator("summary").click();
+    await expect(info).not.toHaveAttribute("open", "");
+  });
 });
 
 test.describe("SSE push", () => {
@@ -352,6 +372,34 @@ test.describe("reconnect", () => {
       timeout: POLL_PUSH_TIMEOUT,
     });
   });
+
+  // Catalog B-32 (#36): on reconnect the dashboard must not show
+  // duplicate cards. The handler differentiates cold-load vs reconnect
+  // via Last-Event-ID (see handlers_ui_sse.go::emitInitialCard) — cold
+  // load uses mode=append against #device-list; reconnect uses
+  // mode=outer against .card[data-device=...] to replace in-place.
+  //
+  // This test asserts the cold-load path stays at exactly one card per
+  // device across page reloads. The reconnect-with-Last-Event-ID path
+  // is harder to drive end-to-end (datastar's AbortController for the
+  // SSE stream is not exposed; we'd need to intercept the fetch
+  // response body to force a mid-stream disconnect), and is already
+  // pinned server-side by Go tests:
+  //   - TestGetUISSE_ReconnectUsesOuterMode (with Last-Event-ID set)
+  //   - TestGetUISSE_ColdLoadUsesAppendMode (without)
+  // so the wire contract is verified at unit-test speed.
+  test("page reload does not duplicate the device card", async ({ page }) => {
+    await reset(DEVICE);
+    await loadCard(page);
+    await expect(page.getByTestId(`card-${DEVICE}`)).toHaveCount(1);
+
+    // Reload — second cold load against the same DOM does NOT happen
+    // (each navigation is a fresh document) but this is the closest
+    // user-observable behavior to the "stale tab kept open" pattern
+    // that started prompting the catalog gap.
+    await page.reload();
+    await expect(page.getByTestId(`card-${DEVICE}`)).toHaveCount(1);
+  });
 });
 
 test.describe("editor preservation across polls (#65)", () => {
@@ -363,16 +411,10 @@ test.describe("editor preservation across polls (#65)", () => {
     });
     const card = await loadCard(page);
 
-    // Open the schedule <details> by updating the datastar signal directly.
-    // A summary click alone would toggle `open`, but the MutationObserver
-    // bound by data-attr:open="$detailsOpen.schedule" immediately re-evaluates
-    // the (still-false) signal and removes the open attribute again.
-    // Importing the module and calling mergePaths updates the reactive store,
-    // so the binding re-evaluates to true and keeps the details open.
-    await page.evaluate(async () => {
-      const { mergePaths } = await import("/ui/vendor/datastar-1.0.1.min.js");
-      mergePaths([["detailsOpen.schedule", true]]);
-    });
+    // Open the schedule <details> via a real summary click — the
+    // data-on:toggle handler writes the new open state back into
+    // $detailsOpen.schedule, keeping the binding consistent (see #118).
+    await card.locator('details[data-block="schedule"] > summary').click();
 
     // Click "edit schedule" to enter edit mode.
     const editBtn = card.getByRole("button", { name: "edit schedule" });

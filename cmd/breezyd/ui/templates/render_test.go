@@ -199,6 +199,69 @@ func TestSchedulePctOrigValue(t *testing.T) {
 	}
 }
 
+// TestInfoDetails_ActiveFault pins the rendering of a device with an
+// active fault (FaultLevel != "none") and the soiled-filter / fault path
+// that flips NeedsAttention. The golden snapshot_schedule_alert fixture
+// happens to set both, but a focused contract is more useful when the
+// fault path itself changes — failures point at the right thing instead
+// of "golden mismatch."
+//
+// Behaviors pinned (catalog B-04):
+//   - The faults kvRow shows the FaultLevel string verbatim.
+//   - The reset-faults action button is wired to /ui/devices/<name>/reset-faults.
+//   - When NeedsAttention is true, the InfoDetails block carries the
+//     "alert" class (CSS uses .device-info.alert > summary > h2 to
+//     tint the device name red).
+//   - When NeedsAttention is false, the "alert" class is absent.
+func TestInfoDetails_ActiveFault(t *testing.T) {
+	cases := []struct {
+		name           string
+		faultLevel     string
+		needsAttention bool
+		wantAlertClass bool
+	}{
+		{"alarm + needs attention", "alarm", true, true},
+		{"warning + needs attention", "warning", true, true},
+		{"none + clear", "none", false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := ui.DeviceView{
+				Name:           "alpha",
+				FaultLevel:     c.faultLevel,
+				NeedsAttention: c.needsAttention,
+				FilterStatus:   "clean",
+			}
+			var sb strings.Builder
+			if err := InfoDetails(v).Render(context.Background(), &sb); err != nil {
+				t.Fatal(err)
+			}
+			got := sb.String()
+
+			// faults kvRow shows the level verbatim. kvRowWithAction
+			// emits a space between the key and value spans (templ
+			// inserts whitespace between sibling lines in the .templ
+			// source), so we match the space-separated form.
+			wantRow := `<span class="k">faults</span> <span>` + c.faultLevel + `</span>`
+			if !strings.Contains(got, wantRow) {
+				t.Errorf("missing faults row %q\n%s", wantRow, got)
+			}
+
+			// reset-faults button wired to the right endpoint.
+			wantPost := `/ui/devices/alpha/reset-faults`
+			if !strings.Contains(got, wantPost) {
+				t.Errorf("missing reset-faults POST URL %q\n%s", wantPost, got)
+			}
+
+			// alert class presence tracks NeedsAttention.
+			hasAlert := strings.Contains(got, ` class="device-info alert"`)
+			if hasAlert != c.wantAlertClass {
+				t.Errorf("alert class presence = %v, want %v\n%s", hasAlert, c.wantAlertClass, got)
+			}
+		})
+	}
+}
+
 func TestDeviceCardGolden(t *testing.T) {
 	cases := []string{
 		"snapshot_regen", "snapshot_manual", "snapshot_settling",
@@ -294,6 +357,83 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 	// literal in the templ file so single quotes are not HTML-escaped.
 	if !strings.Contains(got, `data-attr:data-edit="$editor !== 0 ? 'true' : null"`) {
 		t.Errorf("controls reactive data-edit binding missing")
+	}
+}
+
+// TestRenderBlocks_DetailsOpenBinding pins that every collapsible
+// <details> block in the card pairs `data-attr:open="$detailsOpen.<key>"`
+// on the <details> with `data-on:click="$detailsOpen.<key> = !$detailsOpen.<key>"`
+// on its <summary>. The pair makes user-toggled and signal-driven open state
+// consistent: the click flips the signal, the browser also toggles the open
+// attribute, and data-attr:open re-applies the (now-matching) signal so
+// nothing reverts. A `data-on:toggle` writeback would not work because
+// datastar's MutationObserver-driven re-evaluation runs before the toggle
+// event fires (see #118).
+//
+// Catalog B-28 (#36) — regressed once during the htmx → datastar
+// migration; pinning here keeps it caught at unit-test speed.
+func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
+	v := loadView(t, "snapshot_settling")
+	cases := []struct {
+		block      string
+		wantAttr   string
+		wantToggle string
+		render     func() (string, error)
+	}{
+		{
+			block:      "info",
+			wantAttr:   `data-attr:open="$detailsOpen.info"`,
+			wantToggle: `data-on:click="$detailsOpen.info = !$detailsOpen.info"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := InfoDetails(v).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+		{
+			block:      "sensors",
+			wantAttr:   `data-attr:open="$detailsOpen.sensors"`,
+			wantToggle: `data-on:click="$detailsOpen.sensors = !$detailsOpen.sensors"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := SensorsBlock(v.Name, v.Sensors).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+		{
+			block:      "energy",
+			wantAttr:   `data-attr:open="$detailsOpen.energy"`,
+			wantToggle: `data-on:click="$detailsOpen.energy = !$detailsOpen.energy"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := EnergyBlock(v.Name, v.Energy).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+		{
+			block:      "schedule",
+			wantAttr:   `data-attr:open="$detailsOpen.schedule"`,
+			wantToggle: `data-on:click="$detailsOpen.schedule = !$detailsOpen.schedule"`,
+			render: func() (string, error) {
+				var sb strings.Builder
+				err := ScheduleBlock(v.Name, v.Schedule, v.Stale).Render(context.Background(), &sb)
+				return sb.String(), err
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.block, func(t *testing.T) {
+			got, err := c.render()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(got, c.wantAttr) {
+				t.Errorf("%s block missing %q\n%s", c.block, c.wantAttr, got)
+			}
+			if !strings.Contains(got, c.wantToggle) {
+				t.Errorf("%s block missing %q\n%s", c.block, c.wantToggle, got)
+			}
+		})
 	}
 }
 
