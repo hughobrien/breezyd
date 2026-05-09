@@ -105,6 +105,13 @@ func timerMode(currentMode, requestedMode string) string {
 	return requestedMode
 }
 
+// manualSliderRow renders the manual fan-pct range input. Reads
+// evt.target.valueAsNumber directly in the @post expression rather than
+// going through a $manualPct signal — value-form data-bind would enforce
+// signal-wins on every card re-render, clobbering the server-rendered
+// value attribute when the data-signals seed lags a poll. The input's
+// own value is the only state needed; let it be the source of truth.
+// See #116.
 templ manualSliderRow(v ui.DeviceView) {
 	<div class="slider-row fan-slider-row">
 		<span class="fan-side"></span>
@@ -115,8 +122,7 @@ templ manualSliderRow(v ui.DeviceView) {
 			max="100"
 			step="1"
 			value={ fmt.Sprintf("%d", v.ManualPct) }
-			data-bind:manualPct
-			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: $manualPct}") }
+			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
 		/>
 		<span class="val">{ fmt.Sprintf("%d%%", v.ManualPct) }</span>
 	</div>
@@ -162,11 +168,11 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 		data-show={ fmt.Sprintf("$editor === %d", n) }
 	>
 		<label class="match-speeds">
-			<input type="checkbox" data-bind:automode if v.Stale { disabled }/>
+			<input type="checkbox" data-bind="automode" if v.Stale { disabled }/>
 			automode
 		</label>
 		<label class="match-speeds">
-			<input type="checkbox" data-bind:matchSpeeds if v.Stale { disabled }/>
+			<input type="checkbox" data-bind="matchSpeeds" if v.Stale { disabled }/>
 			match speeds
 		</label>
 		<div class="slider-row">
