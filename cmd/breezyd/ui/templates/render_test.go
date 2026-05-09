@@ -82,6 +82,9 @@ func TestLayout(t *testing.T) {
 //     pct <input> when the user toggles action, and every pct input
 //     stashes a sane fallback in data-orig-pct so toggling back from
 //     "off" restores a valid value.
+//   - #66 (last-edited restore): the pct <input> carries a data-on:change
+//     handler that updates data-orig-pct on every commit, so off→on
+//     restores the user's last edit rather than the server-render value.
 //
 // Note on attribute escaping: templ HTML-escapes single quotes in
 // dynamic attribute values to &#39; (string-interpolated values via
@@ -94,6 +97,11 @@ func TestScheduleEditRow(t *testing.T) {
 	// literal guards against accidental edits to scheduleActionChangeExpr
 	// or to templ's escaping behavior on dynamic attribute interpolation.
 	const wantChangeExpr = `data-on:change="const pct = evt.target.closest(&#39;tr&#39;).querySelector(&#39;input[name=pct]&#39;); if (evt.target.value === &#39;off&#39;) { pct.value = &#39;&#39;; pct.setAttribute(&#39;readonly&#39;, &#39;&#39;); pct.classList.add(&#39;pct-disabled&#39;); } else { pct.value = pct.dataset.origPct; pct.removeAttribute(&#39;readonly&#39;); pct.classList.remove(&#39;pct-disabled&#39;); }"`
+
+	// wantPctChangeExpr is the static literal data-on:change on the pct
+	// <input> itself. No single-quote escaping needed (the expression
+	// uses none); pinned as a literal substring.
+	const wantPctChangeExpr = `data-on:change="evt.target.dataset.origPct = evt.target.value"`
 
 	cases := []struct {
 		name        string
@@ -151,6 +159,9 @@ func TestScheduleEditRow(t *testing.T) {
 			}
 			if !strings.Contains(got, wantChangeExpr) {
 				t.Errorf("action select missing data-on:change literal (issue #44 editor-sync regression)\nwant: %s\n--- got ---\n%s", wantChangeExpr, got)
+			}
+			if !strings.Contains(got, wantPctChangeExpr) {
+				t.Errorf("pct input missing data-on:change literal (issue #66 last-edited restore regression)\nwant: %s\n--- got ---\n%s", wantPctChangeExpr, got)
 			}
 			for _, n := range c.notWant {
 				if strings.Contains(got, n) {
