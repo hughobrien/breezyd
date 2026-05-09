@@ -24,6 +24,7 @@ import (
 	"github.com/hughobrien/breezyd/internal/config"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/hughobrien/breezyd/pkg/breezy/fakedevice"
+	"github.com/matryer/is"
 )
 
 // stub records what the test server received so the test can assert.
@@ -76,24 +77,18 @@ func TestPower(t *testing.T) {
 		{"off", false},
 	} {
 		t.Run(tc.verb, func(t *testing.T) {
+			is := is.New(t)
 			var got stub
 			srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 			defer srv.Close()
 
-			code, stdout, stderr := runCLI(t, srv, "playroom", tc.verb)
-			if code != 0 {
-				t.Fatalf("exit=%d stderr=%q", code, stderr)
-			}
-			if got.method != "POST" || got.path != "/v1/devices/playroom/power" {
-				t.Fatalf("got %s %s", got.method, got.path)
-			}
+			code, stdout, _ := runCLI(t, srv, "playroom", tc.verb)
+			is.Equal(code, 0)
+			is.Equal(got.method, "POST")
+			is.Equal(got.path, "/v1/devices/playroom/power")
 			gotOn, _ := got.body["on"].(bool)
-			if gotOn != tc.wantOn {
-				t.Fatalf("body on=%v want %v (body=%v)", gotOn, tc.wantOn, got.body)
-			}
-			if !strings.Contains(stdout, "ok") {
-				t.Fatalf("stdout=%q", stdout)
-			}
+			is.Equal(gotOn, tc.wantOn) // body on flag must match verb
+			is.True(strings.Contains(stdout, "ok"))
 		})
 	}
 }
@@ -101,138 +96,101 @@ func TestPower(t *testing.T) {
 // TestSpeedPreset / TestSpeedManual cover the local validation +
 // outgoing body shape for `speed <preset>` and `speed manual:<pct>`.
 func TestSpeedPreset(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "speed", "2")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.path != "/v1/devices/playroom/speed" {
-		t.Fatalf("path=%q", got.path)
-	}
-	if v, _ := got.body["preset"].(float64); int(v) != 2 {
-		t.Fatalf("preset=%v body=%v", got.body["preset"], got.body)
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "speed", "2")
+	is.Equal(code, 0)
+	is.Equal(got.path, "/v1/devices/playroom/speed")
+	v, _ := got.body["preset"].(float64)
+	is.Equal(int(v), 2) // preset value in body
 }
 
 func TestSpeedManual(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "speed", "manual:30")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if v, _ := got.body["manual"].(float64); int(v) != 30 {
-		t.Fatalf("manual=%v body=%v", got.body["manual"], got.body)
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "speed", "manual:30")
+	is.Equal(code, 0)
+	v, _ := got.body["manual"].(float64)
+	is.Equal(int(v), 30) // manual pct in body
 }
 
 // TestSpeedManualBelowFloor enforces the spec's local-rejection rule:
 // pct < 10 must fail BEFORE any HTTP request, with exit code 2.
 func TestSpeedManualBelowFloor(t *testing.T) {
+	is := is.New(t)
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	}))
 	defer srv.Close()
 	code, _, stderr := runCLI(t, srv, "playroom", "speed", "manual:5")
-	if code != 2 {
-		t.Fatalf("exit=%d (want 2) stderr=%q", code, stderr)
-	}
-	if called {
-		t.Fatalf("CLI hit daemon despite local floor check")
-	}
-	if !strings.Contains(stderr, "floor") {
-		t.Fatalf("stderr=%q (want mention of floor)", stderr)
-	}
+	is.Equal(code, 2)                          // local floor check exit
+	is.True(!called)                           // CLI must not hit daemon
+	is.True(strings.Contains(stderr, "floor")) // stderr should mention floor
 }
 
 func TestSpeedBadArg(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
 	code, _, _ := runCLI(t, srv, "playroom", "speed", "9")
-	if code != 2 {
-		t.Fatalf("exit=%d (want 2)", code)
-	}
+	is.Equal(code, 2)
 }
 
 // TestModeValidation exercises the local check against the four
 // allowed mode names.
 func TestModeValidation(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
 	for _, m := range []string{"ventilation", "regeneration", "supply", "extract"} {
 		got = stub{}
-		code, _, stderr := runCLI(t, srv, "playroom", "mode", m)
-		if code != 0 {
-			t.Fatalf("mode=%s exit=%d stderr=%q", m, code, stderr)
-		}
-		if got.body["mode"] != m {
-			t.Fatalf("body mode=%v want %s", got.body["mode"], m)
-		}
+		code, _, _ := runCLI(t, srv, "playroom", "mode", m)
+		is.Equal(code, 0)             // mode m should succeed
+		is.Equal(got.body["mode"], m) // body mode must match arg
 	}
 	// Bogus.
 	code, _, stderr := runCLI(t, srv, "playroom", "mode", "fluff")
-	if code != 2 {
-		t.Fatalf("bogus mode exit=%d", code)
-	}
-	if !strings.Contains(stderr, "ventilation") {
-		t.Fatalf("stderr=%q (should list valid modes)", stderr)
-	}
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr, "ventilation")) // stderr should list valid modes
 }
 
 func TestTimerValidation(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
 	for _, m := range []string{"off", "night", "turbo"} {
 		got = stub{}
-		code, _, stderr := runCLI(t, srv, "playroom", "timer", m)
-		if code != 0 {
-			t.Fatalf("timer=%s exit=%d stderr=%q", m, code, stderr)
-		}
-		if got.path != "/v1/devices/playroom/timer" {
-			t.Fatalf("path=%q want /v1/devices/playroom/timer", got.path)
-		}
-		if got.body["mode"] != m {
-			t.Fatalf("body mode=%v want %s", got.body["mode"], m)
-		}
+		code, _, _ := runCLI(t, srv, "playroom", "timer", m)
+		is.Equal(code, 0)
+		is.Equal(got.path, "/v1/devices/playroom/timer")
+		is.Equal(got.body["mode"], m)
 	}
 	// Bogus mode → exit 2, stderr lists valid modes.
 	code, _, stderr := runCLI(t, srv, "playroom", "timer", "fluff")
-	if code != 2 {
-		t.Fatalf("bogus mode exit=%d", code)
-	}
-	if !strings.Contains(stderr, "off, night, turbo") {
-		t.Fatalf("stderr=%q (should list valid modes)", stderr)
-	}
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr, "off, night, turbo"))
 	// Missing arg → exit 2, usage message.
 	code, _, stderr = runCLI(t, srv, "playroom", "timer")
-	if code != 2 {
-		t.Fatalf("missing arg exit=%d", code)
-	}
-	if !strings.Contains(stderr, "usage:") {
-		t.Fatalf("stderr=%q (should print usage)", stderr)
-	}
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr, "usage:"))
 }
 
 func TestHeater(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "heater", "on")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.path != "/v1/devices/playroom/heater" {
-		t.Fatalf("path=%s", got.path)
-	}
-	if got.body["on"] != true {
-		t.Fatalf("body on=%v", got.body["on"])
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "heater", "on")
+	is.Equal(code, 0)
+	is.Equal(got.path, "/v1/devices/playroom/heater")
+	is.Equal(got.body["on"], true)
 }
 
 // TestCLI_Threshold drives `breezy <name> threshold <kind> <value>` end-to-end
@@ -250,21 +208,16 @@ func TestCLI_Threshold(t *testing.T) {
 		{"voc", "200", "c800", 0x031F},
 	} {
 		t.Run(c.kind, func(t *testing.T) {
+			is := is.New(t)
 			fake := startFakeDevice(t)
 			devices := map[string]config.Device{
 				"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 			}
-			code, _, stderr := runStandalone(t, devices, "playroom", "threshold", c.kind, c.value)
-			if code != 0 {
-				t.Fatalf("code=%d stderr=%s", code, stderr)
-			}
+			code, _, _ := runStandalone(t, devices, "playroom", "threshold", c.kind, c.value)
+			is.Equal(code, 0)
 			got, ok := fake.Value(c.id)
-			if !ok {
-				t.Fatalf("no value written at 0x%04X", c.id)
-			}
-			if got != c.hex {
-				t.Errorf("hex at 0x%04X = %q, want %q", c.id, got, c.hex)
-			}
+			is.True(ok)          // value must be written at the expected param id
+			is.Equal(got, c.hex) // hex encoding at param id
 		})
 	}
 }
@@ -272,30 +225,26 @@ func TestCLI_Threshold(t *testing.T) {
 // TestCLI_Threshold_Usage: missing args must exit 2 and print usage,
 // with no backend round-trip.
 func TestCLI_Threshold_Usage(t *testing.T) {
+	is := is.New(t)
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: "127.0.0.1:0"},
 	}
 	code, _, stderr := runStandalone(t, devices, "playroom", "threshold")
-	if code != 2 {
-		t.Errorf("code = %d, want 2 (usage error); stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stderr, "usage:") {
-		t.Errorf("stderr=%q (should print usage)", stderr)
-	}
+	is.Equal(code, 2) // usage error
+	is.True(strings.Contains(stderr, "usage:"))
 }
 
 // TestCLI_Threshold_OutOfRange: value beyond the firmware-accepted range
 // surfaces from breezy.SetThresholdConfig as ErrInvalidArg, which the CLI
 // renders as exit code 1 (backend error), distinct from local usage (2).
 func TestCLI_Threshold_OutOfRange(t *testing.T) {
+	is := is.New(t)
 	fake := startFakeDevice(t)
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, stderr := runStandalone(t, devices, "playroom", "threshold", "humidity", "90")
-	if code != 1 {
-		t.Errorf("code = %d, want 1 (validation rejected by ops); stderr=%q", code, stderr)
-	}
+	code, _, _ := runStandalone(t, devices, "playroom", "threshold", "humidity", "90")
+	is.Equal(code, 1) // backend-side validation rejection
 }
 
 // TestCLI_AutoFan drives `breezy <name> auto-fan <kind> on|off` end-to-end
@@ -313,21 +262,16 @@ func TestCLI_AutoFan(t *testing.T) {
 		{"voc", "off", "00", 0x0315},
 	} {
 		t.Run(c.kind+"_"+c.state, func(t *testing.T) {
+			is := is.New(t)
 			fake := startFakeDevice(t)
 			devices := map[string]config.Device{
 				"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 			}
-			code, _, stderr := runStandalone(t, devices, "playroom", "auto-fan", c.kind, c.state)
-			if code != 0 {
-				t.Fatalf("code=%d stderr=%s", code, stderr)
-			}
+			code, _, _ := runStandalone(t, devices, "playroom", "auto-fan", c.kind, c.state)
+			is.Equal(code, 0)
 			got, ok := fake.Value(c.id)
-			if !ok {
-				t.Fatalf("no value written at 0x%04X", c.id)
-			}
-			if got != c.hex {
-				t.Errorf("hex at 0x%04X = %q, want %q", c.id, got, c.hex)
-			}
+			is.True(ok) // value written at expected param id
+			is.Equal(got, c.hex)
 		})
 	}
 }
@@ -337,13 +281,12 @@ func TestCLI_AutoFan(t *testing.T) {
 // logic ever reaches the backend, the test will fail with a UDP error
 // instead of the expected usage exit.
 func TestCLI_AutoFan_BadState(t *testing.T) {
+	is := is.New(t)
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: "127.0.0.1:0"},
 	}
-	code, _, stderr := runStandalone(t, devices, "playroom", "auto-fan", "humidity", "yes")
-	if code != 2 {
-		t.Errorf("code = %d, want 2 (usage error); stderr=%q", code, stderr)
-	}
+	code, _, _ := runStandalone(t, devices, "playroom", "auto-fan", "humidity", "yes")
+	is.Equal(code, 2) // usage error
 }
 
 // TestCLI_Threshold_Daemon and TestCLI_AutoFan_Daemon assert that the CLI
@@ -351,50 +294,37 @@ func TestCLI_AutoFan_BadState(t *testing.T) {
 // stub records the incoming request so we can verify the contract; the
 // directBackend path is covered by the standalone tests above.
 func TestCLI_Threshold_Daemon(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "threshold", "co2", "1500")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.method != "POST" || got.path != "/v1/devices/playroom/threshold" {
-		t.Fatalf("got %s %s, want POST /v1/devices/playroom/threshold", got.method, got.path)
-	}
-	if got.body["kind"] != "co2" {
-		t.Errorf("body kind=%v want co2", got.body["kind"])
-	}
-	if v, _ := got.body["value"].(float64); int(v) != 1500 {
-		t.Errorf("body value=%v want 1500", got.body["value"])
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "threshold", "co2", "1500")
+	is.Equal(code, 0)
+	is.Equal(got.method, "POST")
+	is.Equal(got.path, "/v1/devices/playroom/threshold")
+	is.Equal(got.body["kind"], "co2")
+	v, _ := got.body["value"].(float64)
+	is.Equal(int(v), 1500)
 	// "enabled" key must be ABSENT for threshold-only set; sending it as
 	// null/false would let the daemon misread the intent.
-	if _, present := got.body["enabled"]; present {
-		t.Errorf("body should not include 'enabled' for threshold-only set; body=%v", got.body)
-	}
+	_, present := got.body["enabled"]
+	is.True(!present) // enabled key must be absent for threshold-only set
 }
 
 func TestCLI_AutoFan_Daemon(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "auto-fan", "humidity", "off")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.method != "POST" || got.path != "/v1/devices/playroom/threshold" {
-		t.Fatalf("got %s %s, want POST /v1/devices/playroom/threshold", got.method, got.path)
-	}
-	if got.body["kind"] != "humidity" {
-		t.Errorf("body kind=%v want humidity", got.body["kind"])
-	}
-	if got.body["enabled"] != false {
-		t.Errorf("body enabled=%v want false", got.body["enabled"])
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "auto-fan", "humidity", "off")
+	is.Equal(code, 0)
+	is.Equal(got.method, "POST")
+	is.Equal(got.path, "/v1/devices/playroom/threshold")
+	is.Equal(got.body["kind"], "humidity")
+	is.Equal(got.body["enabled"], false)
 	// "value" must be absent for enable-only toggles.
-	if _, present := got.body["value"]; present {
-		t.Errorf("body should not include 'value' for auto-fan toggle; body=%v", got.body)
-	}
+	_, present := got.body["value"]
+	is.True(!present) // value key must be absent for auto-fan toggle
 }
 
 func TestResetFilterAndFaults(t *testing.T) {
@@ -406,16 +336,14 @@ func TestResetFilterAndFaults(t *testing.T) {
 		{"reset-faults", "/v1/devices/playroom/faults/reset"},
 	} {
 		t.Run(tc.verb, func(t *testing.T) {
+			is := is.New(t)
 			var got stub
 			srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 			defer srv.Close()
-			code, _, stderr := runCLI(t, srv, "playroom", tc.verb)
-			if code != 0 {
-				t.Fatalf("exit=%d stderr=%q", code, stderr)
-			}
-			if got.method != "POST" || got.path != tc.wantPath {
-				t.Fatalf("got %s %s want POST %s", got.method, got.path, tc.wantPath)
-			}
+			code, _, _ := runCLI(t, srv, "playroom", tc.verb)
+			is.Equal(code, 0)
+			is.Equal(got.method, "POST")
+			is.Equal(got.path, tc.wantPath)
 		})
 	}
 }
@@ -423,6 +351,7 @@ func TestResetFilterAndFaults(t *testing.T) {
 // TestFaultsList verifies the empty-list case prints the spec's
 // exact fallback string.
 func TestFaultsList(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -433,31 +362,26 @@ func TestFaultsList(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	code, stdout, stderr := runCLI(t, srv, "playroom", "faults")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stdout, "alarm: code 12") {
-		t.Fatalf("stdout=%q", stdout)
-	}
-	if !strings.Contains(stdout, "warning: code 7") {
-		t.Fatalf("stdout=%q", stdout)
-	}
+	code, stdout, _ := runCLI(t, srv, "playroom", "faults")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "alarm: code 12"))
+	is.True(strings.Contains(stdout, "warning: code 7"))
 }
 
 func TestFaultsEmpty(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"faults": []any{}})
 	}))
 	defer srv.Close()
 	code, stdout, _ := runCLI(t, srv, "playroom", "faults")
-	if code != 0 || !strings.Contains(stdout, "no active faults") {
-		t.Fatalf("exit=%d stdout=%q", code, stdout)
-	}
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "no active faults"))
 }
 
 func TestFirmware(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -466,31 +390,29 @@ func TestFirmware(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	code, stdout, stderr := runCLI(t, srv, "playroom", "firmware")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stdout, "0.11") || !strings.Contains(stdout, "2025-04-01") {
-		t.Fatalf("stdout=%q", stdout)
-	}
+	code, stdout, _ := runCLI(t, srv, "playroom", "firmware")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "0.11"))
+	is.True(strings.Contains(stdout, "2025-04-01"))
 }
 
 func TestEfficiency(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"recovery_efficiency_pct": 85})
 	}))
 	defer srv.Close()
 	code, stdout, _ := runCLI(t, srv, "playroom", "efficiency")
-	if code != 0 || !strings.Contains(stdout, "85%") {
-		t.Fatalf("exit=%d stdout=%q", code, stdout)
-	}
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "85%"))
 }
 
 // TestStatus exercises the snapshot renderer end-to-end. We feed a
 // realistic SnapshotResponse and assert key substrings (rather than a
 // full snapshot string) so minor formatting tweaks don't flake.
 func TestStatus(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -531,10 +453,8 @@ func TestStatus(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	code, stdout, stderr := runCLI(t, srv, "playroom", "status")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
+	code, stdout, _ := runCLI(t, srv, "playroom", "status")
+	is.Equal(code, 0)
 	for _, sub := range []string{
 		"playroom @ 192.168.1.148",
 		"firmware 0.11",
@@ -551,19 +471,16 @@ func TestStatus(t *testing.T) {
 		"motor",
 		"RTC 3.34 V",
 	} {
-		if !strings.Contains(stdout, sub) {
-			t.Errorf("stdout missing %q\n%s", sub, stdout)
-		}
+		is.True(strings.Contains(stdout, sub)) // status output must contain expected substring
 	}
 	// No-override case must NOT include the warning line.
-	if strings.Contains(stdout, "sensor override") {
-		t.Errorf("unexpected override warning in non-override status:\n%s", stdout)
-	}
+	is.True(!strings.Contains(stdout, "sensor override")) // no override warning when in_user_control=true
 }
 
 // TestStatusSensorOverride ensures the warning fires when the daemon
 // reports in_user_control=false, and that the alert summary is included.
 func TestStatusSensorOverride(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -579,18 +496,13 @@ func TestStatusSensorOverride(t *testing.T) {
 	}))
 	defer srv.Close()
 	code, stdout, _ := runCLI(t, srv, "playroom", "status")
-	if code != 0 {
-		t.Fatalf("exit=%d", code)
-	}
-	if !strings.Contains(stdout, "sensor override") {
-		t.Errorf("missing override warning:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "co2") {
-		t.Errorf("override warning should mention co2 alert:\n%s", stdout)
-	}
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "sensor override")) // override warning expected
+	is.True(strings.Contains(stdout, "co2"))             // override warning should mention co2 alert
 }
 
 func TestLs(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		on := true
 		off := false
@@ -614,71 +526,60 @@ func TestLs(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	code, stdout, stderr := runCLI(t, srv, "ls")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
+	code, stdout, _ := runCLI(t, srv, "ls")
+	is.Equal(code, 0)
 	for _, sub := range []string{
 		"NAME", "IP", "POWER", "MODE", "LAST POLL",
 		"playroom", "office", "regeneration", "ventilation",
 	} {
-		if !strings.Contains(stdout, sub) {
-			t.Errorf("ls stdout missing %q:\n%s", sub, stdout)
-		}
+		is.True(strings.Contains(stdout, sub)) // ls output must contain substring
 	}
 }
 
 func TestLsEmpty(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"devices": []any{}})
 	}))
 	defer srv.Close()
 	code, stdout, _ := runCLI(t, srv, "ls")
-	if code != 0 || !strings.Contains(stdout, "no devices") {
-		t.Fatalf("exit=%d stdout=%q", code, stdout)
-	}
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "no devices"))
 }
 
 func TestDaemonURL(t *testing.T) {
+	is := is.New(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--daemon", "http://x:1234", "daemon-url"}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
-	if strings.TrimSpace(stdout.String()) != "http://x:1234" {
-		t.Fatalf("stdout=%q", stdout.String())
-	}
+	is.Equal(code, 0) // exit code; stderr=stderr.String() if nonzero
+	is.Equal(strings.TrimSpace(stdout.String()), "http://x:1234")
 }
 
 func TestDaemonURLNormalizesBareHostPort(t *testing.T) {
+	is := is.New(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--daemon", "127.0.0.1:9876", "daemon-url"}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
-	if got := strings.TrimSpace(stdout.String()); got != "http://127.0.0.1:9876" {
-		t.Fatalf("stdout=%q", got)
-	}
+	is.Equal(code, 0)
+	is.Equal(strings.TrimSpace(stdout.String()), "http://127.0.0.1:9876")
+	_ = stderr
 }
 
 func TestDaemonURLStandaloneByDefault(t *testing.T) {
+	is := is.New(t)
 	// Neutralise any real ~/.config/breezy/config.toml so the test is hermetic.
 	t.Setenv("HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"daemon-url"}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
-	got := strings.TrimSpace(stdout.String())
-	if got != "(standalone — no daemon)" {
-		t.Errorf("got %q, want '(standalone — no daemon)'", got)
-	}
+	is.Equal(code, 0)
+	is.Equal(strings.TrimSpace(stdout.String()), "(standalone — no daemon)")
+	_ = stderr
 }
 
 // TestErrorEnvelope verifies that {"error","code"} responses are
 // rendered in the spec's "error: <msg> (<code>)" form on stderr and
 // produce exit code 1.
 func TestErrorEnvelope(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(404)
@@ -686,33 +587,28 @@ func TestErrorEnvelope(t *testing.T) {
 	}))
 	defer srv.Close()
 	code, _, stderr := runCLI(t, srv, "playroom", "status")
-	if code != 1 {
-		t.Fatalf("exit=%d (want 1) stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stderr, "not configured") || !strings.Contains(stderr, "not_found") {
-		t.Fatalf("stderr=%q", stderr)
-	}
+	is.Equal(code, 1) // backend error exit
+	is.True(strings.Contains(stderr, "not configured"))
+	is.True(strings.Contains(stderr, "not_found"))
 }
 
 func TestErrorNonEnvelope(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		_, _ = w.Write([]byte("kapow"))
 	}))
 	defer srv.Close()
 	code, _, stderr := runCLI(t, srv, "playroom", "status")
-	if code != 1 {
-		t.Fatalf("exit=%d", code)
-	}
-	if !strings.Contains(stderr, "HTTP 500") {
-		t.Fatalf("stderr=%q", stderr)
-	}
+	is.Equal(code, 1)
+	is.True(strings.Contains(stderr, "HTTP 500"))
 }
 
 // TestGetByName resolves a registry name → ID before issuing the HTTP
 // GET, decodes the response hex into the registry's typed value, and
 // surfaces the unit.
 func TestGetByName(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got.method = r.Method
@@ -726,22 +622,15 @@ func TestGetByName(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	code, stdout, stderr := runCLI(t, srv, "playroom", "get", "humidity")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.path != "/v1/devices/playroom/params/0x0025" {
-		t.Fatalf("path=%s (CLI must resolve humidity → 0x0025)", got.path)
-	}
-	if !strings.Contains(stdout, "52") {
-		t.Fatalf("stdout=%q (want 52)", stdout)
-	}
-	if !strings.Contains(stdout, "%") {
-		t.Fatalf("stdout=%q (want %% unit from registry)", stdout)
-	}
+	code, stdout, _ := runCLI(t, srv, "playroom", "get", "humidity")
+	is.Equal(code, 0)
+	is.Equal(got.path, "/v1/devices/playroom/params/0x0025") // CLI must resolve humidity → 0x0025
+	is.True(strings.Contains(stdout, "52"))                  // decoded value
+	is.True(strings.Contains(stdout, "%"))                   // unit from registry
 }
 
 func TestGetByHex(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got.path = r.URL.Path
@@ -751,18 +640,15 @@ func TestGetByHex(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "get", "0x01")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.path != "/v1/devices/playroom/params/0x0001" {
-		t.Fatalf("path=%s", got.path)
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "get", "0x01")
+	is.Equal(code, 0)
+	is.Equal(got.path, "/v1/devices/playroom/params/0x0001")
 }
 
 // TestSetRejectReadOnly ensures we don't even round-trip when the user
 // targets a read-only param.
 func TestSetRejectReadOnly(t *testing.T) {
+	is := is.New(t)
 	hit := false
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		hit = true
@@ -770,49 +656,36 @@ func TestSetRejectReadOnly(t *testing.T) {
 	defer srv.Close()
 	// 0x0025 = humidity, read-only.
 	code, _, stderr := runCLI(t, srv, "playroom", "set", "humidity", "01")
-	if code != 2 {
-		t.Fatalf("exit=%d (want 2)", code)
-	}
-	if hit {
-		t.Fatalf("CLI hit daemon despite read-only check")
-	}
-	if !strings.Contains(stderr, "read-only") {
-		t.Fatalf("stderr=%q", stderr)
-	}
+	is.Equal(code, 2)                              // local read-only rejection
+	is.True(!hit)                                  // CLI must not hit daemon
+	is.True(strings.Contains(stderr, "read-only")) // stderr should explain
 }
 
 func TestSetWritesHex(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
 	// 0x001A = co2_threshold, writable uint16.
-	code, _, stderr := runCLI(t, srv, "playroom", "set", "co2_threshold", "d007")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.path != "/v1/devices/playroom/params/0x001A" {
-		t.Fatalf("path=%s", got.path)
-	}
-	if got.body["hex"] != "d007" {
-		t.Fatalf("hex=%v", got.body["hex"])
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "set", "co2_threshold", "d007")
+	is.Equal(code, 0)
+	is.Equal(got.path, "/v1/devices/playroom/params/0x001A")
+	is.Equal(got.body["hex"], "d007")
 }
 
 func TestSetUnknownParam(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
 	code, _, stderr := runCLI(t, srv, "playroom", "set", "nope", "00")
-	if code != 2 {
-		t.Fatalf("exit=%d (want 2) stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stderr, "unknown param") {
-		t.Fatalf("stderr=%q", stderr)
-	}
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr, "unknown param"))
 }
 
 // TestRtcShow needs two consecutive GETs (0x6F and 0x70) — verify the
 // CLI issues both and renders the combined date+time.
 func TestRtcShow(t *testing.T) {
+	is := is.New(t)
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
@@ -833,118 +706,95 @@ func TestRtcShow(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	code, stdout, stderr := runCLI(t, srv, "playroom", "rtc")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if hits != 2 {
-		t.Fatalf("expected 2 GETs, got %d", hits)
-	}
-	if !strings.Contains(stdout, "2026-05-03") || !strings.Contains(stdout, "13:45:30") {
-		t.Fatalf("stdout=%q", stdout)
-	}
+	code, stdout, _ := runCLI(t, srv, "playroom", "rtc")
+	is.Equal(code, 0)
+	is.Equal(hits, 2) // expected 2 GETs (date + time)
+	is.True(strings.Contains(stdout, "2026-05-03"))
+	is.True(strings.Contains(stdout, "13:45:30"))
 }
 
 func TestRtcSet(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "rtc", "set", "2026-05-03T13:45:30Z")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if got.path != "/v1/devices/playroom/rtc" {
-		t.Fatalf("path=%s", got.path)
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "rtc", "set", "2026-05-03T13:45:30Z")
+	is.Equal(code, 0)
+	is.Equal(got.path, "/v1/devices/playroom/rtc")
 	tStr, _ := got.body["time"].(string)
-	if !strings.HasPrefix(tStr, "2026-05-03T13:45:30") {
-		t.Fatalf("time=%q", tStr)
-	}
+	is.True(strings.HasPrefix(tStr, "2026-05-03T13:45:30"))
 }
 
 func TestRtcSetBadFormat(t *testing.T) {
+	is := is.New(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
-	code, _, stderr := runCLI(t, srv, "playroom", "rtc", "set", "yesterday")
-	if code != 2 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
+	code, _, _ := runCLI(t, srv, "playroom", "rtc", "set", "yesterday")
+	is.Equal(code, 2)
 }
 
 // TestUsageNoArgs / TestUnknownVerb cover the two main "exit code 2"
 // surfaces: nothing at all, and an unrecognised verb.
 func TestUsageNoArgs(t *testing.T) {
+	is := is.New(t)
 	var stdout, stderr bytes.Buffer
 	code := run(nil, &stdout, &stderr, nil)
-	if code != 2 {
-		t.Fatalf("exit=%d (want 2)", code)
-	}
+	is.Equal(code, 2)
+	_, _ = stdout, stderr
 }
 
 func TestUnknownVerb(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("HOME", t.TempDir()) // hermetic: no real ~/.config/breezy/config.toml
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"playroom", "barbecue"}, &stdout, &stderr, nil)
-	if code != 2 {
-		t.Fatalf("exit=%d (want 2)", code)
-	}
-	if !strings.Contains(stderr.String(), "unknown verb") {
-		t.Fatalf("stderr=%q", stderr.String())
-	}
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr.String(), "unknown verb"))
+	_ = stdout
 }
 
 func TestParam(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("HOME", t.TempDir()) // hermetic: no real ~/.config/breezy/config.toml
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"param"}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
+	is.Equal(code, 0) // exit code; stderr if nonzero
 	out := stdout.String()
 
 	// Header.
 	for _, h := range []string{"ID", "NAME", "TYPE", "UNIT", "CAPS", "DESCRIPTION"} {
-		if !strings.Contains(out, h) {
-			t.Errorf("missing header %q in output:\n%s", h, out)
-		}
+		is.True(strings.Contains(out, h)) // header column expected
 	}
 
 	// Spot-check known params.
 	for _, sub := range []string{"0x0001", "power", "0x0044", "speed_manual_pct"} {
-		if !strings.Contains(out, sub) {
-			t.Errorf("missing %q in output:\n%s", sub, out)
-		}
+		is.True(strings.Contains(out, sub)) // expected param row
 	}
 
 	// Row count = registered params + 1 header.
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	want := len(breezy.AllParams()) + 1
-	if len(lines) != want {
-		t.Errorf("got %d lines, want %d (header + %d params)", len(lines), want, want-1)
-	}
+	is.Equal(len(lines), want) // header + one row per registered param
+	_ = stderr
 }
 
 // Ensure our test stub produces what we think; quick sanity check that
 // the recordingHandler unmarshals empty bodies without crashing.
 func TestRecordingHandlerNoBody(t *testing.T) {
+	is := is.New(t)
 	var got stub
 	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/anything")
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	_ = resp.Body.Close()
-	if got.method != "GET" {
-		t.Fatalf("method=%s", got.method)
-	}
-	if got.body != nil {
-		t.Fatalf("expected nil body, got %v", got.body)
-	}
-	_ = fmt.Sprintf // placate goimports
+	is.Equal(got.method, "GET")
+	is.Equal(got.body, map[string]any(nil)) // expected nil body
+	_ = fmt.Sprintf                         // placate goimports
 }
 
 func TestCapsString(t *testing.T) {
+	is := is.New(t)
 	for _, tc := range []struct {
 		caps breezy.Capabilities
 		want string
@@ -955,13 +805,12 @@ func TestCapsString(t *testing.T) {
 		{breezy.CapAll, "RWID"},
 		{breezy.CapRead | breezy.CapInc, "RI"},
 	} {
-		if got := capsString(tc.caps); got != tc.want {
-			t.Errorf("capsString(%b) = %q, want %q", tc.caps, got, tc.want)
-		}
+		is.Equal(capsString(tc.caps), tc.want) // capsString rendering
 	}
 }
 
 func TestRenderParams(t *testing.T) {
+	is := is.New(t)
 	params := []breezy.Param{
 		{ID: 0x0001, Name: "power", Type: breezy.TypeUint8, Unit: "", Caps: breezy.CapAll, Description: "Turn on/off"},
 		{ID: 0x004A, Name: "fan_supply_rpm", Type: breezy.TypeUint16, Unit: "rpm", Caps: breezy.CapRead, Description: "Live RPM"},
@@ -977,9 +826,7 @@ func TestRenderParams(t *testing.T) {
 		"0x004A", "fan_supply_rpm", "uint16", "rpm", "Live RPM",
 		"0x0065", "reset_filter_timer", "write_only", "W", "Trigger",
 	} {
-		if !strings.Contains(out, sub) {
-			t.Errorf("renderParams output missing %q:\n%s", sub, out)
-		}
+		is.True(strings.Contains(out, sub)) // renderParams output must contain substring
 	}
 
 	// Empty Unit must render as "-".
@@ -990,13 +837,9 @@ func TestRenderParams(t *testing.T) {
 			break
 		}
 	}
-	if powerLine == "" {
-		t.Fatalf("no row found for 0x0001 in output:\n%s", out)
-	}
+	is.True(powerLine != "") // row found for 0x0001
 	// The UNIT column for power must be the literal "-" (surrounded by spaces).
-	if !strings.Contains(powerLine, " -  ") {
-		t.Errorf("expected empty Unit rendered as '-' in row, got:\n%s", powerLine)
-	}
+	is.True(strings.Contains(powerLine, " -  ")) // empty Unit rendered as '-'
 
 	// Header line is the first non-empty line.
 	firstLine := strings.SplitN(out, "\n", 2)[0]
@@ -1004,12 +847,8 @@ func TestRenderParams(t *testing.T) {
 	prev := -1
 	for _, h := range wantHeaderOrder {
 		idx := strings.Index(firstLine, h)
-		if idx < 0 {
-			t.Fatalf("header missing %q: %q", h, firstLine)
-		}
-		if idx <= prev {
-			t.Fatalf("header column %q out of order in: %q", h, firstLine)
-		}
+		is.True(idx >= 0)   // header must include column
+		is.True(idx > prev) // header columns must be ordered
 		prev = idx
 	}
 }
@@ -1061,65 +900,51 @@ func runStandalone(t *testing.T, devices map[string]config.Device, args ...strin
 }
 
 func TestStandalonePower(t *testing.T) {
+	is := is.New(t)
 	fake := startFakeDevice(t)
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, stderr := runStandalone(t, devices, "playroom", "on")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
+	code, _, _ := runStandalone(t, devices, "playroom", "on")
+	is.Equal(code, 0)
 	// Verify by reading 0x0001 back through a second CLI invocation.
-	code, stdout, stderr := runStandalone(t, devices, "playroom", "get", "power")
-	if code != 0 {
-		t.Fatalf("get exit=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stdout, "= 1") && !strings.Contains(stdout, "1\n") {
-		t.Errorf("expected power=1 after Power(on), got: %q", stdout)
-	}
+	code, stdout, _ := runStandalone(t, devices, "playroom", "get", "power")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "= 1") || strings.Contains(stdout, "1\n")) // power=1 after Power(on)
 }
 
 func TestStandaloneSpeedPreset(t *testing.T) {
+	is := is.New(t)
 	fake := startFakeDevice(t)
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, stderr := runStandalone(t, devices, "playroom", "speed", "2")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	code, stdout, stderr := runStandalone(t, devices, "playroom", "get", "speed_mode")
-	if code != 0 {
-		t.Fatalf("get exit=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stdout, "= 2") {
-		t.Errorf("expected speed_mode=2 after speed 2, got: %q", stdout)
-	}
+	code, _, _ := runStandalone(t, devices, "playroom", "speed", "2")
+	is.Equal(code, 0)
+	code, stdout, _ := runStandalone(t, devices, "playroom", "get", "speed_mode")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "= 2")) // speed_mode=2 after speed 2
 }
 
 func TestStandaloneStatus(t *testing.T) {
+	is := is.New(t)
 	fake := startFakeDevice(t)
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, stdout, stderr := runStandalone(t, devices, "playroom", "status")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stdout, "playroom") {
-		t.Errorf("status output missing device name:\n%s", stdout)
-	}
+	code, stdout, _ := runStandalone(t, devices, "playroom", "status")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "playroom")) // status output must include device name
 }
 
 func TestStandaloneFaults(t *testing.T) {
+	is := is.New(t)
 	fake := startFakeDevice(t)
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, stderr := runStandalone(t, devices, "playroom", "faults")
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr)
-	}
+	code, _, _ := runStandalone(t, devices, "playroom", "faults")
+	is.Equal(code, 0)
 	// Output is either "no active faults" (snapshot has none) or a list.
 	// Either is fine — what matters is the call completed without error.
 }
@@ -1129,13 +954,12 @@ func TestStandaloneFaults(t *testing.T) {
 // each given address. This is the workaround for networks that drop
 // UDP broadcasts (Wi-Fi AP isolation, mesh hops, VLAN).
 func TestDiscover_UnicastTargets(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("HOME", t.TempDir())
 	fake := startFakeDevice(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"discover", fake.Addr()}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
+	is.Equal(code, 0)
 	// Discover wildcard reads param 0x7C from the device, which is the
 	// device's own configured ID — for the fakedevice that's the value
 	// stored in snapshot_148.json (BREEZY-prefix), NOT the ID we passed
@@ -1145,9 +969,10 @@ func TestDiscover_UnicastTargets(t *testing.T) {
 	// The output format is "<ip>  id=<id>  type=<n>"; the IP shown is the
 	// reply's source address (the bare IP, no port).
 	host, _, _ := strings.Cut(fake.Addr(), ":")
-	if !strings.Contains(out, host) || !strings.Contains(out, "id=") || !strings.Contains(out, "type=") {
-		t.Errorf("discover output missing host/id/type:\n%s", out)
-	}
+	is.True(strings.Contains(out, host))
+	is.True(strings.Contains(out, "id="))
+	is.True(strings.Contains(out, "type="))
+	_ = stderr
 }
 
 // TestDiscover_UnicastWithPassword: the wildcard request is encoded
@@ -1155,45 +980,39 @@ func TestDiscover_UnicastTargets(t *testing.T) {
 // fakedevice accepts any password on wildcard discovery, so this
 // just confirms the flag is plumbed through end-to-end.
 func TestDiscover_UnicastWithPassword(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("HOME", t.TempDir())
 	fake := startFakeDevice(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"discover", "-p", "testpwd", fake.Addr()}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
+	is.Equal(code, 0)
 	host, _, _ := strings.Cut(fake.Addr(), ":")
-	if !strings.Contains(stdout.String(), host) || !strings.Contains(stdout.String(), "id=") {
-		t.Errorf("expected discover output for fake device, got:\n%s", stdout.String())
-	}
+	is.True(strings.Contains(stdout.String(), host))
+	is.True(strings.Contains(stdout.String(), "id="))
+	_ = stderr
 }
 
 // TestDiscover_PasswordFlagFormats covers --password=PWD as well.
 func TestDiscover_PasswordFlagFormats(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("HOME", t.TempDir())
 	fake := startFakeDevice(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"discover", "--password=anything", fake.Addr()}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "id=") {
-		t.Errorf("expected discover output, got:\n%s", stdout.String())
-	}
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout.String(), "id="))
+	_ = stderr
 }
 
 // TestDiscover_PasswordFlagMissingValue: -p with no following arg
 // should exit 2 with a usage error.
 func TestDiscover_PasswordFlagMissingValue(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"discover", "-p"}, &stdout, &stderr, nil)
-	if code != 2 {
-		t.Fatalf("exit=%d (want 2); stderr=%q", code, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "needs a password value") {
-		t.Errorf("missing usage hint: stderr=%q", stderr.String())
-	}
+	is.Equal(code, 2) // usage error
+	is.True(strings.Contains(stderr.String(), "needs a password value"))
 	_ = stdout
 }
 
@@ -1201,17 +1020,13 @@ func TestDiscover_PasswordFlagMissingValue(t *testing.T) {
 // running, so the unicast target receives no reply within the
 // discover timeout. We expect exit 0 and the unified guidance block.
 func TestDiscover_UnicastNoReply(t *testing.T) {
+	is := is.New(t)
 	t.Setenv("HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
 	// 192.0.2.1 is TEST-NET-1: routable but never answered.
 	code := run([]string{"discover", "192.0.2.1"}, &stdout, &stderr, nil)
-	if code != 0 {
-		t.Fatalf("exit=%d stderr=%q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "no Breezy devices found") {
-		t.Errorf("expected no-devices message, got:\n%s", stdout.String())
-	}
-	if !strings.Contains(stdout.String(), "things to check:") {
-		t.Errorf("expected guidance block, got:\n%s", stdout.String())
-	}
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout.String(), "no Breezy devices found"))
+	is.True(strings.Contains(stdout.String(), "things to check:"))
+	_ = stderr
 }
