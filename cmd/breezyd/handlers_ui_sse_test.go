@@ -94,9 +94,10 @@ func TestGetUISSE_InitialStateAndPush(t *testing.T) {
 		t.Errorf("initial state: missing bravo card; body=%q", body)
 	}
 
-	// Wait until the handler has subscribed before triggering Notify —
-	// initial-state writes complete before Subscribe(), so a `Notify` fired
-	// the instant `bravo` appears could miss the subscribe register.
+	// Subscribe runs before any initial-state writes (post-#75), so by the
+	// time we've read the bravo card the subscriber is registered. The
+	// waitFor is left in place as a defence against the in-process
+	// scheduler reordering — it will resolve essentially immediately.
 	hub := h.PushHub.(*PushHub)
 	if err := waitFor(1*time.Second, func() bool { return subscriberCount(hub) == 1 }); err != nil {
 		t.Fatalf("subscribe never registered: %v", err)
@@ -144,8 +145,8 @@ func TestGetUISSE_ContextCancelCleansUpSubscriber(t *testing.T) {
 		t.Fatalf("GET /ui/sse: %v", err)
 	}
 
-	// Wait for the handler to subscribe — initial-state writes happen before
-	// Subscribe(), so observing the alpha card guarantees Subscribe ran too.
+	// Wait for the handler to subscribe. Post-#75 Subscribe runs before
+	// initial-state, so observing the alpha card guarantees Subscribe ran too.
 	_ = readUntil(t, resp.Body, `data-device="alpha"`, 1*time.Second)
 	// Give the handler one more scheduler tick to reach the subscribe loop.
 	time.Sleep(50 * time.Millisecond)
@@ -285,6 +286,42 @@ func TestGetUISSE_ReconnectUsesOuterMode(t *testing.T) {
 	}
 	if strings.Contains(body, `selector #device-list`) {
 		t.Errorf("reconnect: should not use append against #device-list; body=%q", body)
+	}
+}
+
+// TestGetUISSE_NotifyDuringInitialStateLands_Regression75 pins the #75
+// fix: a Notify fired in the gap between Subscribe and the start of the
+// steady-state drain (i.e. while the initial-state pass is running) must
+// not be lost. The pre-fix handler subscribed AFTER the initial-state
+// pass, so any Notify in that window would arrive before there was a
+// channel to receive it.
+//
+// uiSSEAfterSubscribe is a test hook that runs immediately after the
+// handler subscribes, before the first initial-state write. It deterministically
+// drives a Notify into the exact window the bug describes.
+func TestGetUISSE_NotifyDuringInitialStateLands_Regression75(t *testing.T) {
+	h := newSSETestHandler(t, "alpha")
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	uiSSEAfterSubscribe = func() {
+		h.PushHub.Notify("charlie", Snapshot{})
+	}
+	t.Cleanup(func() { uiSSEAfterSubscribe = nil })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /ui/sse: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := readUntil(t, resp.Body, `data-device="charlie"`, 2*time.Second)
+	if !strings.Contains(body, `data-device="charlie"`) {
+		t.Errorf("Notify fired between Subscribe and initial-state was lost: %q", body)
 	}
 }
 

@@ -19,6 +19,12 @@ import (
 // it without sleeping for a real interval.
 var keepaliveInterval = 30 * time.Second
 
+// uiSSEAfterSubscribe is a test hook called after the handler subscribes
+// to PushHub but before initial-state writes begin. nil in production.
+// Tests use it to drive a Notify deterministically into the gap that
+// pre-fix-#75 would have lost the event in.
+var uiSSEAfterSubscribe func()
+
 // newSSE wraps datastar.NewSSE with X-Accel-Buffering: no, defending
 // against reverse proxies that buffer responses by default. The NixOS
 // module's nginx already sets proxy_buffering off; this header covers
@@ -35,13 +41,17 @@ func newSSE(w http.ResponseWriter, r *http.Request, opts ...datastar.SSEOption) 
 //     enforces a 30s WriteTimeout for slow-loris protection on the JSON
 //     API; SSE connections must opt out).
 //  2. Detects cold load vs reconnect via the Last-Event-ID header.
-//  3. Sends the current card for every configured device (initial state).
+//  3. Subscribes to PushHub. Done BEFORE the initial-state pass so any
+//     Notify fired during initial-state lands in the bounded subscriber
+//     channel and is drained by the steady-state loop after initial-state
+//     completes — the cards exist on the client by then, so the
+//     channel-delivered outer patches resolve their selectors.
+//  4. Sends the current card for every configured device (initial state).
 //     Cold load uses mode=append against #device-list; reconnect uses
 //     mode=outer against .card[data-device=...] to replace in-place.
-//  4. Subscribes to PushHub and forwards structured PushEvents until the
-//     client disconnects: one datastar-patch-signals then one
-//     datastar-patch-elements per BlockPatch.
-//  5. Emits a comment line every keepaliveInterval while idle.
+//  5. Drains structured PushEvents until the client disconnects: one
+//     datastar-patch-signals then one datastar-patch-elements per BlockPatch.
+//  6. Emits a comment line every keepaliveInterval while idle.
 func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 	if h.PushHub == nil {
 		http.Error(w, "push hub not configured", http.StatusInternalServerError)
@@ -68,15 +78,26 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 	// can avoid duplicating cards on reconnect.
 	isReconnect := r.Header.Get("Last-Event-ID") != ""
 
+	// Subscribe BEFORE the initial-state pass. Any Notify fired between
+	// here and the start of the steady-state loop is buffered in the
+	// subscriber's bounded channel; by the time we drain it, the matching
+	// card has been appended (cold load) or already exists (reconnect),
+	// so its outer-mode selector resolves. Subscribing after initial-state
+	// — the pre-fix ordering — left up to one poll-interval (default 30s)
+	// of state lost on freshly-opened tabs. See #75.
+	sub := hub.Subscribe()
+	defer hub.Unsubscribe(sub)
+
+	if uiSSEAfterSubscribe != nil {
+		uiSSEAfterSubscribe()
+	}
+
 	for _, view := range h.collectViews() {
 		if err := emitInitialCard(sse, view, isReconnect); err != nil {
 			slog.Debug("sse initial: patch failed", "err", err, "device", view.Name)
 			return
 		}
 	}
-
-	sub := hub.Subscribe()
-	defer hub.Unsubscribe(sub)
 
 	keepalive := time.NewTicker(keepaliveInterval)
 	defer keepalive.Stop()
