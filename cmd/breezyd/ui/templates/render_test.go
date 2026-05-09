@@ -437,6 +437,27 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 	}
 }
 
+// TestRenderSensorsBlock_FormattedValues pins that SensorsBlock formats
+// HumidityPct as `<n>%` and CO2PPM as `<n> ppm` for a fixture view. The
+// equivalent Playwright assertion previously lived in dashboard.spec.ts
+// ("sensor block surfaces live values") but that test was a static-render
+// check dressed up as an integration test — moved here per #64. The
+// live-from-daemon path is still covered by the @smoke test and by the
+// SSE-push tests.
+func TestRenderSensorsBlock_FormattedValues(t *testing.T) {
+	s := ui.SensorsView{HumidityPct: 54, CO2PPM: 1175}
+	var sb strings.Builder
+	if err := SensorsBlock("alpha", s).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	for _, want := range []string{"54%", "1175 ppm"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("sensors render missing %q\n%s", want, got)
+		}
+	}
+}
+
 // TestRenderControls_NoColonFormDataBind pins the controls block against
 // the lowercase trap of colon-keyed `data-bind:<camelCaseKey>`: HTML
 // attribute names are lowercased by the parser, so `data-bind:manualPct`
