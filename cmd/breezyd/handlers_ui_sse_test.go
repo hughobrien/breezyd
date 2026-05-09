@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -37,14 +36,18 @@ func newSSETestHandler(t *testing.T, names ...string) *Handler {
 // returns the accumulated text. The caller is responsible for closing
 // body. Designed for SSE bodies where the connection stays open after
 // the relevant event arrives.
+//
+// Reads body directly without a bufio.Reader: a buffered reader created
+// per call would discard its read-ahead on return, so consecutive
+// readUntil calls against the same body would lose any bytes the prior
+// call's buffer had pulled past the needle.
 func readUntil(t *testing.T, body io.Reader, needle string, deadline time.Duration) string {
 	t.Helper()
-	br := bufio.NewReader(body)
 	var sb strings.Builder
 	end := time.Now().Add(deadline)
 	chunk := make([]byte, 1024)
 	for time.Now().Before(end) {
-		n, err := br.Read(chunk)
+		n, err := body.Read(chunk)
 		if n > 0 {
 			sb.Write(chunk[:n])
 			if strings.Contains(sb.String(), needle) {
@@ -52,9 +55,6 @@ func readUntil(t *testing.T, body io.Reader, needle string, deadline time.Durati
 			}
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return sb.String()
-			}
 			return sb.String()
 		}
 	}
