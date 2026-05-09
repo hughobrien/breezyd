@@ -22,9 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Inline editors (schedule, threshold, preset slider) no longer get clobbered by poll-driven SSE pushes (#65). Each open editor is preserved across polls until the user saves or cancels. The fix also closes a latent bug where the threshold edit form's submit silently failed (datastar's default JSON `contentType` vs. the handler's `r.ParseForm()` form-encoded expectation), which was previously masked by the whole-card poll refresh overwriting the form immediately.
+- Preset chip's `aria-pressed` state now updates while the preset editor is open (#65). The pressed state was previously frozen during edit mode because the controls-block patch was suppressed (correct, to preserve the editor); the fix makes `aria-pressed` signal-driven via the existing `$speedMode` signal so it updates via `datastar-patch-signals` even when the HTML patch misses.
 - `automode` checkbox in the preset editor now defaults **unchecked** (was checked in the legacy SPA). Toggling automode from checked → unchecked while the active preset's fans are both ≥ 10 % now fires a `regeneration` mode write immediately (#46), via the new `dashboard.js` slider helper.
 
 ### Changed
+
+- The dashboard's SSE push pipeline now emits one `datastar-patch-signals` event plus per-block `datastar-patch-elements` events instead of one full-card outer patch (#65). Card-outer reactive state (`stale` class, speed/airflow `data-*` attributes, "X ago" stale row, sensors-block alert class) flows through datastar signals; the card outer is never HTML-patched after initial render. SSE reconnects use the `Last-Event-ID` header to detect cold load vs. reconnect and avoid duplicating cards.
+- Each block carries `data-block="<key>"`; sensor cells carry `data-sensor-cell="<key>"`. Edit variants (schedule, threshold) carry `data-edit="true"` statically; the controls block carries it reactively via `data-attr:data-edit` so the preset editor's slider value is preserved during a poll. Poll-driven patch selectors target `:not([data-edit])` and silently drop when an editor is open. The browser console will show one `PatchElementsNoTargetsFound` warning per poll per open editor — this is by design (the mechanism by which patches are dropped to preserve open editors), not a flood.
+
+### Known Issues
+
+- The schedule edit form's submit handler has the same latent `contentType` mismatch as the threshold form had (datastar's default JSON body vs. `r.ParseForm()` reading form-encoded). It is not exercised by the current test suite (the editor preservation test asserts on the still-open form, not on submit success); a follow-up issue will track the fix. (Discovered during #65.)
 
 - The dashboard substrate is now datastar + SSE. `/ui/devices/{name}/...` action endpoints return 200 + empty body on success (subscribers see the new card via the SSE push channel) or a status-coded `datastar-patch-elements` event into `#global-error-banner` on failure. Threshold and schedule fragment endpoints emit SSE patch events targeting their cells. The `/v1/*` JSON API is unchanged.
 - The `GET /ui/devices` and `GET /ui/devices/{name}/card` routes are removed — the SSE push channel replaces them.
