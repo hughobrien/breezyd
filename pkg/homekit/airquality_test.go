@@ -4,9 +4,12 @@ package homekit
 
 import (
 	"testing"
+
+	"github.com/matryer/is"
 )
 
 func TestAirQuality_BoundaryBuckets(t *testing.T) {
+	is := is.New(t)
 	cases := []struct {
 		voc  int
 		want AirQualityLevel
@@ -25,8 +28,6 @@ func TestAirQuality_BoundaryBuckets(t *testing.T) {
 		{10000, AirQualityPoor},
 	}
 	for _, tc := range cases {
-		if got := AirQuality(tc.voc); got != tc.want {
-			t.Errorf("AirQuality(%d) = %v, want %v", tc.voc, got, tc.want)
-		}
+		is.Equal(AirQuality(tc.voc), tc.want)
 	}
 }
