@@ -1,0 +1,19 @@
+# golangci-lint v2 config. Pins the linter set explicitly so future
+# version bumps can't silently add (or drop) checks. Matches what
+# `just test-staticcheck` and the CI `golangci-lint` job run.
+#
+# CLAUDE.md flags errcheck as the strict bit — unchecked error returns
+# that `go vet` alone misses. The other four are the v2 defaults.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused

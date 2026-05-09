@@ -36,9 +36,10 @@ test-msan:
 test-asan:
 	CGO_ENABLED=1 CC=clang go test -asan ./...
 
-# golangci-lint full pass; errcheck is the strict bit, hence the broader gate
+# golangci-lint full pass; errcheck is the strict bit, hence the broader gate.
+# Linter set + timeout live in .golangci.yml.
 test-staticcheck:
-	golangci-lint run --timeout=5m ./...
+	golangci-lint run ./...
 
 # Test the breezyd build-tagged /test/devices/... admin surface (memory backend).
 test-test-admin:
