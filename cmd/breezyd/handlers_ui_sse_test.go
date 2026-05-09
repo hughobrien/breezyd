@@ -12,19 +12,23 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/a-h/templ"
 )
 
 // newSSETestHandler builds a Handler with one device's snapshot already
-// populated, then attaches a PushHub whose render closure produces a
-// minimal templ stub keyed on device name. Tests that need richer cards
-// can swap in a different render closure on the returned hub.
+// populated, then attaches a PushHub whose renderBlocks closure produces a
+// minimal PushEvent stub keyed on device name. Tests that need richer events
+// can swap in a different renderBlocks closure on the returned hub.
 func newSSETestHandler(t *testing.T, names ...string) *Handler {
 	t.Helper()
 	h := newUITestHandler(t, names...)
-	h.PushHub = NewPushHub(func(name string, snap Snapshot) (templ.Component, error) {
-		return stubComponent(`<div class="card" data-device="` + name + `"></div>`), nil
+	h.PushHub = NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
+		return &PushEvent{
+			DeviceName:  name,
+			SignalsJSON: []byte(`{"stale":false,"speedMode":"manual","airflowMode":"ventilation","lastPollAge":"","sensorsAlert":false}`),
+			Blocks: []BlockPatch{
+				{Selector: `.card[data-device="` + name + `"]`, HTML: `<div class="card" data-device="` + name + `"></div>`},
+			},
+		}, nil
 	})
 	return h
 }
@@ -212,4 +216,96 @@ func subscriberCount(h *PushHub) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.subs)
+}
+
+func TestGetUISSE_ColdLoadUsesAppendMode(t *testing.T) {
+	h := newSSETestHandler(t, "alpha")
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	// No Last-Event-ID — cold load path.
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /ui/sse: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := readUntil(t, resp.Body, `data-device="alpha"`, 2*time.Second)
+	if !strings.Contains(body, `selector #device-list`) {
+		t.Errorf("cold load: expected mode=append against #device-list; body=%q", body)
+	}
+	if !strings.Contains(body, `mode append`) {
+		t.Errorf("cold load: expected `mode append`; body=%q", body)
+	}
+}
+
+func TestGetUISSE_ReconnectUsesOuterMode(t *testing.T) {
+	h := newSSETestHandler(t, "alpha")
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	req.Header.Set("Last-Event-ID", "device:alpha")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /ui/sse: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := readUntil(t, resp.Body, `data-device="alpha"`, 2*time.Second)
+	if !strings.Contains(body, `selector .card[data-device=`) {
+		t.Errorf("reconnect: expected mode=outer with .card selector; body=%q", body)
+	}
+	if strings.Contains(body, `selector #device-list`) {
+		t.Errorf("reconnect: should not use append against #device-list; body=%q", body)
+	}
+}
+
+func TestGetUISSE_PushEventEmitsSignalsAndBlocks(t *testing.T) {
+	orig := keepaliveInterval
+	keepaliveInterval = 50 * time.Millisecond
+	t.Cleanup(func() { keepaliveInterval = orig })
+
+	h := newSSETestHandler(t, "alpha")
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /ui/sse: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Drain initial state.
+	_ = readUntil(t, resp.Body, `data-device="alpha"`, 1*time.Second)
+
+	// Wait for subscriber registration.
+	hub := h.PushHub.(*PushHub)
+	if err := waitFor(1*time.Second, func() bool { return subscriberCount(hub) == 1 }); err != nil {
+		t.Fatalf("subscribe never registered: %v", err)
+	}
+
+	h.PushHub.Notify("alpha", Snapshot{})
+
+	body := readUntil(t, resp.Body, "datastar-patch-signals", 1*time.Second)
+	if !strings.Contains(body, "event: datastar-patch-signals") {
+		t.Errorf("push: expected datastar-patch-signals event; body=%q", body)
+	}
+
+	body2 := readUntil(t, resp.Body, "datastar-patch-elements", 1*time.Second)
+	combined := body + body2
+	if !strings.Contains(combined, "event: datastar-patch-elements") {
+		t.Errorf("push: expected datastar-patch-elements event; combined=%q", combined)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui/templates"
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -22,13 +23,14 @@ var keepaliveInterval = 30 * time.Second
 //  1. Clears the response writer's WriteDeadline (the daemon's http.Server
 //     enforces a 30s WriteTimeout for slow-loris protection on the JSON
 //     API; SSE connections must opt out).
-//  2. Sends the current card for every configured device (initial state).
-//  3. Subscribes to PushHub and forwards events until the client
-//     disconnects.
-//  4. Emits a comment line every keepaliveInterval while idle.
-//
-// Reconnects re-trigger the initial-state pass — the dashboard self-heals
-// without Last-Event-ID resume.
+//  2. Detects cold load vs reconnect via the Last-Event-ID header.
+//  3. Sends the current card for every configured device (initial state).
+//     Cold load uses mode=append against #device-list; reconnect uses
+//     mode=outer against .card[data-device=...] to replace in-place.
+//  4. Subscribes to PushHub and forwards structured PushEvents until the
+//     client disconnects: one datastar-patch-signals then one
+//     datastar-patch-elements per BlockPatch.
+//  5. Emits a comment line every keepaliveInterval while idle.
 func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 	if h.PushHub == nil {
 		http.Error(w, "push hub not configured", http.StatusInternalServerError)
@@ -49,19 +51,14 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 
 	sse := datastar.NewSSE(w, r)
 
-	// Initial state appends each card to #device-list. Per-card outer patches
-	// can't run until the .card[data-device=...] target exists, which it
-	// doesn't on a fresh page load — datastar drops them as
-	// PatchElementsNoTargetsFound. Append uses real DOM mutation (appendChild)
-	// so datastar's MutationObserver picks up data-on:click etc. on the new
-	// nodes. Subsequent per-card updates below use outer mode to replace
-	// existing cards in place.
+	// Reconnect detection: EventSource auto-resends Last-Event-ID after a
+	// drop. We don't implement replay — we just use the header's presence
+	// as a binary cold-load-vs-reconnect signal so the initial-state pass
+	// can avoid duplicating cards on reconnect.
+	isReconnect := r.Header.Get("Last-Event-ID") != ""
+
 	for _, view := range h.collectViews() {
-		if err := sse.PatchElementTempl(
-			templates.DeviceCard(view),
-			datastar.WithSelector("#device-list"),
-			datastar.WithModeAppend(),
-		); err != nil {
+		if err := emitInitialCard(sse, view, isReconnect); err != nil {
 			slog.Debug("sse initial: patch failed", "err", err, "device", view.Name)
 			return
 		}
@@ -81,11 +78,7 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if err := sse.PatchElements(
-				ev.HTML,
-				datastar.WithSelectorf(`.card[data-device=%q]`, ev.DeviceName),
-				datastar.WithModeOuter(),
-			); err != nil {
+			if err := emitPushEvent(sse, ev); err != nil {
 				slog.Debug("sse: patch failed", "err", err, "device", ev.DeviceName)
 				return
 			}
@@ -98,4 +91,51 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// emitInitialCard sends the full card for one device. Cold load uses
+// mode=append against #device-list (the card doesn't exist yet);
+// reconnect uses mode=outer against .card[data-device=...] to replace
+// the existing card in-place without duplicating.
+func emitInitialCard(sse *datastar.ServerSentEventGenerator, view ui.DeviceView, isReconnect bool) error {
+	eventID := "device:" + view.Name
+	if isReconnect {
+		return sse.PatchElementTempl(
+			templates.DeviceCard(view),
+			datastar.WithSelectorf(`.card[data-device=%q]`, view.Name),
+			datastar.WithModeOuter(),
+			datastar.WithPatchElementsEventID(eventID),
+		)
+	}
+	return sse.PatchElementTempl(
+		templates.DeviceCard(view),
+		datastar.WithSelector("#device-list"),
+		datastar.WithModeAppend(),
+		datastar.WithPatchElementsEventID(eventID),
+	)
+}
+
+// emitPushEvent dispatches one PushEvent: the signals patch first
+// (so card-outer reactive bindings update before any block content),
+// then one elements patch per block.
+func emitPushEvent(sse *datastar.ServerSentEventGenerator, ev PushEvent) error {
+	if len(ev.SignalsJSON) > 0 {
+		if err := sse.PatchSignals(ev.SignalsJSON,
+			datastar.WithPatchSignalsEventID("signals:"+ev.DeviceName),
+		); err != nil {
+			return err
+		}
+	}
+	eventID := "block:" + ev.DeviceName
+	for _, b := range ev.Blocks {
+		if err := sse.PatchElements(
+			b.HTML,
+			datastar.WithSelector(b.Selector),
+			datastar.WithModeOuter(),
+			datastar.WithPatchElementsEventID(eventID),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }

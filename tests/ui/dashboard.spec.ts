@@ -245,3 +245,135 @@ test.describe("reconnect", () => {
     });
   });
 });
+
+test.describe("editor preservation across polls (#65)", () => {
+  test("schedule editor survives multiple polls with typed pct intact", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.withSchedule(DEVICE, {
+      enabled: true,
+      entries: [{ at: "08:00", action: "regeneration", pct: 60 }],
+    });
+    const card = await loadCard(page);
+
+    // Open the schedule <details> by updating the datastar signal directly.
+    // A summary click alone would toggle `open`, but the MutationObserver
+    // bound by data-attr:open="$detailsOpen.schedule" immediately re-evaluates
+    // the (still-false) signal and removes the open attribute again.
+    // Importing the module and calling mergePaths updates the reactive store,
+    // so the binding re-evaluates to true and keeps the details open.
+    await page.evaluate(async () => {
+      const { mergePaths } = await import("/ui/vendor/datastar-1.0.1.min.js");
+      mergePaths([["detailsOpen.schedule", true]]);
+    });
+
+    // Click "edit schedule" to enter edit mode.
+    const editBtn = card.locator('button:text-is("edit schedule")');
+    await expect(editBtn).toBeVisible({ timeout: 2_000 });
+    await editBtn.click();
+
+    // The edit variant replaces the block with data-edit="true".
+    const editDetails = card.locator('details.schedule[data-edit="true"]');
+    await expect(editDetails).toBeVisible({ timeout: 2_000 });
+
+    const pctInput = editDetails.locator('input[name="pct"]').first();
+    await expect(pctInput).toBeVisible();
+    await pctInput.fill("77");
+
+    // Wait through 3 poll intervals (3s). The per-block patch uses
+    // :not([data-edit]) so an open editor must not be replaced.
+    await page.waitForTimeout(3_000);
+
+    // Form and typed value must still be present.
+    await expect(editDetails).toBeVisible();
+    await expect(pctInput).toHaveValue("77");
+  });
+
+  test("threshold editor (co2) survives multiple polls with typed value intact", async ({ page }) => {
+    await reset(DEVICE);
+    const card = await loadCard(page);
+
+    // Sensors defaults open via $detailsOpen.sensors=true signal seed; no
+    // summary click needed.
+
+    // Click the eCO2 value to enter edit mode (@get fetches the edit variant,
+    // which patches [data-sensor-cell="co2"] with the edit version that has
+    // data-edit="true" on the outer div).
+    const co2Cell = card.locator('[data-threshold-cell="co2"]');
+    await co2Cell.locator(".value-clickable").click();
+
+    // After the SSE patch, the cell itself carries data-edit="true".
+    // Wait for the edit form to appear (the patched cell now has .thresh-input).
+    const input = card.locator('[data-threshold-cell="co2"] .thresh-input');
+    await expect(input).toBeVisible({ timeout: 4_000 });
+    await input.fill("1234");
+
+    // Confirm the edit marker is on the cell.
+    const editCell = card.locator('[data-threshold-cell="co2"][data-edit="true"]');
+    await expect(editCell).toBeVisible();
+
+    // Wait through 3 poll intervals (3s). The sensor-cell patch uses
+    // :not([data-edit]) so an open threshold editor must not be replaced.
+    await page.waitForTimeout(3_000);
+
+    // The edit cell and typed value must still be present.
+    await expect(editCell).toBeVisible();
+    await expect(input).toHaveValue("1234");
+  });
+
+  test("preset editor slider value survives multiple polls", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.asPresetSpeed(DEVICE, 1);
+    const card = await loadCard(page);
+
+    // Open the preset-2 editor by clicking its chip. Preset-2 chip text is
+    // "48/49" (snapshot_148.json: 0x003C=0x30=48, 0x003D=0x31=49).
+    // Use the same text selector as the existing preset-chip test for reliability.
+    await card.locator('button:text-is("48/49")').click();
+
+    const editor2 = card.locator('[data-preset-editor="2"]');
+    await expect(editor2).toBeVisible({ timeout: 2_000 });
+
+    const supplySlider = editor2.locator('input[type="range"]').first();
+    await expect(supplySlider).toBeVisible();
+
+    // Set slider value via JS (avoid dispatching a change event that would
+    // trigger a server write and reset the value from the server response).
+    await supplySlider.evaluate((el: HTMLInputElement) => {
+      el.value = "85";
+    });
+
+    // Confirm the JS set took effect before the wait.
+    await expect(supplySlider).toHaveValue("85");
+
+    // Wait through 3 poll intervals (3s). The controls block is guarded by
+    // data-attr:data-edit="$editor !== 0 ? 'true' : null"; the per-block SSE
+    // selector excludes [data-edit] from replacement.
+    await page.waitForTimeout(3_000);
+
+    // Editor still visible; slider value preserved.
+    await expect(editor2).toBeVisible();
+    await expect(supplySlider).toHaveValue("85");
+  });
+
+  // Skipped: requires stale threshold <90s. The daemon hardcodes 90s
+  // (cmd/breezyd/ui_view.go) and the test config does not override it.
+  // The signal-driven stale patch is covered by the Go push_hub test.
+  test.skip("stale class applied via signal patch preserves card identity", async ({ page }) => {
+    await reset(DEVICE);
+    const card = await loadCard(page);
+
+    // Tag the card so we can confirm it was NOT re-rendered.
+    await card.evaluate((el) => { (el as HTMLElement).dataset.testTag = "marker-1"; });
+
+    await simulateUDPTimeout(DEVICE, true);
+    try {
+      // The daemon marks stale after 90s without a successful poll.
+      // 100s timeout; this test is skip'd because it's impractically slow.
+      await expect(card).toHaveClass(/stale/, { timeout: 100_000 });
+      const stillTagged = await card.evaluate((el) => (el as HTMLElement).dataset.testTag);
+      expect(stillTagged).toBe("marker-1");
+    } finally {
+      await simulateUDPTimeout(DEVICE, false);
+    }
+  });
+});

@@ -10,7 +10,7 @@ import (
 // threshold sensor. Click → @get the edit-variant SSE fragment, which
 // patches the cell in place with the editor.
 templ SensorThresholdRead(name, kind, label, suffix, tooltip string, value int, alerting bool) {
-	<div class="sensor-cell" data-threshold-cell={ kind } if tooltip != "" { title={ tooltip } }>
+	<div class="sensor-cell" data-threshold-cell={ kind } data-sensor-cell={ kind } if tooltip != "" { title={ tooltip } }>
 		<div class="sensor-label">{ label }</div>
 		<div
 			class={ "value-clickable", templ.KV("alert-fire", alerting) }
@@ -23,11 +23,11 @@ templ SensorThresholdRead(name, kind, label, suffix, tooltip string, value int, 
 // sensor. The form's submit fires @put which sends the form fields and
 // receives the read-variant SSE patch back.
 templ SensorThresholdEdit(name, kind, label string, min, max, step, threshold int, autoFan, disabled bool) {
-	<div class="sensor-cell" data-threshold-cell={ kind }>
+	<div class="sensor-cell" data-threshold-cell={ kind } data-sensor-cell={ kind } data-edit="true">
 		<div class="sensor-label">{ label }</div>
 		<form
 			class="thresh-edit-inline"
-			data-on:submit__prevent={ datastar.PutSSE("/ui/devices/%s/threshold", name) }
+			data-on:submit__prevent={ fmt.Sprintf("@put('/ui/devices/%s/threshold', {contentType: 'form'})", name) }
 		>
 			<input type="hidden" name="kind" value={ kind }/>
 			<input
@@ -77,17 +77,3 @@ templ HumidityCell(name string, s ui.SensorsView) {
 	@SensorThresholdRead(name, "humidity", "RH", "%", "", s.HumidityPct, s.HumidityAlert)
 }
 
-// co2Cell is retained for package-internal use by sensors_block.templ.
-templ co2Cell(name string, s ui.SensorsView) {
-	@CO2Cell(name, s)
-}
-
-// vocCell is retained for package-internal use by sensors_block.templ.
-templ vocCell(name string, s ui.SensorsView) {
-	@VOCCell(name, s)
-}
-
-// humidityCell is retained for package-internal use by sensors_block.templ.
-templ humidityCell(name string, s ui.SensorsView) {
-	@HumidityCell(name, s)
-}

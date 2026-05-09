@@ -219,3 +219,128 @@ func TestDeviceCardGolden(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderDeviceCard_ReactiveOuter(t *testing.T) {
+	v := loadView(t, "snapshot_settling")
+	var sb strings.Builder
+	if err := DeviceCard(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	wantContains := []string{
+		`data-class:stale="$stale"`,
+		`data-attr:data-speed-mode="$speedMode"`,
+		`data-attr:data-airflow-mode="$airflowMode"`,
+		`data-show="$stale"`,
+		`&#34;sensorsAlert&#34;`,
+		`&#34;speedMode&#34;`,
+		`data-block="info"`,
+	}
+	wantAbsent := []string{
+		`data-speed-mode="manual"`,
+		`data-speed-mode="preset1"`,
+		`class="card stale"`,
+	}
+	for _, s := range wantContains {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in card render", s)
+		}
+	}
+	for _, s := range wantAbsent {
+		if strings.Contains(got, s) {
+			t.Errorf("unexpected %q in card render", s)
+		}
+	}
+}
+
+func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
+	v := loadView(t, "snapshot_settling")
+	var sb strings.Builder
+	if err := DeviceCard(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	for _, s := range []string{
+		`data-block="info"`,
+		`data-block="energy"`,
+		`data-block="sensors"`,
+		`data-block="schedule"`,
+		`data-block="controls"`,
+		`data-class:alert="$sensorsAlert"`,
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in card render", s)
+		}
+	}
+	// Plain sensor cells get data-sensor-cell="<key>".
+	for _, k := range []string{"recovery", "supply", "exhaust", "supply_regen", "exhaust_regen", "delta_supply", "delta_exhaust", "supply_rpm", "exhaust_rpm"} {
+		want := `data-sensor-cell="` + k + `"`
+		if !strings.Contains(got, want) {
+			t.Errorf("missing plain cell marker %q", want)
+		}
+	}
+	// Controls block reactive data-edit binding. The attribute is a static
+	// literal in the templ file so single quotes are not HTML-escaped.
+	if !strings.Contains(got, `data-attr:data-edit="$editor !== 0 ? 'true' : null"`) {
+		t.Errorf("controls reactive data-edit binding missing")
+	}
+}
+
+func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
+	var sb strings.Builder
+	sv := ui.ScheduleView{Present: true}
+	if err := ScheduleBlockEdit("alpha", sv, false, "").Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	if !strings.Contains(got, `data-edit="true"`) {
+		t.Errorf("ScheduleBlockEdit missing data-edit; got=%q", got)
+	}
+	if !strings.Contains(got, `data-block="schedule"`) {
+		t.Errorf("ScheduleBlockEdit missing data-block=schedule; got=%q", got)
+	}
+}
+
+func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
+	var sb strings.Builder
+	if err := SensorThresholdEdit("alpha", "co2", "eCO₂", 400, 2000, 10, 800, true, false).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	if !strings.Contains(got, `data-edit="true"`) {
+		t.Errorf("SensorThresholdEdit missing data-edit; got=%q", got)
+	}
+	if !strings.Contains(got, `data-sensor-cell="co2"`) {
+		t.Errorf("SensorThresholdEdit missing data-sensor-cell; got=%q", got)
+	}
+}
+
+func TestCardSignalsFor_JSON(t *testing.T) {
+	v := ui.DeviceView{
+		Stale:       true,
+		SpeedMode:   "manual",
+		AirflowMode: "regeneration",
+		LastPollAge: "12s",
+		Sensors:     ui.SensorsView{AlertActive: true},
+	}
+	got, err := ui.MarshalCardSignals(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(got, &back); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"stale":        true,
+		"speedMode":    "manual",
+		"airflowMode":  "regeneration",
+		"lastPollAge":  "12s",
+		"sensorsAlert": true,
+	}
+	for k, w := range want {
+		if back[k] != w {
+			t.Errorf("field %q: got %v, want %v", k, back[k], w)
+		}
+	}
+}
