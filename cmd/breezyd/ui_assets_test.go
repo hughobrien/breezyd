@@ -19,7 +19,6 @@ func TestVendorAssets(t *testing.T) {
 		wantCT     string
 	}{
 		{"/ui/vendor/datastar-1.0.1.min.js", 200, "application/javascript; charset=utf-8"},
-		{"/ui/vendor/dashboard.js", 200, "application/javascript; charset=utf-8"},
 		{"/ui/vendor/missing.js", 404, ""},
 		{"/ui/vendor/../etc/passwd", 404, ""},
 		{"/ui/style-" + styleHash + ".css", 200, "text/css; charset=utf-8"},

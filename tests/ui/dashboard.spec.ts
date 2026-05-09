@@ -368,20 +368,23 @@ test.describe("editor preservation across polls (#65)", () => {
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeVisible({ timeout: 2_000 });
 
-    // The supply slider is identifiable by data-side rather than DOM
-    // position — using .first() would silently flip to the extract slider
-    // if the order ever changed. See #83.
-    const supplySlider = editor2.locator('[data-side="supply"]');
+    // The supply slider is identifiable by name="supply" — a stable form
+    // field attribute, no .first() (#83).
+    const supplySlider = editor2.locator('input[name="supply"]');
     await expect(supplySlider).toBeVisible();
 
-    // Set slider value via JS (avoid dispatching a change event that would
-    // trigger a server write and reset the value from the server response).
+    // Set slider value AND dispatch change so the @post-driven server
+    // round-trip persists the value (post-#72 the editor is signal-driven;
+    // skipping the change event would let the next poll's data-signals
+    // patch reseed $preset.2.supply to the server's stored value).
     await supplySlider.evaluate((el: HTMLInputElement) => {
       el.value = "85";
+      el.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    // Confirm the JS set took effect before the wait.
-    await expect(supplySlider).toHaveValue("85");
+    // Confirm the slider holds the new value (after the debounced @post +
+    // server poll round-trip).
+    await expect(supplySlider).toHaveValue("85", { timeout: POLL_PUSH_TIMEOUT });
 
     // Same continuously-asserted-invariant pattern as the schedule case;
     // see the comment there and #81 for the rationale.
