@@ -272,6 +272,34 @@ test.describe("reconnect", () => {
       timeout: POLL_PUSH_TIMEOUT,
     });
   });
+
+  // Catalog B-32 (#36): on reconnect the dashboard must not show
+  // duplicate cards. The handler differentiates cold-load vs reconnect
+  // via Last-Event-ID (see handlers_ui_sse.go::emitInitialCard) — cold
+  // load uses mode=append against #device-list; reconnect uses
+  // mode=outer against .card[data-device=...] to replace in-place.
+  //
+  // This test asserts the cold-load path stays at exactly one card per
+  // device across page reloads. The reconnect-with-Last-Event-ID path
+  // is harder to drive end-to-end (datastar's AbortController for the
+  // SSE stream is not exposed; we'd need to intercept the fetch
+  // response body to force a mid-stream disconnect), and is already
+  // pinned server-side by Go tests:
+  //   - TestGetUISSE_ReconnectUsesOuterMode (with Last-Event-ID set)
+  //   - TestGetUISSE_ColdLoadUsesAppendMode (without)
+  // so the wire contract is verified at unit-test speed.
+  test("page reload does not duplicate the device card", async ({ page }) => {
+    await reset(DEVICE);
+    await loadCard(page);
+    await expect(page.getByTestId(`card-${DEVICE}`)).toHaveCount(1);
+
+    // Reload — second cold load against the same DOM does NOT happen
+    // (each navigation is a fresh document) but this is the closest
+    // user-observable behavior to the "stale tab kept open" pattern
+    // that started prompting the catalog gap.
+    await page.reload();
+    await expect(page.getByTestId(`card-${DEVICE}`)).toHaveCount(1);
+  });
 });
 
 test.describe("editor preservation across polls (#65)", () => {
