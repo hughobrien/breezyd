@@ -40,6 +40,8 @@ import (
 	"sync"
 	"time"
 
+	hapaccessory "github.com/brutella/hap/accessory"
+
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/hughobrien/breezyd/pkg/homekit"
 )
@@ -171,6 +173,12 @@ type Handler struct {
 	// StartHomekit. Task 5's SyncHomekit reads this map to push poll
 	// results into characteristic values. Nil until StartHomekit runs.
 	homekitAccessories map[string]*homekit.Accessory
+
+	// homekitBridge is the brutella/hap bridge accessory built by
+	// StartHomekit. Stashed so the bridge identity (Name / Manufacturer /
+	// Model) can be inspected by tests without poking at the running HAP
+	// server. Nil until StartHomekit runs.
+	homekitBridge *hapaccessory.Bridge
 
 	// PushHub fans out per-device snapshot updates to /ui/sse subscribers.
 	// Nil-tolerant: the JSON API and the in-progress migration paths run

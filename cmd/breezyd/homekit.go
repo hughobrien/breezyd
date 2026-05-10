@@ -78,6 +78,7 @@ func (h *Handler) StartHomekit(ctx context.Context, cfg config.Homekit, devices 
 		Manufacturer: "Vents",
 		Model:        "breezyd",
 	})
+	h.homekitBridge = bridge
 
 	// Build per-device accessories and stash them. Iterate device names in
 	// sorted order so brutella/hap assigns the same Accessory ID to the
