@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -150,4 +151,197 @@ func TestHomekit_SyncUnknownDevice(t *testing.T) {
 	}
 	// Must not panic — "y" is not in the map.
 	h.SyncHomekit("y", Snapshot{})
+}
+
+// newHomekitWriteTestHandler builds a Handler wired to a fakedevice via a
+// real UDP ClientFactory, plus a freshly-constructed Accessory with the
+// write callbacks registered. Returns the handler, the registered callback
+// set, and the device name so individual subtests can fire each callback
+// and assert the post-state on Handler.State (recordingClient writes
+// through to State on every successful WriteParams).
+func newHomekitWriteTestHandler(t *testing.T) (*Handler, homekitWriteCallbacks, string) {
+	t.Helper()
+	const (
+		devID   = "TESTID0000000001"
+		devPwd  = "1111"
+		devName = "playroom"
+	)
+	srv, err := fakedevice.NewServer(homekitSnapshotPath(t), devID, devPwd)
+	if err != nil {
+		t.Fatalf("fakedevice.NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	state := NewState()
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		devName: {ID: devID, Password: devPwd, IP: srv.Addr()},
+	})
+	h := &Handler{
+		State:   state,
+		Devices: devices,
+	}
+	h.ClientFactory = func(name string) (HandlerClient, error) {
+		d, ok := h.Devices.Get(name)
+		if !ok {
+			return nil, fmt.Errorf("unknown device %q", name)
+		}
+		return breezy.NewClient(d.IP, d.ID, d.Password,
+			breezy.WithRetries(0), breezy.WithTimeout(500*time.Millisecond))
+	}
+
+	a := homekit.NewBreezyAccessory(devName, devID, srv.Addr())
+	cb := registerWriteCallbacks(h, devName, a)
+	return h, cb, devName
+}
+
+// TestHomekit_WriteCallbacks pins every OnValueRemoteUpdate callback
+// registered by registerWriteCallbacks. Each subtest fires the callback
+// with a representative input and asserts the expected param IDs and
+// bytes landed in Handler.State (via the recordingClient write-through).
+//
+// Together with the read-path coverage in pkg/homekit/sync_test.go, this
+// pins the entire iOS-write surface — the only path through which the
+// HAP bridge mutates device state.
+func TestHomekit_WriteCallbacks(t *testing.T) {
+	t.Run("active=1 → Power(true)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.active(1)
+		snap, ok := h.State.Get(name)
+		is.True(ok)
+		is.Equal(snap.Values[0x0001], []byte{0x01}) // Active=1 writes Power on
+	})
+
+	t.Run("active=0 → Power(false)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.active(0)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0001], []byte{0x00}) // Active=0 writes Power off
+	})
+
+	t.Run("targetState=1 → SetSpeedPreset(1)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.targetState(1)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0002], []byte{0x01}) // TargetState=1 (Auto) → preset 1 byte at 0x0002
+	})
+
+	t.Run("targetState=0 is a no-op (manual mode)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.targetState(0)
+		snap, ok := h.State.Get(name)
+		// State may be empty (no writes) or have nothing at 0x0002.
+		if ok {
+			_, hasPreset := snap.Values[0x0002]
+			is.True(!hasPreset) // TargetState=0 must not write to 0x0002
+		}
+	})
+
+	t.Run("rotationSpeed=50 → SetSpeedManual(50)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.rotationSpeed(50.0)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0044], []byte{50})   // pct byte
+		is.Equal(snap.Values[0x0002], []byte{0xFF}) // manual flag
+	})
+
+	t.Run("rotationSpeed=5 clamps to 10", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.rotationSpeed(5.0)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0044], []byte{10}) // below-range value clamps to 10
+	})
+
+	t.Run("rotationSpeed=150 clamps to 100", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.rotationSpeed(150.0)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0044], []byte{100}) // above-range value clamps to 100
+	})
+
+	t.Run("supplyOnly=true → SetMode(supply)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.supplyOnly(true)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x00B7], []byte{0x02}) // supply mode byte
+	})
+
+	t.Run("supplyOnly=false → SetMode(regeneration)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.supplyOnly(false)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x00B7], []byte{0x01}) // both off → regeneration
+	})
+
+	t.Run("extractOnly=true → SetMode(extract)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.extractOnly(true)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x00B7], []byte{0x03}) // extract mode byte
+	})
+
+	t.Run("heater=true → SetHeater(true)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.heater(true)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0068], []byte{0x01}) // heater on
+	})
+
+	t.Run("heater=false → SetHeater(false)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.heater(false)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0068], []byte{0x00}) // heater off
+	})
+
+	t.Run("night=true → SetTimer(night)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.night(true)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0007], []byte{0x01}) // night = 1
+	})
+
+	t.Run("night=false → SetTimer(off)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.night(false)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0007], []byte{0x00}) // off = 0
+	})
+
+	t.Run("turbo=true → SetTimer(turbo)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.turbo(true)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0007], []byte{0x02}) // turbo = 2
+	})
+
+	t.Run("turbo=false → SetTimer(off)", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.turbo(false)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0007], []byte{0x00}) // off = 0
+	})
+
+	t.Run("resetFilter → ResetFilter", func(t *testing.T) {
+		is := is.New(t)
+		h, cb, name := newHomekitWriteTestHandler(t)
+		cb.resetFilter(1)
+		snap, _ := h.State.Get(name)
+		is.Equal(snap.Values[0x0065], []byte{0x01}) // filter reset writes 1 to 0x0065
+	})
 }
