@@ -50,6 +50,20 @@ func TestLayout(t *testing.T) {
 		`data-theme-set="light"`,
 		`data-theme-set="dark"`,
 		`data-theme-set="auto"`,
+		// Page-shell skeleton markers (G-web-5 from #131): the action-error
+		// sink and the empty initial-state device-list container.
+		`id="global-error-banner"`,
+		`aria-live="polite"`,
+		`id="device-list"`,
+		`class="grid"`,
+		// Theme-picker IIFE markers (G-web-6 from #131): bfcache-restore
+		// guard, the theme-write/clear pair, and the data-theme-set hook
+		// the IIFE listens for. Keeps the inline IIFE from silently
+		// disappearing during a layout refactor.
+		`picker.open = false`,
+		`localStorage.setItem('theme'`,
+		`localStorage.removeItem('theme')`,
+		`data-theme-set`,
 	}
 	wantAbsent := []string{
 		`htmx`,
