@@ -135,6 +135,64 @@ func freeListenAddr(t *testing.T) string {
 	return addr
 }
 
+// TestMain_BootstrapsThenExits pins the first-run path: when run() is
+// invoked against a config path that doesn't exist, it writes a default
+// TOML file at that path (mode 0600) and returns a "wrote a default"
+// error so the operator knows to edit it. A second run() against the
+// same (now-existing) path proceeds past the bootstrap branch — the
+// "wrote a default" message must not re-fire.
+//
+// Spec: SPECIFICATION-daemon.md "Config loading and first-run bootstrap".
+func TestMain_BootstrapsThenExits(t *testing.T) {
+	is := is.New(t)
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	*flagConfig = cfgPath
+	*flagAddr = ""
+	*flagLogLevel = "warn"
+
+	// First run: file doesn't exist, bootstrap writes default + returns error.
+	err := run(context.Background())
+	is.True(err != nil)                                       // bootstrap returns non-nil error
+	is.True(strings.Contains(err.Error(), "wrote a default")) // explanatory message
+	is.True(strings.Contains(err.Error(), "edit it"))         // tells operator next step
+
+	// File now exists at the path.
+	st, statErr := os.Stat(cfgPath)
+	is.NoErr(statErr)
+	is.Equal(st.Mode().Perm(), os.FileMode(0o600)) // bootstrap writes 0600
+
+	// Second run: file exists; run() should NOT re-fire the bootstrap.
+	// The default config has no devices, but the loader treats that as
+	// valid (placeholder bootstrap), so run() will proceed past the
+	// bootstrap branch into the full daemon loop. We cancel the context
+	// shortly after to force a clean shutdown and assert the returned
+	// error does not contain the "wrote a default" message — the only
+	// thing this test pins.
+	ctx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	go func() { runErr <- run(ctx) }()
+
+	// Let run() enter the main loop, then cancel. 100ms is enough on
+	// every platform for the HTTP server to start its Accept loop; if
+	// the runtime hasn't gotten there yet, the cancel still wins (run()
+	// re-checks parent.Done() before each blocking step).
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err = <-runErr:
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not return within 5s of ctx cancel")
+	}
+	// Either run() returned nil (clean shutdown) or some other error —
+	// what matters is that the bootstrap branch did NOT fire.
+	if err != nil {
+		is.True(!strings.Contains(err.Error(), "wrote a default")) // bootstrap fires only on missing file
+	}
+}
+
 // TestMainSmoke boots the daemon end-to-end and probes a few endpoints.
 func TestMainSmoke(t *testing.T) {
 	is := is.New(t)
