@@ -90,6 +90,14 @@ The bridge advertises a single HomeKit *bridge accessory* with one
 - Manufacturer: `"Vents"`
 - Model: `"breezyd"`
 
+Per-device accessory identity (one per Breezy):
+
+- Name: the device's config-block name
+- SerialNumber: the 16-char Breezy device ID
+- Manufacturer: `"Vents"`
+- Model: `"Twinfresh Breezy 160"` (fixed; the daemon supports only one
+  Twinfresh family today)
+
 Bridge construction lives in `cmd/breezyd/homekit.go::StartHomekit`;
 per-device accessory construction is in
 `pkg/homekit/accessory.go::NewBreezyAccessory`.
@@ -115,7 +123,7 @@ the following services (all `pkg/homekit/accessory.go::NewBreezyAccessory`):
 | AirPurifier             | Power, current/target state, rotation speed, fault     | Primary tile in iOS Home                                      |
 | Switch (Supply Only)    | Sets airflow_mode = `supply`                           | Mutually exclusive with Extract Only                          |
 | Switch (Extract Only)   | Sets airflow_mode = `extract`                          | Mutually exclusive with Supply Only                           |
-| Switch (Heater)         | Toggles auxiliary reheater                             | Frost-protection activations bypass this toggle               |
+| Switch (Heater)         | Toggles auxiliary reheater                             | Device-side firmware may activate the reheater autonomously for frost protection regardless of this switch |
 | Switch (Night)          | Activates "night" special-mode timer                   | Mutually exclusive with Turbo                                 |
 | Switch (Turbo)          | Activates "turbo" special-mode timer                   | Mutually exclusive with Night                                 |
 | HumiditySensor          | Live %RH                                               |                                                               |
@@ -266,7 +274,7 @@ parameter IDs listed in the rightmost column (decoded by
 | Switch[Turbo].On                             | `live.special_mode`             | `0x0007`                   | true iff mode == `turbo`                                              |
 | HumiditySensor.CurrentRelativeHumidity       | `sensors.humidity_pct`          | `0x0025`                   |                                                                       |
 | CarbonDioxideSensor.CarbonDioxideLevel       | `sensors.eco2_ppm`              | `0x0027`                   |                                                                       |
-| CarbonDioxideSensor.CarbonDioxideDetected    | `sensors.eco2_ppm` vs threshold | `0x0027`, `0x001A`         | 1 iff eCO₂ > configured threshold                                     |
+| CarbonDioxideSensor.CarbonDioxideDetected    | `sensors.eco2_ppm` vs threshold | `0x0027`, `0x001A`         | 1 iff eCO₂ > configured threshold; 0 when the threshold is not configured |
 | AirQualitySensor.AirQuality                  | `sensors.voc_index` → enum      | `0x0320`                   | Boundaries 0/50/100/150/200; see `pkg/homekit/airquality.go`          |
 | AirQualitySensor.VOCDensity                  | `sensors.voc_index`             | `0x0320`                   | Raw index value, written verbatim                                     |
 | TemperatureSensor[Outdoor].CurrentTemperature     | `sensors.temp_outdoor_c`        | `0x001F`             | Sentinels (`|v| ≥ 1000`) skipped                                      |

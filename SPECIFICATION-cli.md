@@ -92,9 +92,10 @@ config and does not consult the daemon — see the verb entry below.
 ## Configuration
 
 The CLI reads `~/.config/breezy/config.toml`, falling back to
-`/etc/breezy/config.toml`. A missing config is not an error: the CLI runs
-in standalone mode with an empty device map, which is fine for `discover`
-and `--version`.
+`/etc/breezy/config.toml`. The first file found wins — there is no
+merge across both locations. A missing config is not an error: the CLI
+runs in standalone mode with an empty device map, which is fine for
+`discover` and `--version`.
 
 The file is shared with the daemon. The CLI consumes only:
 

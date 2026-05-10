@@ -235,8 +235,9 @@ new state. The poller suppresses reads of `fanSensitiveReads`
 (`0x004A`, `0x004B`, `0x0084`) for `fanSettleDuration = 12s` after such
 a write.
 
-Suppression is gated on `!client.IsLocal()` — `*breezy.MemClient`
-writes land instantly so memory-backed devices skip it. UDP-path
+Suppression is gated on `!p.lastClient.IsLocal()` — the most recent
+successfully-dialed client decides. `*breezy.MemClient` writes land
+instantly so memory-backed devices skip it. UDP-path
 coverage: `poller_test.go::TestPoller_FanSettle_DropsSensitiveReads_OverUDP`.
 `Poller.NoticeWrite(id)` is the entry point: HTTP handlers reach it via
 `recordingClient → Handler.recordWrite → Handler.notice`; the Scheduler
