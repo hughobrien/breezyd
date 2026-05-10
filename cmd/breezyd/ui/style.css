@@ -175,6 +175,27 @@ details.block.schedule > summary > h3 { margin: 0; }
 }
 .theme-picker > summary::-webkit-details-marker { display: none; }
 .theme-picker > summary > h1 { margin: 0; }
+/* SSE debug rows tucked into the theme-picker popout (closes #191). The
+   $debug.* signals are seeded on <body> and updated by document-level
+   listeners on every datastar-patch-elements / datastar-signal-patch /
+   datastar-fetch event. Helps tell at a glance whether grey panels are
+   the SSE stream's fault or a per-device poll's. */
+.sse-debug {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 0.1rem 1ch;
+  margin: 0.4rem 0 0;
+  padding: 0.4rem 0.6rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  font-size: 0.7rem;
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 12rem;
+}
+.sse-debug dt { color: var(--fg-weak); margin: 0; }
+.sse-debug dd { margin: 0; text-align: right; }
 .schedule-toolbar {
   display: flex; gap: 0.5rem; align-items: center;
   margin: 0.4rem 0; font-size: 0.8rem;

@@ -107,6 +107,26 @@ test.describe("rendering", () => {
     await info.locator("summary").click();
     await expect(info).not.toHaveAttribute("open", "");
   });
+
+  // Pins #191: opening the theme picker reveals an SSE debug block whose
+  // values come from page-level $debug signals bumped by document-level
+  // listeners on datastar-patch-elements / datastar-fetch.
+  test("theme-picker popout shows live SSE debug rows (closes #191)", async ({ page }) => {
+    await reset(DEVICE);
+    await loadCard(page);
+    const debug = page.locator(".sse-debug");
+    // Hidden while picker is closed (display:none on collapsed <details>).
+    await expect(debug).toBeHidden();
+
+    await page.locator(".theme-picker > summary").click();
+    await expect(debug).toBeVisible();
+
+    // datastar-fetch:started on /ui/sse drives streamOpen=true; the
+    // initial-state datastar-patch-elements (one per device) bumps events.
+    await expect(debug.locator('dd').filter({ hasText: 'open' })).toBeVisible();
+    await expect(debug.locator('dd').filter({ hasText: /^\d+$/ })).toBeVisible();
+    await expect(debug.locator('dd').filter({ hasText: /^\d+s ago$/ })).toBeVisible();
+  });
 });
 
 test.describe("SSE push", () => {

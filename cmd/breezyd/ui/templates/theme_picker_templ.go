@@ -55,7 +55,7 @@ func ThemePicker() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</button></div></details>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</button></div><dl class=\"sse-debug\" aria-label=\"SSE debug\"><dt>last update</dt><dd data-text=\"$debug.lastEventAt ? Math.max(0, Math.floor(($debug.now - $debug.lastEventAt)/1000)) + 's ago' : '—'\"></dd><dt>events</dt><dd data-text=\"$debug.events\"></dd><dt>stream</dt><dd data-text=\"$debug.events > 0 && ($debug.now - $debug.lastEventAt) < 60000 ? 'open' : 'closed'\"></dd></dl></details>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
