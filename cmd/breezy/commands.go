@@ -23,6 +23,21 @@ import (
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
+// runOp bounds op by a 10s timeout, prints "error: <msg>" + returns 1
+// on failure, prints successMsg + returns 0 on success. Used by cmdPower,
+// cmdMode, cmdHeater, cmdTimer, cmdSpeed, cmdThreshold, cmdAutoFan,
+// cmdResetFilter, cmdResetFaults, cmdRtc, and cmdSet.
+func runOp(op func(ctx context.Context) error, successMsg string, stdout, stderr io.Writer) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := op(ctx); err != nil {
+		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
+		return 1
+	}
+	_, _ = fmt.Fprintln(stdout, successMsg)
+	return 0
+}
+
 // ----------------------------------------------------------------------------
 // Per-device handlers
 // ----------------------------------------------------------------------------
@@ -45,14 +60,9 @@ func cmdStatus(b backend, name string, stdout, stderr io.Writer) int {
 
 // cmdPower posts {"on": <v>} to /power.
 func cmdPower(b backend, name string, on bool, stdout, stderr io.Writer) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.Power(ctx, name, on); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.Power(ctx, name, on)
+	}, "ok", stdout, stderr)
 }
 
 // cmdSpeed parses the local `speed <preset>` / `speed manual:<pct>` form.
@@ -80,14 +90,9 @@ func cmdSpeed(b backend, name string, args []string, stdout, stderr io.Writer) i
 			_, _ = fmt.Fprintf(stderr, "speed manual: %d%% is above 100%%\n", pct)
 			return 2
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := b.SpeedManual(ctx, name, pct); err != nil {
-			_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-			return 1
-		}
-		_, _ = fmt.Fprintln(stdout, "ok")
-		return 0
+		return runOp(func(ctx context.Context) error {
+			return b.SpeedManual(ctx, name, pct)
+		}, "ok", stdout, stderr)
 	}
 
 	preset, err := strconv.Atoi(arg)
@@ -95,14 +100,9 @@ func cmdSpeed(b backend, name string, args []string, stdout, stderr io.Writer) i
 		_, _ = fmt.Fprintln(stderr, "speed: must be 1, 2, 3, or manual:<10..100>")
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.SpeedPreset(ctx, name, preset); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.SpeedPreset(ctx, name, preset)
+	}, "ok", stdout, stderr)
 }
 
 // validModes is the set the daemon will accept; we mirror it locally
@@ -124,14 +124,9 @@ func cmdMode(b backend, name string, args []string, stdout, stderr io.Writer) in
 		_, _ = fmt.Fprintf(stderr, "mode: %q is not one of: ventilation, regeneration, supply, extract\n", args[0])
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.Mode(ctx, name, mode); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.Mode(ctx, name, mode)
+	}, "ok", stdout, stderr)
 }
 
 func cmdHeater(b backend, name string, args []string, stdout, stderr io.Writer) int {
@@ -149,14 +144,9 @@ func cmdHeater(b backend, name string, args []string, stdout, stderr io.Writer) 
 		_, _ = fmt.Fprintln(stderr, "heater: must be on or off")
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.Heater(ctx, name, on); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.Heater(ctx, name, on)
+	}, "ok", stdout, stderr)
 }
 
 // validTimerModes is the set the daemon will accept; we mirror it locally
@@ -177,14 +167,9 @@ func cmdTimer(b backend, name string, args []string, stdout, stderr io.Writer) i
 		_, _ = fmt.Fprintf(stderr, "timer: %q is not one of: off, night, turbo\n", args[0])
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.Timer(ctx, name, mode); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.Timer(ctx, name, mode)
+	}, "ok", stdout, stderr)
 }
 
 // validThresholdKinds mirrors the daemon's accepted set so a typo doesn't
@@ -210,14 +195,9 @@ func cmdThreshold(b backend, name string, args []string, stdout, stderr io.Write
 		_, _ = fmt.Fprintf(stderr, "threshold: value must be an integer, got %q\n", args[1])
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.ThresholdConfig(ctx, name, kind, &value, nil); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.ThresholdConfig(ctx, name, kind, &value, nil)
+	}, "ok", stdout, stderr)
 }
 
 func cmdAutoFan(b backend, name string, args []string, stdout, stderr io.Writer) int {
@@ -240,36 +220,21 @@ func cmdAutoFan(b backend, name string, args []string, stdout, stderr io.Writer)
 		_, _ = fmt.Fprintf(stderr, "auto-fan: state must be on or off, got %q\n", args[1])
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.ThresholdConfig(ctx, name, kind, nil, &enabled); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.ThresholdConfig(ctx, name, kind, nil, &enabled)
+	}, "ok", stdout, stderr)
 }
 
 func cmdResetFilter(b backend, name string, stdout, stderr io.Writer) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.ResetFilter(ctx, name); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "filter timer reset")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.ResetFilter(ctx, name)
+	}, "filter timer reset", stdout, stderr)
 }
 
 func cmdResetFaults(b backend, name string, stdout, stderr io.Writer) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.ResetFaults(ctx, name); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "faults cleared")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.ResetFaults(ctx, name)
+	}, "faults cleared", stdout, stderr)
 }
 
 // cmdFaults pretty-prints the backend's faults list. Empty list ->
@@ -324,14 +289,9 @@ func cmdRtc(b backend, name string, args []string, stdout, stderr io.Writer) int
 			_, _ = fmt.Fprintf(stderr, "rtc set: parse %q: %v\n", args[1], err)
 			return 2
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := b.SetRTC(ctx, name, t); err != nil {
-			_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-			return 1
-		}
-		_, _ = fmt.Fprintln(stdout, "rtc set")
-		return 0
+		return runOp(func(ctx context.Context) error {
+			return b.SetRTC(ctx, name, t)
+		}, "rtc set", stdout, stderr)
 	}
 	_, _ = fmt.Fprintln(stderr, "usage: breezy <name> rtc [set <RFC3339>]")
 	return 2
@@ -437,14 +397,9 @@ func cmdSet(b backend, name string, args []string, stdout, stderr io.Writer) int
 		_, _ = fmt.Fprintf(stderr, "set: invalid hex %q: %v\n", args[1], err)
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := b.SetParam(ctx, name, id, valueBytes); err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
-		return 1
-	}
-	_, _ = fmt.Fprintln(stdout, "ok")
-	return 0
+	return runOp(func(ctx context.Context) error {
+		return b.SetParam(ctx, name, id, valueBytes)
+	}, "ok", stdout, stderr)
 }
 
 // resolveParam accepts a hex id ("0x25", "25") OR a registry name
