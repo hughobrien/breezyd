@@ -240,10 +240,10 @@ func TestSchedulePctOrigValue(t *testing.T) {
 
 // TestInfoDetails_ActiveFault pins the rendering of a device with an
 // active fault (FaultLevel != "none") and the soiled-filter / fault path
-// that flips NeedsAttention. The golden snapshot_schedule_alert fixture
-// happens to set both, but a focused contract is more useful when the
-// fault path itself changes — failures point at the right thing instead
-// of "golden mismatch."
+// that flips NeedsAttention. A focused contract is more useful here
+// than a golden because failures point at the fault-path code instead
+// of "golden mismatch" against a fixture that combines several
+// unrelated states.
 //
 // Behaviors pinned (see SPECIFICATION-web.md "Card states: Fault"):
 //   - The faults kvRow shows the FaultLevel string verbatim.
@@ -301,12 +301,24 @@ func TestInfoDetails_ActiveFault(t *testing.T) {
 	}
 }
 
+// TestDeviceCardGolden is a tripwire for unintended large-shape changes
+// to DeviceCard's outer HTML — block ordering, conditional block
+// presence, page-level attribute drift. Per-feature contracts
+// (TestInfoDetails_ActiveFault, TestRenderSensorsBlock_FormattedValues,
+// TestRenderScheduleBlock_AlertWarnFooter, TestRenderControlsBlock_*,
+// TestRenderUnreachableCard, TestRenderBlocks_DetailsOpenBinding) own
+// the per-shape semantics; this test exists for layout-level regressions
+// only.
+//
+// Two shapes pinned: `healthy` (regen, all five blocks populated) and
+// `stale` (Stale=true, non-regen → no energy, no schedule — the conditional-
+// block omission case). The unreachable shape is fully covered by
+// TestRenderUnreachableCard's structural walk; no golden adds value
+// over that.
+//
+// Update with `go test ./cmd/breezyd/ui/templates -run TestDeviceCardGolden -update`.
 func TestDeviceCardGolden(t *testing.T) {
-	cases := []string{
-		"snapshot_regen", "snapshot_manual", "snapshot_settling",
-		"snapshot_sensor_alert", "snapshot_schedule_alert",
-		"snapshot_energy_error", "snapshot_no_energy",
-	}
+	cases := []string{"snapshot_healthy", "snapshot_stale"}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
 			view := loadView(t, name)
