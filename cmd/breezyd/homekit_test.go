@@ -153,6 +153,98 @@ func TestHomekit_SyncUnknownDevice(t *testing.T) {
 	h.SyncHomekit("y", Snapshot{})
 }
 
+// TestHomekit_PinRegeneratesWeakSeed pins that an existing pin.txt holding
+// a weak PIN (one of brutella/hap's invalid set) gets regenerated rather
+// than reused. Security-relevant: a deployed daemon that silently accepted
+// a weak PIN would expose a default-pairing-code attack surface.
+func TestHomekit_PinRegeneratesWeakSeed(t *testing.T) {
+	is := is.New(t)
+	dir := t.TempDir()
+	pinPath := filepath.Join(dir, "pin.txt")
+	is.NoErr(os.WriteFile(pinPath, []byte("12345678"), 0o600))
+
+	pin, err := loadOrGeneratePin(dir)
+	is.NoErr(err)
+	is.True(pin != "12345678") // weak seed must be replaced
+	is.True(!weakPins[pin])    // replacement must not also be weak
+
+	raw, err := os.ReadFile(pinPath)
+	is.NoErr(err)
+	is.Equal(string(raw), pin) // file now reflects the regenerated PIN
+}
+
+// TestHomekit_PinRegeneratesMalformed pins that an existing pin.txt holding
+// a malformed value (non-8-digit) gets regenerated.
+func TestHomekit_PinRegeneratesMalformed(t *testing.T) {
+	is := is.New(t)
+	dir := t.TempDir()
+	pinPath := filepath.Join(dir, "pin.txt")
+	is.NoErr(os.WriteFile(pinPath, []byte("abc"), 0o600))
+
+	pin, err := loadOrGeneratePin(dir)
+	is.NoErr(err)
+	is.Equal(len(pin), 8)   // regenerated PIN is the canonical 8-digit form
+	is.True(!weakPins[pin]) // and not weak
+
+	raw, err := os.ReadFile(pinPath)
+	is.NoErr(err)
+	is.Equal(string(raw), pin) // file persisted to new value
+}
+
+// TestHomekit_AccessoryAidIsLexOrdered pins that StartHomekit sorts device
+// names before adding accessories to the bridge, so brutella/hap's
+// sequential aid assignment (server.go::add: aid=1 for bridge, then 2,3,4...
+// in children slice order) produces alphabetical aids regardless of map
+// iteration order. Without the sort, iOS Home tiles would re-bind to the
+// wrong device on every restart.
+func TestHomekit_AccessoryAidIsLexOrdered(t *testing.T) {
+	is := is.New(t)
+	const (
+		devID  = "TESTID0000000001"
+		devPwd = "1111"
+	)
+	srv, err := fakedevice.NewServer(homekitSnapshotPath(t), devID, devPwd)
+	is.NoErr(err)
+	t.Cleanup(func() { _ = srv.Close() })
+
+	// Five devices in non-alphabetical insertion order. With sort.Strings in
+	// place, aids land alphabetically: alpha < bravo < mike < tango < zulu.
+	// Without it, map iteration randomisation gives ~1/120 odds of producing
+	// alphabetical aids by chance.
+	devices := map[string]DeviceConfig{
+		"zulu":  {ID: devID, Password: devPwd, IP: srv.Addr()},
+		"alpha": {ID: devID, Password: devPwd, IP: srv.Addr()},
+		"mike":  {ID: devID, Password: devPwd, IP: srv.Addr()},
+		"tango": {ID: devID, Password: devPwd, IP: srv.Addr()},
+		"bravo": {ID: devID, Password: devPwd, IP: srv.Addr()},
+	}
+
+	state := NewState()
+	h := &Handler{
+		State:   state,
+		Devices: NewDeviceRegistry(devices),
+	}
+
+	cfg := config.Homekit{
+		Enabled:    true,
+		BridgeName: "test-bridge",
+		StateDir:   t.TempDir(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	stop, err := h.StartHomekit(ctx, cfg, devices)
+	is.NoErr(err)
+	t.Cleanup(func() { _ = stop() })
+
+	a := h.homekitAccessories
+	is.True(a["alpha"].A.Id < a["bravo"].A.Id)
+	is.True(a["bravo"].A.Id < a["mike"].A.Id)
+	is.True(a["mike"].A.Id < a["tango"].A.Id)
+	is.True(a["tango"].A.Id < a["zulu"].A.Id)
+}
+
 // newHomekitWriteTestHandler builds a Handler wired to a fakedevice via a
 // real UDP ClientFactory, plus a freshly-constructed Accessory with the
 // write callbacks registered. Returns the handler, the registered callback
