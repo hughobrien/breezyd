@@ -510,6 +510,11 @@ type discoverFunc func(ctx context.Context) ([]breezy.Found, error)
 // defaultDiscover is the production discoverFunc.
 var defaultDiscover discoverFunc = breezy.Discover
 
+// defaultDiscoverWithPassword is the production password-bearing
+// discoverFunc; held as a package-level var so tests can swap it to
+// observe which branch runDiscovery selects based on cfg.Daemon.Password.
+var defaultDiscoverWithPassword = breezy.DiscoverWithPassword
+
 // runDiscovery sends one wildcard probe and updates the IP of any
 // configured device that answers. Unknown responders are logged at
 // INFO so the operator sees them once on next startup. Errors from
@@ -525,7 +530,7 @@ func runDiscovery(parent context.Context, devices *DeviceRegistry, password stri
 	fn := defaultDiscover
 	if password != "" && password != breezy.DefaultDiscoveryPassword {
 		fn = func(ctx context.Context) ([]breezy.Found, error) {
-			return breezy.DiscoverWithPassword(ctx, password)
+			return defaultDiscoverWithPassword(ctx, password)
 		}
 	}
 	return runDiscoveryWith(parent, devices, fn)

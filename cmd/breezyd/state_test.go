@@ -308,6 +308,89 @@ func TestRunDiscoveryWith_UpdatesIPViaRegistry(t *testing.T) {
 	is.Equal(d.IP, "10.0.0.5:4000") // registry IP must be updated by discovery
 }
 
+// G-daemon-4: errors from the injected discover stub propagate out of
+// runDiscoveryWith. Pinning the function-boundary contract — main.go::run
+// is responsible for swallowing the error to keep the daemon ready, but
+// the seam itself must surface it so callers can choose the policy.
+// Catches a regression where someone "helpfully" logs-and-swallows
+// inside runDiscoveryWith, breaking runPeriodicDiscovery's WARN-on-tick
+// log line and any future caller that wants to fail-fast.
+func TestRunDiscoveryWith_PropagatesDiscoverError(t *testing.T) {
+	is := is.New(t)
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		"playroom": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
+	})
+	wantErr := errors.New("listen failed")
+	stub := func(ctx context.Context) ([]breezy.Found, error) {
+		return nil, wantErr
+	}
+	err := runDiscoveryWith(context.Background(), devices, stub)
+	is.True(err != nil)              // discover error must propagate
+	is.True(errors.Is(err, wantErr)) // and must be the same error (not wrapped to opacity)
+	d, _ := devices.Get("playroom")
+	is.Equal(d.IP, "1.1.1.1:4000") // registry IP must be unchanged on discover error
+}
+
+// G-daemon-6: runDiscovery picks the password-bearing discover only when
+// [daemon].password is non-empty AND non-default. Stubs both package-level
+// closures and observes which fires for each input. Catches a regression
+// where the gate flips (e.g. drops the empty check, drops the
+// DefaultDiscoveryPassword check, or inverts the condition), causing
+// either spurious DiscoverWithPassword calls with "1111" or — worse — a
+// silent fallback to bare Discover when the operator has set a real
+// password and the firmware variant requires it.
+func TestRunDiscovery_SelectsClosureByPassword(t *testing.T) {
+	cases := []struct {
+		name          string
+		password      string
+		wantPlainCall bool
+		wantPwdCall   bool
+		wantPwdArg    string
+	}{
+		{"empty password uses Discover", "", true, false, ""},
+		{"factory default uses Discover", breezy.DefaultDiscoveryPassword, true, false, ""},
+		{"custom password uses DiscoverWithPassword", "s3cret", false, true, "s3cret"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
+			devices := NewDeviceRegistry(map[string]DeviceConfig{
+				"playroom": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
+			})
+
+			var plainCalls, pwdCalls int
+			var gotPwdArg string
+			origPlain := defaultDiscover
+			origPwd := defaultDiscoverWithPassword
+			t.Cleanup(func() {
+				defaultDiscover = origPlain
+				defaultDiscoverWithPassword = origPwd
+			})
+			defaultDiscover = func(ctx context.Context) ([]breezy.Found, error) {
+				plainCalls++
+				return nil, nil
+			}
+			defaultDiscoverWithPassword = func(ctx context.Context, pwd string) ([]breezy.Found, error) {
+				pwdCalls++
+				gotPwdArg = pwd
+				return nil, nil
+			}
+
+			is.NoErr(runDiscovery(context.Background(), devices, tc.password))
+
+			if tc.wantPlainCall {
+				is.Equal(plainCalls, 1) // plain Discover must fire exactly once
+				is.Equal(pwdCalls, 0)   // DiscoverWithPassword must not fire
+			}
+			if tc.wantPwdCall {
+				is.Equal(plainCalls, 0)            // plain Discover must not fire
+				is.Equal(pwdCalls, 1)              // DiscoverWithPassword must fire exactly once
+				is.Equal(gotPwdArg, tc.wantPwdArg) // DiscoverWithPassword must receive the configured password
+			}
+		})
+	}
+}
+
 func TestDeviceRegistry_ConcurrentReadAndUpdate(t *testing.T) {
 	r := NewDeviceRegistry(map[string]DeviceConfig{
 		"a": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
