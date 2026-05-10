@@ -224,6 +224,8 @@ HomeKit characteristics first, then the browser push hub. Both sinks are indepen
 
 `PushHub.Notify(name, snap)` (`cmd/breezyd/push_hub.go`) calls the injected render closure (which builds a `DeviceView` and runs `buildPushEvent` from `cmd/breezyd/push_render.go`) and queues a `PushEvent` on every subscriber's bounded channel (capacity 16). When a subscriber is too slow to drain, the oldest event is discarded — events are full-card snapshots, the latest supersedes prior ones, and a dropped event is never user-visible.
 
+If the render closure returns an error, the event is dropped and subscribers receive nothing for that tick. Renders are pure templ output over a `DeviceView`; failures are exceptional and rendering noise should not stall the SSE stream or kill subscribers.
+
 Action handlers also funnel through `Notify` after a successful write (`handlers_ui_write.go::notifyAfterWrite`). The poller and action handlers both hit the same fan-out; subscribers don't distinguish the source.
 
 ### PushEvent shape
@@ -325,6 +327,8 @@ func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg stri
 ```
 
 The HTTP status is 200. The semantic status (401, 422, 502) lives in the `Datastar-Status` response header for tooling and observability. The error fragment is delivered via SSE and patched into `#global-error-banner` via `mode=inner`. `Datastar-Status` must be set *before* `newSSE` because `datastar.NewSSE` flushes the response head immediately.
+
+Every JSON action handler routes its error paths through `errorBannerSSE`, so the auth/backend/validation triple is shared plumbing. Tests pin the behavior on a representative endpoint (currently `/ui/devices/{name}/power`); per-endpoint duplication is not required.
 
 ### Banner messages
 
@@ -450,7 +454,7 @@ All three editors share the same preservation mechanism: the editor's root eleme
 
 Light / dark / auto, via `localStorage.theme` and `data-theme` on `<html>`. Files: `cmd/breezyd/ui/templates/theme_picker.templ`, inline IIFE in `layout.templ`.
 
-The picker is a `<details class="theme-picker">` in the page header. The summary is the `<h1>breezy</h1>`. Clicking the heading opens the popout; the popout has three buttons (sun, moon, auto-system) with `data-theme-set` attributes.
+The picker is a `<details class="theme-picker">` in the page header. The summary is the `<h1>breezy</h1>`. Clicking the heading opens the popout; the popout has three buttons (sun, moon, auto-system) with `data-theme-set` attributes. The `.theme-picker` class is the durable contract — the IIFE in `layout.templ` looks the picker up via `document.querySelector('.theme-picker')`, so renaming the class would silently break the popout's open/close logic.
 
 The IIFE in `layout.templ`:
 
