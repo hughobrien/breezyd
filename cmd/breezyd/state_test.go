@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -389,6 +390,100 @@ func TestRunDiscovery_SelectsClosureByPassword(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunPeriodicDiscovery_TicksAndExits pins the cadence + cancellation
+// contract of the periodic-discovery goroutine. Spec: tick at the
+// configured cadence (calling defaultDiscover each tick), exit promptly
+// on context cancellation. Without coverage, a regression that turns the
+// goroutine into a single-shot or leaks past ctx.Done() would only
+// surface in production.
+//
+// Uses interval=10ms + a ~50ms cancel deadline so the test stays fast
+// (<200ms total). Asserts ≥3 calls (not exactly N) to absorb scheduler
+// jitter on loaded CI.
+func TestRunPeriodicDiscovery_TicksAndExits(t *testing.T) {
+	is := is.New(t)
+
+	// Swap defaultDiscover for a counting stub. runPeriodicDiscovery calls
+	// runDiscovery -> runDiscoveryWith, which falls through to defaultDiscover
+	// when the password is empty/default.
+	var calls int64
+	prev := defaultDiscover
+	defaultDiscover = func(ctx context.Context) ([]breezy.Found, error) {
+		atomic.AddInt64(&calls, 1)
+		return nil, nil
+	}
+	t.Cleanup(func() { defaultDiscover = prev })
+
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		"playroom": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runPeriodicDiscovery(ctx, devices, 10*time.Millisecond, "")
+	}()
+
+	// Let the ticker fire several times.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	// Assert the goroutine returned promptly after cancel.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runPeriodicDiscovery did not return within 2s of ctx cancel")
+	}
+
+	got := atomic.LoadInt64(&calls)
+	is.True(got >= 3) // expected ≥3 ticks across ~50ms at 10ms cadence; got fewer (timing-jitter floor)
+}
+
+// TestRunPeriodicDiscovery_ContinuesThroughErrors pins the second half
+// of the contract: a single failing tick must not bail the loop. A
+// transient discovery error (network blip, IPv4 broadcast filter) would
+// otherwise permanently disable IP refresh until the daemon restarts.
+//
+// Stub returns an error every other call; we still expect the call count
+// to grow past the first error.
+func TestRunPeriodicDiscovery_ContinuesThroughErrors(t *testing.T) {
+	is := is.New(t)
+
+	var calls int64
+	prev := defaultDiscover
+	defaultDiscover = func(ctx context.Context) ([]breezy.Found, error) {
+		n := atomic.AddInt64(&calls, 1)
+		if n%2 == 0 {
+			return nil, errors.New("simulated discovery failure")
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() { defaultDiscover = prev })
+
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		"playroom": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runPeriodicDiscovery(ctx, devices, 10*time.Millisecond, "")
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runPeriodicDiscovery did not return within 2s of ctx cancel")
+	}
+
+	got := atomic.LoadInt64(&calls)
+	is.True(got >= 3) // loop must continue past the first errored tick (got fewer)
 }
 
 func TestDeviceRegistry_ConcurrentReadAndUpdate(t *testing.T) {
