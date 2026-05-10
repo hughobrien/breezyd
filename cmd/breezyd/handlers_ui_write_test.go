@@ -4,9 +4,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -137,6 +140,48 @@ func TestUIWritePower_NotFound(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	is.Equal(resp.StatusCode, 404)
 }
+
+// TestUIBannerMsg pins the user-facing string each error class
+// produces. Raw `context deadline exceeded` is meaningless to a
+// dashboard user; uiBannerMsg translates timeout-shaped errors
+// (ctx deadline, ctx canceled, breezy.ErrTimeout, net.Error.Timeout)
+// into "device timeout (no response)" and ErrAuth into the
+// authentication string.
+func TestUIBannerMsg(t *testing.T) {
+	is := is.New(t)
+
+	const wantTimeout = "device timeout (no response)"
+
+	is.Equal(uiBannerMsg(context.DeadlineExceeded), wantTimeout)
+	is.Equal(uiBannerMsg(context.Canceled), wantTimeout)
+	is.Equal(uiBannerMsg(breezy.ErrTimeout), wantTimeout)
+
+	// Wrapped variants (typical of Go error chains) must still translate.
+	is.Equal(uiBannerMsg(fmt.Errorf("dial: %w", breezy.ErrTimeout)), wantTimeout)
+	is.Equal(uiBannerMsg(fmt.Errorf("ctx: %w", context.DeadlineExceeded)), wantTimeout)
+
+	// Any net.Error.Timeout() also maps to the timeout string.
+	is.Equal(uiBannerMsg(&fakeNetTimeoutErr{msg: "tcp i/o timeout"}), wantTimeout)
+
+	// Unknown / non-timeout errors fall through to err.Error(). uiBannerMsg
+	// itself does NOT have a special case for ErrAuth — the action handler
+	// (handlers_ui_write.go) bypasses uiBannerMsg for the auth path and
+	// emits the hardcoded "device authentication failed" string with a 401
+	// status (see TestUIWritePower_AuthError for that integration). So a
+	// raw uiBannerMsg(ErrAuth) returns the underlying error message.
+	is.Equal(uiBannerMsg(breezy.ErrAuth), "breezy: authentication failed")
+	is.Equal(uiBannerMsg(errors.New("bizarre")), "bizarre")
+}
+
+// fakeNetTimeoutErr is a minimal net.Error that returns Timeout()=true.
+type fakeNetTimeoutErr struct{ msg string }
+
+func (e *fakeNetTimeoutErr) Error() string   { return e.msg }
+func (e *fakeNetTimeoutErr) Timeout() bool   { return true }
+func (e *fakeNetTimeoutErr) Temporary() bool { return false }
+
+// Compile-time assertion that fakeNetTimeoutErr satisfies net.Error.
+var _ net.Error = (*fakeNetTimeoutErr)(nil)
 
 func TestUIWritePower_BadForm(t *testing.T) {
 	is := is.New(t)
