@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // PushHub fans out per-device snapshot updates to subscribed SSE clients.
-// Producers (the poller's OnPoll hook, action handlers' post-write paths)
+// Producers (the poller's OnTick hook — every tick, success or failure
+// — and action handlers' post-write paths)
 // call Notify(name, snap). The hub renders a structured PushEvent — one
 // signal payload (JSON for datastar-patch-signals) plus a list of block
 // patches (each rendered templ component plus the selector to target) —

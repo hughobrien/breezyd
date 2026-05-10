@@ -211,16 +211,18 @@ Each initial card emits a `datastar-patch-elements` event with event ID `device:
 
 ### Per-device push
 
-The poller's `OnPoll` hook is composed in `cmd/breezyd/main.go` as:
+The poller's fan-out is split in `cmd/breezyd/main.go` between two hooks:
 
 ```go
 onPoll := func(name string, snap Snapshot) {
     handler.SyncHomekit(name, snap)
+}
+onTick := func(name string, snap Snapshot) {
     handler.PushHub.Notify(name, snap)
 }
 ```
 
-HomeKit characteristics first, then the browser push hub. Both sinks are independent and idempotent — the order is purely "fastest path first." See `SPECIFICATION-hap.md` for HomeKit details.
+`onPoll` fires only on successful ticks (HomeKit characteristics must not be updated from stale data). `onTick` fires on every tick, success or failure, so the dashboard's `$lastPollAge` and `$stale` signals advance even when polls are timing out — without this the `data-class:stale="$stale"` toggle would never fire under sustained UDP failure. See `SPECIFICATION-hap.md` for HomeKit details.
 
 `PushHub.Notify(name, snap)` (`cmd/breezyd/push_hub.go`) calls the injected render closure (which builds a `DeviceView` and runs `buildPushEvent` from `cmd/breezyd/push_render.go`) and queues a `PushEvent` on every subscriber's bounded channel (capacity 16). When a subscriber is too slow to drain, the oldest event is discarded — events are full-card snapshots, the latest supersedes prior ones, and a dropped event is never user-visible.
 
@@ -503,7 +505,7 @@ End-to-end first-paint sequence for a fresh browser tab:
 4. Per device: `emitInitialCard` writes a `datastar-patch-elements` event with `mode=append` against `#device-list`.
 5. Client: datastar appends each card. Per-card `data-signals` initializes the per-card store. `data-attr:open` reflects defaults; controls render with their server-rendered states.
 6. Server: keepalive ticker arms; handler enters the steady-state select loop.
-7. Server: next poller tick → `OnPoll(name, snap)` → `PushHub.Notify` → subscribers receive a `PushEvent`.
+7. Server: next poller tick → `OnTick(name, snap)` → `PushHub.Notify` → subscribers receive a `PushEvent`.
 8. Server: handler emits `datastar-patch-signals` then per-block `datastar-patch-elements` events.
 9. Client: signals merge; `:not([data-edit])` patches replace each block where the editor isn't open.
 

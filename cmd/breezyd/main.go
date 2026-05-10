@@ -212,7 +212,7 @@ func run(parent context.Context) error {
 		handler.scheduleDial, memClients,
 	)
 	// Set the maps on the handler BEFORE spawning the goroutines so the
-	// onPoll → PushHub.Notify → buildView path always sees populated
+	// onTick → PushHub.Notify → buildView path always sees populated
 	// Pollers/Schedulers. Without this ordering, the race detector
 	// fires on the first tick.
 	handler.Pollers = pollers

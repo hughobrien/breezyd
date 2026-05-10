@@ -53,7 +53,10 @@ immediately visible to poller reads); compute the listen address
 `discovery == "on-start"`, run a 3-second discovery probe and update
 each device's IP (failures log and proceed); construct the `State`
 cache, the Prometheus `Metrics` collector, and the `Handler`; compose
-`OnPoll` as `handler.SyncHomekit + handler.PushHub.Notify`; spawn one
+two poll-fan-out closures — `onPoll` (success-only:
+`handler.SyncHomekit`) and `onTick` (every tick: `handler.PushHub.Notify`,
+so the dashboard's `$lastPollAge` / `$stale` signals advance under
+sustained UDP timeouts); spawn one
 `Poller` and one `Scheduler` goroutine per device with an IP
 (`startPollers`; devices without an IP log a warning and are skipped
 until discovery resolves them); if `discovery ==
@@ -62,7 +65,7 @@ until discovery resolves them); if `discovery ==
 `net/http.ServeMux` and start `srv.ListenAndServe`.
 
 `handler.Pollers` and `handler.Schedulers` must be populated BEFORE the
-goroutines start so the first poll's `OnPoll → PushHub.Notify` always
+goroutines start so the first poll's `OnTick → PushHub.Notify` always
 sees a populated map (without this ordering the race detector fires).
 
 HTTP server timeouts: `ReadHeaderTimeout=5s`, `ReadTimeout=10s`,
