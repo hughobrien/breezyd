@@ -747,6 +747,68 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	}
 }
 
+// TestPresetChipExpr pins the strict-equality toggle on the per-card
+// $editor signal: clicking chip n flips $editor between 0 and n.
+// Strict equality (===) matters because $editor is the same JS engine
+// across stringified-vs-numeric edge cases — `==` would coerce and
+// match unexpectedly when the seed type drifted (see G-web-8 and the
+// preset numeric-typing test).
+func TestPresetChipExpr(t *testing.T) {
+	got := presetChipExpr("alpha", 2)
+	want := "$editor = $editor === 2 ? 0 : 2; @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
+	if got != want {
+		t.Errorf("presetChipExpr(alpha, 2):\n  got: %s\n want: %s", got, want)
+	}
+	// Negative: must use strict equality, not loose.
+	if strings.Contains(got, "$editor == 2") {
+		t.Errorf("presetChipExpr must use strict equality (===), got: %s", got)
+	}
+}
+
+// TestPresetSliderExpr pins the full data-on:change expression for one
+// (name, n, side) tuple. Locks the four implied-mode branches without
+// a browser:
+//
+//   - $automode → 'ventilation'
+//   - both ≥ 10 → 'regeneration'
+//   - sup=0, ext≥10 → 'extract'
+//   - sup≥10, ext=0 → 'supply'
+//
+// Plus the 1..9 → 0 snap, the matchSpeeds mirror, and the per-preset
+// scoping ($preset[n].{supply,extract} reads).
+func TestPresetSliderExpr_SupplyN2(t *testing.T) {
+	got := presetSliderExpr("alpha", 2, "supply")
+	want := "let raw = parseInt(evt.target.value, 10); " +
+		"let v = (raw > 0 && raw < 10) ? 0 : raw; " +
+		"$preset[2].supply = v; if ($matchSpeeds) $preset[2].extract = v; " +
+		"let sup = $preset[2].supply, ext = $preset[2].extract; " +
+		"if (sup >= 10 && ext >= 10) @post('/ui/devices/alpha/preset', {payload: {preset: 2, supply: sup, extract: ext}}); " +
+		"let implied = null; " +
+		"if ($automode) implied = 'ventilation'; " +
+		"else if (sup >= 10 && ext >= 10) implied = 'regeneration'; " +
+		"else if (sup === 0 && ext >= 10) implied = 'extract'; " +
+		"else if (sup >= 10 && ext === 0) implied = 'supply'; " +
+		"if (implied && $speedMode === 'preset2' && $airflowMode !== implied) " +
+		"@post('/ui/devices/alpha/mode', {payload: {mode: implied}});"
+	if got != want {
+		t.Errorf("presetSliderExpr(alpha, 2, supply):\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestPresetSliderExpr_ExtractMirrorsCorrectly pins that the extract
+// side mirrors to supply (not the other way around). Without this,
+// dragging the extract slider with $matchSpeeds=true would silently
+// fail to update the supply side.
+func TestPresetSliderExpr_ExtractMirrorsCorrectly(t *testing.T) {
+	got := presetSliderExpr("alpha", 1, "extract")
+	if !strings.Contains(got, "$preset[1].extract = v;") {
+		t.Errorf("extract slider must self-update extract; got: %s", got)
+	}
+	if !strings.Contains(got, "if ($matchSpeeds) $preset[1].supply = v;") {
+		t.Errorf("extract slider must mirror to supply when matchSpeeds; got: %s", got)
+	}
+}
+
 // TestInitialCardSignals_StaticFlagsAndDetailsOpen pins the static UI
 // flags and detailsOpen defaults baked into every card's data-signals
 // seed. The runtime fields (stale / speedMode / etc.) are covered by
