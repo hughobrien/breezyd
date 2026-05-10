@@ -163,6 +163,16 @@ func TestSync_CO2Detection(t *testing.T) {
 		Sensors:    map[string]any{"eco2_ppm": 800},
 	})
 	is.Equal(a2.CO2.CarbonDioxideDetected.Value(), 0) // below threshold
+
+	// Threshold absent → Detected = 0 (we have no signal to fire on).
+	// Spec calls this fallback out explicitly so a missing config block
+	// doesn't surface as a fake detection.
+	a3 := newTestAccessory()
+	Sync(a3, breezy.Status{
+		Sensors: map[string]any{"eco2_ppm": 1500},
+	})
+	is.Equal(a3.CO2.CarbonDioxideDetected.Value(), 0) // missing threshold → no detection
+	is.Equal(a3.CarbonDioxideLevel.Value(), 1500.0)   // level still tracked even without threshold
 }
 
 // TestSync_VOCToAirQuality covers VOCDensity and the AirQuality enum bucket.
@@ -373,6 +383,7 @@ func TestSync_BatteryLevelFromVolts(t *testing.T) {
 		Sync(a, breezy.Status{Service: map[string]any{"rtc_battery_volts": c.volts}})
 		is.Equal(a.Battery.BatteryLevel.Value(), c.pct)
 		is.Equal(a.Battery.StatusLowBattery.Value(), c.low)
+		is.Equal(a.Battery.ChargingState.Value(), 2) // hardcoded 2 = "not chargeable"
 	}
 }
 

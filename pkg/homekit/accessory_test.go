@@ -44,6 +44,14 @@ func TestNewBreezyAccessory_ServiceShape(t *testing.T) {
 
 	// IP must be stored for Task 4's daemon glue.
 	is.Equal(a.IP, "192.168.1.148")
+
+	// Temperature characteristics carry an expanded range so the four
+	// outdoor/exhaust sensors can report sub-zero or above-50°C readings
+	// without brutella/hap clamping them to its [0, 100] default.
+	for _, ts := range []*TemperatureSensor{a.TempOutdoor, a.TempSupply, a.TempExhaustIn, a.TempExhaustOut} {
+		is.Equal(ts.CurrentTemperature.MinValue(), -40.0)
+		is.Equal(ts.CurrentTemperature.MaxValue(), 85.0)
+	}
 }
 
 func TestTitleCaseName(t *testing.T) {
