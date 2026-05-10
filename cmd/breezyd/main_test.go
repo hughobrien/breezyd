@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -339,6 +341,173 @@ func TestMainBackendFlagValidation(t *testing.T) {
 		is.True(err != nil)                                                // run must reject unknown --backend value
 		is.True(strings.Contains(err.Error(), "--backend: unknown value")) // error must explain --backend gate
 	})
+}
+
+// TestMain_ShutdownWaitsForInflightPoll pins SPECIFICATION-daemon.md
+// "Signals and shutdown" (G-daemon-15): "pollersWg.Wait() blocks (up to
+// another 5s) for in-flight ticks. The synchronous wait exists because
+// earlier fire-and-forget shutdowns let main return while pollers were
+// still mid-tick." Without the synchronous wait, run() returns
+// immediately on cancel and the test would observe a sub-100ms return
+// time.
+//
+// Mechanic: install a test OnPoll hook that blocks for blockDur, cancel
+// the parent context shortly after the first tick fires, and time how
+// long run() takes to return. We assert the elapsed return time is at
+// least most-of-blockDur (so we know it actually waited) and well under
+// the 5s shutdown deadline (so we know it didn't hit the abandon path).
+func TestMain_ShutdownWaitsForInflightPoll(t *testing.T) {
+	const (
+		devID    = "TESTID0000000004"
+		pwd      = "1111"
+		blockDur = 200 * time.Millisecond
+	)
+
+	listen := freeListenAddr(t)
+	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", devID, pwd)
+
+	*flagConfig = cfgPath
+	*flagAddr = ""
+	*flagLogLevel = "warn"
+	*flagBackend = "memory"
+	*flagSeed = mainSnapshotPath(t)
+	t.Cleanup(func() {
+		*flagBackend = "udp"
+		*flagSeed = ""
+	})
+
+	// Install the OnPoll-time block. Each tick sleeps blockDur; run()
+	// must wait for the in-flight tick to finish before returning.
+	firstTick := make(chan struct{})
+	var firstOnce sync.Once
+	testOnPollHook = func(_ *Handler, _ string, _ Snapshot) {
+		firstOnce.Do(func() { close(firstTick) })
+		time.Sleep(blockDur)
+	}
+	t.Cleanup(func() { testOnPollHook = nil })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	runErr := make(chan error, 1)
+	go func() { runErr <- run(ctx) }()
+
+	// Wait for the first poll tick to hit the hook so we cancel mid-tick.
+	select {
+	case <-firstTick:
+	case <-time.After(3 * time.Second):
+		cancel()
+		t.Fatal("first poll tick did not fire within 3s")
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-runErr:
+		elapsed := time.Since(start)
+		if err != nil {
+			t.Errorf("run returned error: %v", err)
+		}
+		// Spec floor: must wait until the in-flight tick's blocking
+		// hook returns. Use generous slack (80ms) to account for
+		// scheduling jitter — we still detect a fire-and-forget
+		// shutdown (which would return in single-digit-ms).
+		minWait := blockDur - 120*time.Millisecond
+		if elapsed < minWait {
+			t.Errorf("run returned in %v; expected ≥ %v (synchronous pollers wait)", elapsed, minWait)
+		}
+		// Spec ceiling: 5s shutdown deadline + slack. If we hit this,
+		// either the wait isn't bounded or something else is hung.
+		if elapsed > 6*time.Second {
+			t.Errorf("run took %v to return; expected ≤ 6s (shutdownTimeout + slack)", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not exit within 10s of cancellation")
+	}
+}
+
+// TestMain_PollersPopulatedBeforeFirstOnPoll pins
+// SPECIFICATION-daemon.md "Wiring sequence" (G-daemon-7):
+// "handler.Pollers and handler.Schedulers must be populated BEFORE the
+// goroutines start so the first poll's OnPoll → PushHub.Notify always
+// sees a populated map (without this ordering the race detector fires)."
+//
+// Mechanic: install a test OnPoll hook that, on the first tick,
+// captures whether handler.Pollers / handler.Schedulers are populated
+// for the device that just ticked. Run under -race in CI to also
+// catch the data-race form of the bug.
+func TestMain_PollersPopulatedBeforeFirstOnPoll(t *testing.T) {
+	is := is.New(t)
+	const (
+		devID = "TESTID0000000005"
+		pwd   = "1111"
+	)
+
+	listen := freeListenAddr(t)
+	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", devID, pwd)
+
+	*flagConfig = cfgPath
+	*flagAddr = ""
+	*flagLogLevel = "warn"
+	*flagBackend = "memory"
+	*flagSeed = mainSnapshotPath(t)
+	t.Cleanup(func() {
+		*flagBackend = "udp"
+		*flagSeed = ""
+	})
+
+	type observation struct {
+		name            string
+		pollerNonNil    bool
+		schedulerNonNil bool
+	}
+	var (
+		obsCh = make(chan observation, 1)
+		fired atomic.Bool
+	)
+	testOnPollHook = func(h *Handler, name string, _ Snapshot) {
+		if !fired.CompareAndSwap(false, true) {
+			return
+		}
+		// Read both maps under the same hook call. Production code
+		// reads handler.Pollers from the same goroutine path
+		// (PushHub.Notify → buildView → buildPushEvent), so this is
+		// the exact race window the spec is pinning.
+		p, pok := h.Pollers[name]
+		s, sok := h.Schedulers[name]
+		obsCh <- observation{
+			name:            name,
+			pollerNonNil:    pok && p != nil,
+			schedulerNonNil: sok && s != nil,
+		}
+	}
+	t.Cleanup(func() { testOnPollHook = nil })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	runErr := make(chan error, 1)
+	go func() { runErr <- run(ctx) }()
+
+	select {
+	case obs := <-obsCh:
+		is.Equal(obs.name, "playroom") // first tick must be for the configured device
+		is.True(obs.pollerNonNil)      // handler.Pollers[name] must be non-nil at first OnPoll
+		is.True(obs.schedulerNonNil)   // handler.Schedulers[name] must be non-nil at first OnPoll
+	case <-time.After(3 * time.Second):
+		cancel()
+		t.Fatal("first poll tick did not fire within 3s")
+	}
+
+	cancel()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Errorf("run returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not exit within 10s of cancellation")
+	}
 }
 
 func waitForReady(t *testing.T, url string, timeout time.Duration) error {
