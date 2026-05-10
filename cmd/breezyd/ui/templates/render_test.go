@@ -640,6 +640,36 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 			t.Errorf("controls render has forbidden form %q", s)
 		}
 	}
+
+	// Spec: automode and matchSpeeds toggles are pure client-side state.
+	// Walk each `data-bind="<key>"` checkbox tag and assert it carries
+	// neither @post nor data-on:change — accidentally adding either would
+	// generate spurious daemon traffic on every toggle.
+	for _, key := range []string{"automode", "matchSpeeds"} {
+		needle := `data-bind="` + key + `"`
+		idx := strings.Index(got, needle)
+		if idx < 0 {
+			continue // missing marker is already caught by wantContains above
+		}
+		// Find the surrounding <input> open-tag.
+		start := strings.LastIndex(got[:idx], "<input")
+		if start < 0 {
+			t.Errorf("could not locate <input> open tag for %s", key)
+			continue
+		}
+		end := strings.Index(got[idx:], ">")
+		if end < 0 {
+			t.Errorf("unterminated <input> tag for %s", key)
+			continue
+		}
+		tag := got[start : idx+end+1]
+		if strings.Contains(tag, "@post") {
+			t.Errorf("%s checkbox must not @post (client-only state); tag=%s", key, tag)
+		}
+		if strings.Contains(tag, "data-on:change") {
+			t.Errorf("%s checkbox must not have data-on:change (client-only state); tag=%s", key, tag)
+		}
+	}
 }
 
 func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
