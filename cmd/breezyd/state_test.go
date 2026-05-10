@@ -3,8 +3,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -254,6 +257,40 @@ func TestParsePeriodicDiscovery(t *testing.T) {
 			is.Equal(got, tc.want) // duration must match expected for input tc.in
 		}
 	}
+}
+
+// TestRunDiscoveryWith_UnknownIDLogged pins the spec'd INFO log when
+// discovery surfaces a device whose ID is not in the registry. Without
+// this signal, an operator who plugs in a new unit has no breadcrumb
+// telling them to add a [devices.NAME] block — discovery just silently
+// ignores them. Captures slog output via a custom handler.
+func TestRunDiscoveryWith_UnknownIDLogged(t *testing.T) {
+	is := is.New(t)
+
+	// Swap the global slog default for a capturing handler scoped to this test.
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		"playroom": {ID: "TESTID0000000001", Password: "1111", IP: "1.1.1.1:4000"},
+	})
+	// Mix one known and one unknown ID so we can assert the unknown branch
+	// fires but the known branch still updates IP.
+	stub := func(ctx context.Context) ([]breezy.Found, error) {
+		return []breezy.Found{
+			{DeviceID: "TESTID0000000001", IP: "10.0.0.5", UnitType: 17}, // known
+			{DeviceID: "BREEZY9999000000", IP: "10.0.0.6", UnitType: 17}, // unknown
+		}, nil
+	}
+	is.NoErr(runDiscoveryWith(context.Background(), devices, stub))
+
+	logged := buf.String()
+	is.True(strings.Contains(logged, "unconfigured device")) // INFO log substring
+	is.True(strings.Contains(logged, "[devices.NAME]"))      // hint mentions config block
+	is.True(strings.Contains(logged, "BREEZY9999000000"))    // ID of the unknown device
+	is.True(strings.Contains(logged, "10.0.0.6"))            // IP of the unknown device
 }
 
 func TestRunDiscoveryWith_UpdatesIPViaRegistry(t *testing.T) {
