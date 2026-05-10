@@ -265,6 +265,64 @@ func TestHeater_CaseInsensitive(t *testing.T) {
 	}
 }
 
+// TestTimerValidation_CaseInsensitive pins the same canonicalisation on
+// cmdTimer: any-case mode lands lowercased in the request body. Refs #129.
+func TestTimerValidation_CaseInsensitive(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+
+	for _, in := range []string{"OFF", "Off", "NIGHT", "Night", "TURBO", "Turbo"} {
+		got = stub{}
+		code, _, _ := runCLI(t, srv, "playroom", "timer", in)
+		is.Equal(code, 0)
+		is.Equal(got.body["mode"], strings.ToLower(in))
+	}
+}
+
+// TestThreshold_CaseInsensitive pins the kind canonicalisation on
+// cmdThreshold: any-case kind lands lowercased in the request body. Refs #129.
+func TestThreshold_CaseInsensitive(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+
+	for _, in := range []string{"HUMIDITY", "Humidity", "CO2", "Co2", "VOC", "VoC"} {
+		got = stub{}
+		code, _, _ := runCLI(t, srv, "playroom", "threshold", in, "50")
+		is.Equal(code, 0)
+		is.Equal(got.body["kind"], strings.ToLower(in))
+	}
+}
+
+// TestAutoFan_CaseInsensitive pins kind + state canonicalisation on
+// cmdAutoFan: any-case kind lands lowercased and any-case state maps to the
+// right enabled bool. Refs #129.
+func TestAutoFan_CaseInsensitive(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+
+	for _, c := range []struct {
+		kind, state string
+		wantEnabled bool
+	}{
+		{"HUMIDITY", "ON", true},
+		{"Co2", "Off", false},
+		{"VoC", "oN", true},
+		{"VOC", "OFF", false},
+	} {
+		got = stub{}
+		code, _, _ := runCLI(t, srv, "playroom", "auto-fan", c.kind, c.state)
+		is.Equal(code, 0)
+		is.Equal(got.body["kind"], strings.ToLower(c.kind))
+		is.Equal(got.body["enabled"], c.wantEnabled)
+	}
+}
+
 // TestCLI_Threshold drives `breezy <name> threshold <kind> <value>` end-to-end
 // through directBackend → fakedevice UDP, then asserts the exact bytes
 // landed in the expected param ID and only that ID.
