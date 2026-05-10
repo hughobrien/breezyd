@@ -1090,10 +1090,61 @@ func TestStandaloneFaults(t *testing.T) {
 	devices := map[string]config.Device{
 		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
 	}
-	code, _, _ := runStandalone(t, devices, "playroom", "faults")
+	code, stdout, _ := runStandalone(t, devices, "playroom", "faults")
 	is.Equal(code, 0)
-	// Output is either "no active faults" (snapshot has none) or a list.
-	// Either is fine — what matters is the call completed without error.
+	// snapshot_148.json has no active faults → expect the "no active faults" line.
+	is.True(strings.Contains(stdout, "no active faults"))
+}
+
+// TestStandaloneFirmware pins firmware reporting through directBackend +
+// fakedevice. The directBackend.Firmware path does its own bytes →
+// "%d.%02d" + date conversion that has no other test coverage.
+func TestStandaloneFirmware(t *testing.T) {
+	is := is.New(t)
+	fake := startFakeDevice(t)
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, stdout, _ := runStandalone(t, devices, "playroom", "firmware")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "version")) // firmware output must include "version"
+	is.True(strings.Contains(stdout, "built"))   // and a build date line
+}
+
+// TestStandaloneEfficiency pins efficiency reporting through
+// directBackend. The renderer formats the percentage value end-to-end.
+// Seeds 0x0129 directly because the canned snapshot doesn't include it.
+func TestStandaloneEfficiency(t *testing.T) {
+	is := is.New(t)
+	fake := startFakeDevice(t)
+	fake.SetParamValue(0x0129, []byte{85}) // recovery efficiency = 85%
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, stdout, stderr := runStandalone(t, devices, "playroom", "efficiency")
+	if code != 0 {
+		t.Fatalf("efficiency exit %d; stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	is.True(strings.Contains(stdout, "85")) // seeded value
+	is.True(strings.Contains(stdout, "%"))  // rendered as a percentage
+}
+
+// TestStandaloneLs pins the standalone-mode `ls` rendering: there is no
+// daemon cache, so POWER / MODE columns render as `?` and LAST POLL as
+// `never`. Without this, a regression to the daemon-mode path (which
+// reads from the cache and returns real values) would silently pass
+// through with daemon-shaped output in standalone mode.
+func TestStandaloneLs(t *testing.T) {
+	is := is.New(t)
+	fake := startFakeDevice(t)
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: fake.Addr()},
+	}
+	code, stdout, _ := runStandalone(t, devices, "ls")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "playroom")) // device name in listing
+	is.True(strings.Contains(stdout, "?"))        // power/mode placeholders
+	is.True(strings.Contains(stdout, "never"))    // last-poll placeholder
 }
 
 // TestDiscover_UnicastTargets exercises the positional-target form
