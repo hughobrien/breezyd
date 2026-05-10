@@ -695,6 +695,94 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	}
 }
 
+// TestInitialCardSignals_StaticFlagsAndDetailsOpen pins the static UI
+// flags and detailsOpen defaults baked into every card's data-signals
+// seed. The runtime fields (stale / speedMode / etc.) are covered by
+// TestCardSignalsFor_JSON below; this pins the static half.
+func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
+	v := ui.DeviceView{
+		// Doesn't matter: only static fields under test.
+		Name: "alpha",
+	}
+	raw := initialCardSignals(v)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal: %v\nseed: %s", err, raw)
+	}
+
+	if got["automode"] != false {
+		t.Errorf("automode: want false, got %v", got["automode"])
+	}
+	if got["matchSpeeds"] != true {
+		t.Errorf("matchSpeeds: want true, got %v", got["matchSpeeds"])
+	}
+	// json.Unmarshal lands ints as float64.
+	if got["editor"] != float64(0) {
+		t.Errorf("editor: want 0, got %v", got["editor"])
+	}
+
+	details, ok := got["detailsOpen"].(map[string]any)
+	if !ok {
+		t.Fatalf("detailsOpen: want object, got %T", got["detailsOpen"])
+	}
+	wantOpen := map[string]bool{
+		"info":     false,
+		"sensors":  true, // intentional: sensors block defaults open
+		"energy":   false,
+		"schedule": false,
+	}
+	for k, w := range wantOpen {
+		if details[k] != w {
+			t.Errorf("detailsOpen.%s: want %v, got %v", k, w, details[k])
+		}
+	}
+}
+
+// TestInitialCardSignals_PresetSeedTypedAsNumber pins that preset.<n>.{
+// supply,extract} is seeded as a JSON number, not a string. If the seed
+// ever drifted to strings, datastar's data-bind on the preset sliders
+// would silently flip type; mid-drag reseeds would clobber the user's
+// in-progress value with a string. Spec calls this out explicitly.
+func TestInitialCardSignals_PresetSeedTypedAsNumber(t *testing.T) {
+	v := ui.DeviceView{
+		Preset1: ui.PresetView{Supply: 30, Extract: 40},
+		Preset2: ui.PresetView{Supply: 50, Extract: 60},
+		Preset3: ui.PresetView{Supply: -1, Extract: 70}, // -1 sentinel maps to 50
+	}
+	raw := initialCardSignals(v)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal: %v\nseed: %s", err, raw)
+	}
+	preset, ok := got["preset"].(map[string]any)
+	if !ok {
+		t.Fatalf("preset: want object, got %T", got["preset"])
+	}
+
+	for _, n := range []string{"1", "2", "3"} {
+		entry, ok := preset[n].(map[string]any)
+		if !ok {
+			t.Errorf("preset.%s: want object, got %T", n, preset[n])
+			continue
+		}
+		for _, side := range []string{"supply", "extract"} {
+			v := entry[side]
+			if _, ok := v.(float64); !ok {
+				t.Errorf("preset.%s.%s: want JSON number, got %T (%v)", n, side, v, v)
+			}
+		}
+	}
+
+	// Spot-check: -1 sentinel mapped to 50.
+	if preset["3"].(map[string]any)["supply"] != float64(50) {
+		t.Errorf("preset.3.supply: want 50 (sentinel-mapped), got %v", preset["3"].(map[string]any)["supply"])
+	}
+	// Spot-check: real value passed through.
+	if preset["1"].(map[string]any)["supply"] != float64(30) {
+		t.Errorf("preset.1.supply: want 30, got %v", preset["1"].(map[string]any)["supply"])
+	}
+}
+
 func TestCardSignalsFor_JSON(t *testing.T) {
 	v := ui.DeviceView{
 		Stale:       true,
