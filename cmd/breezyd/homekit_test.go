@@ -17,6 +17,43 @@ import (
 	"github.com/matryer/is"
 )
 
+// TestHomekit_BridgeIdentity pins the bridge accessory's identity:
+// Name (from cfg.BridgeName), Manufacturer "Vents", Model "breezyd".
+// iOS Home shows these in the bridge's metadata; a regression to the
+// wrong values would surface as a confusing rebrand on the next pair.
+func TestHomekit_BridgeIdentity(t *testing.T) {
+	is := is.New(t)
+	const (
+		devID  = "TESTID0000000001"
+		devPwd = "1111"
+	)
+	srv, err := fakedevice.NewServer(homekitSnapshotPath(t), devID, devPwd)
+	is.NoErr(err)
+	t.Cleanup(func() { _ = srv.Close() })
+
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		"playroom": {ID: devID, Password: devPwd, IP: srv.Addr()},
+	})
+	h := &Handler{State: NewState(), Devices: devices}
+
+	cfg := config.Homekit{
+		Enabled:    true,
+		BridgeName: "my-house-vents",
+		StateDir:   t.TempDir(),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	stop, err := h.StartHomekit(ctx, cfg, devices.Snapshot())
+	is.NoErr(err)
+	t.Cleanup(func() { _ = stop() })
+
+	is.True(h.homekitBridge != nil) // bridge stashed on Handler after StartHomekit
+	info := h.homekitBridge.Info
+	is.Equal(info.Name.Value(), "my-house-vents")
+	is.Equal(info.Manufacturer.Value(), "Vents")
+	is.Equal(info.Model.Value(), "breezyd")
+}
+
 func TestHomekit_PinPersists(t *testing.T) {
 	is := is.New(t)
 	dir := t.TempDir()
