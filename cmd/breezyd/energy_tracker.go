@@ -158,8 +158,8 @@ func (e *EnergyTracker) Load() {
 	e.LastTick = time.Time{}
 }
 
-// save writes the current state atomically to statePath via a sibling temp
-// file + rename.  The caller must hold mu or ensure exclusive access.
+// save writes the current state atomically to statePath. The caller must
+// hold mu or ensure exclusive access.
 func (e *EnergyTracker) save() error {
 	p := persistedEnergy{
 		TodayDate:           e.Today,
@@ -175,19 +175,8 @@ func (e *EnergyTracker) save() error {
 		ConsumedLifetimeKWh: e.ConsumedLifetimeKWh,
 		LastUpdated:         time.Now().UTC().Format(time.RFC3339),
 	}
-
-	data, err := json.Marshal(p)
-	if err != nil {
-		return fmt.Errorf("energy: marshal: %w", err)
-	}
-
-	tmpPath := e.statePath() + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
-		return fmt.Errorf("energy: write temp: %w", err)
-	}
-	if err := os.Rename(tmpPath, e.statePath()); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("energy: rename temp: %w", err)
+	if err := writeJSONAtomic(e.statePath(), p); err != nil {
+		return fmt.Errorf("energy: %w", err)
 	}
 	return nil
 }
