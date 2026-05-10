@@ -16,6 +16,7 @@ just test-staticcheck# golangci-lint run ./...     (errcheck is the strict bit)
 just test-templ-drift# verify generated *_templ.go files are up-to-date
 just test-ui         # Playwright e2e against breezyd+memory backend (needs test-ui-install once)
 just test-test-admin # go test -tags breezyd_test_admin (the /test/... surface used by Playwright)
+just coverage        # go test -coverprofile + per-package summary + total (display-only; no gate)
 just lint            # go vet + gofmt-drift check
 just check           # lint + fast tests + templ-drift (pre-commit gate)
 just check-all       # lint + test + test-race + test-ui + templ-drift (pre-push gate)
