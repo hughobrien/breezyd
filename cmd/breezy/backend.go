@@ -59,6 +59,13 @@ type backend interface {
 	// returns the URL so `breezy daemon-url` can render it.
 	DaemonURLString() string
 
+	// KnowsDevice reports whether the backend can answer pre-dispatch
+	// that name is configured locally. directBackend returns true iff
+	// name is in its config map; daemonBackend returns true unconditionally
+	// (it has no local view of the daemon's devices and a 404 from the
+	// daemon is rightly classified as a backend error, not a usage error).
+	KnowsDevice(name string) bool
+
 	// Close releases any resources held by the backend (open UDP
 	// sockets in directBackend; daemonBackend's Close is a no-op).
 	Close() error
@@ -89,6 +96,7 @@ func newDaemonBackend(url string) *daemonBackend {
 }
 
 func (d *daemonBackend) DaemonURLString() string { return d.url }
+func (d *daemonBackend) KnowsDevice(string) bool { return true }
 func (d *daemonBackend) Close() error            { return nil }
 
 // httpJSON issues method url with body (if non-nil) marshalled as
@@ -376,6 +384,11 @@ func newDirectBackend(devices map[string]config.Device) *directBackend {
 }
 
 func (d *directBackend) DaemonURLString() string { return "" }
+
+func (d *directBackend) KnowsDevice(name string) bool {
+	_, ok := d.devices[name]
+	return ok
+}
 
 func (d *directBackend) Close() error {
 	d.mu.Lock()

@@ -917,18 +917,26 @@ func TestVersionFlag(t *testing.T) {
 	is.Equal(stderr.String(), "")
 }
 
-// TestHelpVerb pins `breezy help` (the global verb form) — exit 0
-// with usage on stdout. The flag-style `-h` / `--help` paths exit 2
-// today (flag.ErrHelp falls through to `return 2`); see #133 for the
-// decide-and-align tracking issue.
-func TestHelpVerb(t *testing.T) {
-	is := is.New(t)
-	t.Setenv("HOME", t.TempDir())
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"help"}, &stdout, &stderr, nil)
-	is.Equal(code, 0)
-	is.True(strings.Contains(stdout.String(), "Usage:"))
-	is.Equal(stderr.String(), "")
+// TestHelpForms pins all three help surfaces: the bare `help` verb,
+// `-h`, and `--help` must each exit 0 with the usage block on stdout
+// (per SPECIFICATION-cli.md "version and help"). flag's ContinueOnError
+// returns flag.ErrHelp for `-h`/`--help`; without explicit handling
+// those would fall through to `return 2`. The fix wires errors.Is(err,
+// flag.ErrHelp) → print usage to stdout, return 0. Catches a regression
+// where someone deletes the ErrHelp branch and breaks the Unix norm.
+// Refs #133.
+func TestHelpForms(t *testing.T) {
+	for _, form := range []string{"help", "-h", "--help"} {
+		t.Run(form, func(t *testing.T) {
+			is := is.New(t)
+			t.Setenv("HOME", t.TempDir()) // hermetic: no real ~/.config/breezy
+			var stdout, stderr bytes.Buffer
+			code := run([]string{form}, &stdout, &stderr, nil)
+			is.Equal(code, 0)                                     // help forms must exit 0
+			is.True(strings.Contains(stdout.String(), "Usage:"))  // usage block must be on stdout
+			is.True(strings.Contains(stdout.String(), "breezy:")) // header line must be present
+		})
+	}
 }
 
 // TestUsageNoArgs / TestUnknownVerb cover the two main "exit code 2"
@@ -943,12 +951,15 @@ func TestUsageNoArgs(t *testing.T) {
 
 func TestUnknownVerb(t *testing.T) {
 	is := is.New(t)
-	t.Setenv("HOME", t.TempDir()) // hermetic: no real ~/.config/breezy/config.toml
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"playroom", "barbecue"}, &stdout, &stderr, nil)
+	// Inject a directBackend that knows "playroom" so the dispatch reaches
+	// the verb switch. Without a configured device, the unknown-device
+	// pre-dispatch (TestStandaloneUnknownDevice) catches the call first.
+	devices := map[string]config.Device{
+		"playroom": {ID: standaloneTestDeviceID, Password: standaloneTestPassword, IP: "127.0.0.1:0"},
+	}
+	code, _, stderr := runStandalone(t, devices, "playroom", "barbecue")
 	is.Equal(code, 2)
-	is.True(strings.Contains(stderr.String(), "unknown verb"))
-	_ = stdout
+	is.True(strings.Contains(stderr, "unknown verb"))
 }
 
 func TestParam(t *testing.T) {
@@ -1181,6 +1192,24 @@ func TestStandaloneLs(t *testing.T) {
 	is.True(strings.Contains(stdout, "playroom")) // device name in listing
 	is.True(strings.Contains(stdout, "?"))        // power/mode placeholders
 	is.True(strings.Contains(stdout, "never"))    // last-poll placeholder
+}
+
+// TestStandaloneUnknownDevice pins the spec's exit-code split: in
+// standalone mode an unknown device name is a local usage error
+// (exit 2), not a backend / I/O failure (exit 1). Without the
+// pre-dispatch check in run(), the request would fall through to
+// directBackend.dial which produces "device %q not configured" and
+// returns exit 1 — breaking scripts that key off the 1-vs-2 distinction
+// to tell "I asked for the wrong thing" from "I asked for the right
+// thing and the device is down." Refs #134.
+func TestStandaloneUnknownDevice(t *testing.T) {
+	is := is.New(t)
+	// Empty device map: any name is unknown.
+	devices := map[string]config.Device{}
+	code, _, stderr := runStandalone(t, devices, "kitchen", "status")
+	is.Equal(code, 2)                                   // unknown device must exit 2 (usage), not 1 (backend)
+	is.True(strings.Contains(stderr, "unknown device")) // stderr must name the failure
+	is.True(strings.Contains(stderr, "kitchen"))        // stderr must echo the offending name
 }
 
 // TestDiscover_UnicastTargets exercises the positional-target form

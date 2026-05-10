@@ -33,6 +33,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -76,7 +77,14 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	versionFlag := fs.Bool("version", false, "print version information and exit")
 
 	if err := fs.Parse(args); err != nil {
-		// flag prints its own message + usage; we just need the right code.
+		// -h / --help: spec says exit 0 with usage on stdout (Unix norm).
+		// flag's own usage went to stderr above, so re-emit to stdout.
+		if errors.Is(err, flag.ErrHelp) {
+			_, _ = fmt.Fprint(stdout, usage)
+			return 0
+		}
+		// Other parse errors: flag printed its own message + usage to stderr;
+		// we just need the right code.
 		return 2
 	}
 
@@ -134,6 +142,18 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 	}
 
 	name, verb, vargs := rest[0], rest[1], rest[2:]
+
+	// Pre-dispatch: in standalone mode, an unknown device is a local usage
+	// error (exit 2), not a backend / I/O failure (exit 1). The spec
+	// promises this split so scripts can distinguish "I asked for the
+	// wrong thing" from "I asked for the right thing and the device is
+	// down." daemonBackend always returns true here (the daemon's 404 is
+	// a real backend error from the CLI's POV — we can't know locally
+	// whether the daemon has the device).
+	if !b.KnowsDevice(name) {
+		_, _ = fmt.Fprintf(stderr, "error: unknown device %q (no [devices.%s] in config)\n", name, name)
+		return 2
+	}
 
 	switch verb {
 	case "status":

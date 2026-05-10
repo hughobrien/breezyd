@@ -186,6 +186,14 @@ type Handler struct {
 	// be wired to the templ machinery.
 	PushHub PushNotifier
 
+	// PollInterval is the cadence the poller runs at. The dashboard's
+	// stale window is derived as 3× this value (per SPECIFICATION-web.md
+	// "Card states"). Zero is treated as "no successful poll yet" by the
+	// view builder and falls back to the default stale-window of 90s so
+	// tests that build a Handler{} without a config still get sensible
+	// defaults.
+	PollInterval time.Duration
+
 	// cachedMux is built lazily by mux() and cached. muxOnce guards the
 	// initialisation against a data race on the first concurrent burst
 	// of requests — net/http serves each request from its own goroutine,
