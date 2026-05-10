@@ -224,94 +224,121 @@ func isDigits(s string) bool {
 	return true
 }
 
+// homekitWriteCallbacks holds the closures registerWriteCallbacks wires
+// to each writable HAP characteristic. Returned (in addition to being
+// registered) so tests can drive the closures directly: brutella/hap's
+// OnValueRemoteUpdate only fires on writes from a paired iOS controller
+// (a non-nil http.Request inside characteristic.OnCValueUpdate); local
+// SetValue calls from Go go through r=nil and silently bypass the
+// callback. Capturing the closures here gives tests an in-process
+// invocation path without standing up a real HAP HTTP pairing.
+type homekitWriteCallbacks struct {
+	active        func(int)
+	targetState   func(int)
+	rotationSpeed func(float64)
+	supplyOnly    func(bool)
+	extractOnly   func(bool)
+	heater        func(bool)
+	night         func(bool)
+	turbo         func(bool)
+	resetFilter   func(int)
+}
+
 // registerWriteCallbacks wires HAP remote-write callbacks on all writable
 // characteristics for the given device accessory. Failures are logged at
 // ERROR (not panicked) so a single device error doesn't crash the bridge.
-func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) {
-	// Active (power on/off): HAP Active is int 0=inactive, 1=active.
-	a.AirPurifier.Active.OnValueRemoteUpdate(func(v int) {
-		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
-			return breezy.Power(ctx, rc, v != 0)
-		}); err != nil {
-			slog.Error("homekit power", "device", name, "err", err)
-		}
-	})
-
-	// TargetAirPurifierState: 0=manual, 1=auto (preset).
-	// Map to SetSpeedPreset(1) for auto; leave speed alone for manual.
-	a.AirPurifier.TargetAirPurifierState.OnValueRemoteUpdate(func(v int) {
-		if v == 0 {
-			// Client chose Manual — no preset to set; the RotationSpeed
-			// callback drives the actual speed.
-			return
-		}
-		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
-			return breezy.SetSpeedPreset(ctx, rc, 1)
-		}); err != nil {
-			slog.Error("homekit preset", "device", name, "err", err)
-		}
-	})
-
-	// RotationSpeed: float64 percentage, clamp 10..100, then SetSpeedManual.
-	a.RotationSpeed.OnValueRemoteUpdate(func(v float64) {
-		pct := int(v)
-		if pct < 10 {
-			pct = 10
-		}
-		if pct > 100 {
-			pct = 100
-		}
-		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
-			return breezy.SetSpeedManual(ctx, rc, pct)
-		}); err != nil {
-			slog.Error("homekit speed", "device", name, "err", err)
-		}
-	})
-
-	// SupplyOnly switch: on → supply mode; off → check ExtractOnly.
-	a.SupplyOnly.On.OnValueRemoteUpdate(func(v bool) {
-		switchAirflow(h, name, a, v, false)
-	})
-
-	// ExtractOnly switch: on → extract mode; off → check SupplyOnly.
-	a.ExtractOnly.On.OnValueRemoteUpdate(func(v bool) {
-		switchAirflow(h, name, a, false, v)
-	})
-
-	// Heater switch.
-	a.Heater.On.OnValueRemoteUpdate(func(v bool) {
-		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
-			return breezy.SetHeater(ctx, rc, v)
-		}); err != nil {
-			slog.Error("homekit heater", "device", name, "err", err)
-		}
-	})
-
-	// Night / Turbo switches share the same mutually-exclusive timer.
-	a.Night.On.OnValueRemoteUpdate(func(v bool) {
-		mode := "off"
-		if v {
-			mode = "night"
-		}
-		switchTimer(h, name, a, mode)
-	})
-	a.Turbo.On.OnValueRemoteUpdate(func(v bool) {
-		mode := "off"
-		if v {
-			mode = "turbo"
-		}
-		switchTimer(h, name, a, mode)
-	})
-
-	// ResetFilter: any remote write means "I changed the filter, reset
-	// the counter." HAP Apple spec writes 1 on the reset gesture.
-	a.ResetFilter.OnValueRemoteUpdate(func(_ int) {
-		if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
-			return breezy.ResetFilter(ctx, rc)
-		}); err != nil {
-			slog.Error("homekit filter-reset", "device", name, "err", err)
-		}
-	})
+// Returns the registered closure set so tests can fire each callback
+// directly — see homekitWriteCallbacks.
+func registerWriteCallbacks(h *Handler, name string, a *homekit.Accessory) homekitWriteCallbacks {
+	cb := homekitWriteCallbacks{
+		// Active (power on/off): HAP Active is int 0=inactive, 1=active.
+		active: func(v int) {
+			if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+				return breezy.Power(ctx, rc, v != 0)
+			}); err != nil {
+				slog.Error("homekit power", "device", name, "err", err)
+			}
+		},
+		// TargetAirPurifierState: 0=manual, 1=auto (preset).
+		// Map to SetSpeedPreset(1) for auto; leave speed alone for manual.
+		targetState: func(v int) {
+			if v == 0 {
+				// Client chose Manual — no preset to set; the RotationSpeed
+				// callback drives the actual speed.
+				return
+			}
+			if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+				return breezy.SetSpeedPreset(ctx, rc, 1)
+			}); err != nil {
+				slog.Error("homekit preset", "device", name, "err", err)
+			}
+		},
+		// RotationSpeed: float64 percentage, clamp 10..100, then SetSpeedManual.
+		rotationSpeed: func(v float64) {
+			pct := int(v)
+			if pct < 10 {
+				pct = 10
+			}
+			if pct > 100 {
+				pct = 100
+			}
+			if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+				return breezy.SetSpeedManual(ctx, rc, pct)
+			}); err != nil {
+				slog.Error("homekit speed", "device", name, "err", err)
+			}
+		},
+		// SupplyOnly switch: on → supply mode; off → check ExtractOnly.
+		supplyOnly: func(v bool) {
+			switchAirflow(h, name, a, v, false)
+		},
+		// ExtractOnly switch: on → extract mode; off → check SupplyOnly.
+		extractOnly: func(v bool) {
+			switchAirflow(h, name, a, false, v)
+		},
+		// Heater switch.
+		heater: func(v bool) {
+			if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+				return breezy.SetHeater(ctx, rc, v)
+			}); err != nil {
+				slog.Error("homekit heater", "device", name, "err", err)
+			}
+		},
+		// Night / Turbo switches share the same mutually-exclusive timer.
+		night: func(v bool) {
+			mode := "off"
+			if v {
+				mode = "night"
+			}
+			switchTimer(h, name, a, mode)
+		},
+		turbo: func(v bool) {
+			mode := "off"
+			if v {
+				mode = "turbo"
+			}
+			switchTimer(h, name, a, mode)
+		},
+		// ResetFilter: any remote write means "I changed the filter, reset
+		// the counter." HAP Apple spec writes 1 on the reset gesture.
+		resetFilter: func(_ int) {
+			if err := h.doDeviceOpBackground(name, func(ctx context.Context, rc *recordingClient) error {
+				return breezy.ResetFilter(ctx, rc)
+			}); err != nil {
+				slog.Error("homekit filter-reset", "device", name, "err", err)
+			}
+		},
+	}
+	a.AirPurifier.Active.OnValueRemoteUpdate(cb.active)
+	a.AirPurifier.TargetAirPurifierState.OnValueRemoteUpdate(cb.targetState)
+	a.RotationSpeed.OnValueRemoteUpdate(cb.rotationSpeed)
+	a.SupplyOnly.On.OnValueRemoteUpdate(cb.supplyOnly)
+	a.ExtractOnly.On.OnValueRemoteUpdate(cb.extractOnly)
+	a.Heater.On.OnValueRemoteUpdate(cb.heater)
+	a.Night.On.OnValueRemoteUpdate(cb.night)
+	a.Turbo.On.OnValueRemoteUpdate(cb.turbo)
+	a.ResetFilter.OnValueRemoteUpdate(cb.resetFilter)
+	return cb
 }
 
 // switchTimer wires the Night and Turbo switches to the special-mode
