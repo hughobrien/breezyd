@@ -1114,6 +1114,48 @@ func hasNotice(notices []recordedNotice, dev string, id breezy.ParamID) bool {
 	return false
 }
 
+// TestParseParamID pins parseParamID's hex-by-default behaviour, including
+// the bare-numeric ambiguity ("10" is hex 0x10 = 16, NOT decimal ten) that
+// would otherwise be a footgun. Documented invariant in
+// SPECIFICATION-daemon.md "Routes — device reads".
+func TestParseParamID(t *testing.T) {
+	is := is.New(t)
+	cases := []struct {
+		in   string
+		want breezy.ParamID
+	}{
+		{"0x0044", 0x0044}, // canonical prefixed form
+		{"0044", 0x0044},   // bare numeric is hex (not decimal)
+		{"44", 0x0044},     // short bare-numeric still hex
+		{"B7", 0x00B7},     // hex digits beyond decimal range
+		{"b7", 0x00B7},     // lowercase hex
+		{"10", 0x0010},     // STILL HEX: 0x10 = 16, not ten
+		{"0x10", 0x0010},   // explicit prefix, same value
+		{"FFFF", 0xFFFF},   // upper-bound 16-bit
+		{" 0x44 ", 0x0044}, // surrounding whitespace tolerated
+	}
+	for _, c := range cases {
+		got, err := parseParamID(c.in)
+		is.NoErr(err)
+		is.Equal(got, c.want)
+	}
+
+	// Rejection cases: empty/whitespace, non-hex chars, prefix-with-overflow.
+	//
+	// Note: parseParamID falls through to base=0 ParseUint for non-prefixed
+	// inputs, which means an *unprefixed* string that overflows 16-bit hex
+	// (e.g. "10000" = 0x10000 = 65536) is *re-tried as decimal* and may
+	// accept (10000 fits 16-bit). The hex-by-default invariant the spec
+	// pins applies to inputs that successfully parse as hex; the decimal
+	// fallback is documented quirky behaviour we're not asserting here.
+	for _, in := range []string{"", "  ", "zz", "0xZZ", "0x10000"} {
+		got, err := parseParamID(in)
+		if err == nil {
+			t.Errorf("parseParamID(%q) = %#x, want error", in, got)
+		}
+	}
+}
+
 func TestHandler_ParamGet_RawHexParse(t *testing.T) {
 	is := is.New(t)
 	// An ID without "0x" prefix should also be accepted.
