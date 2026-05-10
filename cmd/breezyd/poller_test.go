@@ -620,6 +620,50 @@ func TestPoller_ReadError_RecordedInSnapshot(t *testing.T) {
 	is.Equal(kinds[0], "other") // generic error classifies as "other"
 }
 
+func TestPoller_FailedPollPreservesPriorValues(t *testing.T) {
+	is := is.New(t)
+	state := NewState()
+	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
+
+	p := &Poller{
+		Name:     "dev",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+	}
+
+	p.tick(context.Background())
+	first, ok := state.Get("dev")
+	is.True(ok)             // first tick records a snapshot
+	is.NoErr(first.LastErr) // first tick is the success that primes Values
+	is.Equal(first.Values[0x0001], []byte{1})
+
+	// Flip to failure and tick again — Values must persist.
+	fc.mu.Lock()
+	fc.err = errors.New("read failed")
+	fc.mu.Unlock()
+
+	p.tick(context.Background())
+	second, ok := state.Get("dev")
+	is.True(ok)
+	is.True(second.LastErr != nil)                 // failed tick marks LastErr
+	is.Equal(second.Values[0x0001], []byte{1})     // prior success value is preserved
+	is.True(second.LastPoll.After(first.LastPoll)) // poll timestamp does advance
+
+	// Third still-failing tick must still preserve Values.
+	p.tick(context.Background())
+	third, ok := state.Get("dev")
+	is.True(ok)
+	is.True(third.LastErr != nil)
+	is.Equal(third.Values[0x0001], []byte{1}) // continued preservation across repeated failures
+}
+
 func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
 	p := &Poller{}
 	first := p.LockUDP()
