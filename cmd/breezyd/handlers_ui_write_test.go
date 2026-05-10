@@ -186,7 +186,7 @@ func TestUIWritePower_BackendError(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200, semantic error in body
+	is.Equal(resp.StatusCode, 200)                      // SSE error banner returns 200, semantic error in body
 	is.Equal(resp.Header.Get("Datastar-Status"), "502") // backend error semantic code
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "err-banner")
@@ -207,7 +207,7 @@ func TestUIWritePower_AuthError(t *testing.T) {
 
 	resp := postJSON(t, srv.URL+"/ui/devices/alpha/power", map[string]any{"on": true})
 	defer func() { _ = resp.Body.Close() }()
-	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
+	is.Equal(resp.StatusCode, 200)                      // SSE error banner returns 200
 	is.Equal(resp.Header.Get("Datastar-Status"), "401") // auth error semantic code
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "auth")
