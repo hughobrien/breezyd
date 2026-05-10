@@ -535,9 +535,9 @@ given the surrounding ±1-minute tick precision.
 ## Push hub (poll → SSE fan-out)
 
 `cmd/breezyd/push_hub.go::PushHub` is the in-memory subscriber registry
-that backs the dashboard's SSE stream. Producers (the poller's `OnPoll`
-hook composed in `main.go` as `SyncHomekit + PushHub.Notify`, action
-handlers' post-write paths) call `PushHub.Notify(name, snap)`. The hub
+that backs the dashboard's SSE stream. Producers (the poller's `OnTick`
+hook — every tick, success or failure — and action handlers'
+post-write paths) call `PushHub.Notify(name, snap)`. The hub
 renders a structured `PushEvent` (one signal payload + a list of block
 patches) via the closure injected at construction time, then queues it
 onto every subscriber's bounded channel (`pushHubBufferSize = 16`).

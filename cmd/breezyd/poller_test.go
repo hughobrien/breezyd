@@ -879,12 +879,14 @@ func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
 	is.NoErr(snap.LastErr) // post-settle tick succeeds
 }
 
-// TestPoller_PostTickHooksGatedOnSuccess pins that both Energy.Tick AND
-// OnPoll fire only when the tick recorded no error. A failed tick
-// (every read returned err) must not trigger Energy accumulation
-// (would corrupt the daily/lifetime counters with stale Values) and
-// must not push a half-empty snapshot through OnPoll (PushHub would
-// patch dashboards with a stale card).
+// TestPoller_PostTickHooksGatedOnSuccess pins the contract for the
+// poller's per-tick hooks. After the SSE-on-failure addendum:
+//   - OnPoll  : success-only (HomeKit characteristic sync; stale data
+//     there would mark a healthy device wrong).
+//   - Energy  : success-only (would corrupt daily/lifetime kWh
+//     accumulators with stale Values).
+//   - OnTick  : every tick — the dashboard's $lastPollAge / $stale
+//     signals must advance even when polls are timing out.
 func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
 	is := is.New(t)
 	state := NewState()
@@ -895,7 +897,7 @@ func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
 	fc := &fakeClient{err: errors.New("read failed")}
 
 	var mu sync.Mutex
-	var onPollCalls int
+	var onPollCalls, onTickCalls int
 
 	p := &Poller{
 		Name:     "p",
@@ -914,6 +916,11 @@ func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
 			defer mu.Unlock()
 			onPollCalls++
 		},
+		OnTick: func(name string, snap Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			onTickCalls++
+		},
 	}
 
 	p.tick(context.Background())
@@ -928,10 +935,63 @@ func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
 	is.True(tr.LastTick.IsZero()) // Energy accumulation must not run on a failed tick
 	tr.mu.Unlock()
 
-	// OnPoll must not have fired.
 	mu.Lock()
 	defer mu.Unlock()
-	is.Equal(onPollCalls, 0) // OnPoll must not run on a failed tick
+	is.Equal(onPollCalls, 0) // OnPoll must not run on a failed tick (HomeKit sync)
+	is.Equal(onTickCalls, 1) // OnTick MUST run on every tick (dashboard SSE)
+}
+
+// TestPoller_OnTickFiresOnEveryTick pins that OnTick is called for both
+// success and failure ticks, in order, with the recorded Snapshot. This
+// is what powers the dashboard's stale-class fan-out under sustained
+// UDP timeouts (SPECIFICATION-web.md "Card states").
+func TestPoller_OnTickFiresOnEveryTick(t *testing.T) {
+	is := is.New(t)
+	state := NewState()
+	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
+
+	var mu sync.Mutex
+	var snaps []Snapshot
+
+	p := &Poller{
+		Name:     "p",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+		OnTick: func(name string, snap Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			snaps = append(snaps, snap)
+		},
+	}
+
+	// Tick 1: success.
+	p.tick(context.Background())
+
+	// Tick 2: failure.
+	fc.mu.Lock()
+	fc.err = errors.New("transient")
+	fc.mu.Unlock()
+	p.tick(context.Background())
+
+	// Tick 3: success again.
+	fc.mu.Lock()
+	fc.err = nil
+	fc.mu.Unlock()
+	p.tick(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	is.Equal(len(snaps), 3)          // every tick fires OnTick
+	is.NoErr(snaps[0].LastErr)       // first tick was a success
+	is.True(snaps[1].LastErr != nil) // second tick was a failure
+	is.NoErr(snaps[2].LastErr)       // third tick was a success
 }
 
 func TestPoller_EnergyTickCalled(t *testing.T) {
