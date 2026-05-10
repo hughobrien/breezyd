@@ -92,6 +92,14 @@ type Poller struct {
 	// (e.g. the HomeKit bridge) without polling the State cache. Optional;
 	// a nil OnPoll is a no-op.
 	OnPoll func(name string, snap Snapshot)
+	// OnTick is called after every tick (success OR failure) with the
+	// device Name and the Snapshot that was just written to State. Use
+	// this for consumers that need to learn about failed ticks too —
+	// e.g. PushHub.Notify so the dashboard's $lastPollAge / $stale
+	// signals advance under sustained UDP timeouts. Optional; a nil
+	// OnTick is a no-op. OnPoll fires only on success and is the right
+	// hook for HomeKit characteristic sync and Energy accumulation.
+	OnTick func(name string, snap Snapshot)
 	// Energy tracks accumulated heat-recovery and fan-power energy for this
 	// device. When non-nil, Tick is called after each successful pollOnce.
 	// Nil for tests and standalone mode that don't need energy tracking.
@@ -162,6 +170,12 @@ func (p *Poller) Run(ctx context.Context) {
 
 // tick performs one full poll cycle: build the per-tick ID list (settle
 // filter applied), open a client, read each batch, record one Snapshot.
+//
+// Failed-tick semantics: the prior Snapshot's LastPoll and Values are
+// carried forward across both the dial-failure and read-failure branches.
+// LastPoll therefore reflects the most recent SUCCESSFUL poll — see
+// SPECIFICATION-daemon.md "failed-poll cache semantics" and the
+// SPECIFICATION-web.md "Card states" stale-window definition.
 func (p *Poller) tick(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -173,12 +187,20 @@ func (p *Poller) tick(ctx context.Context) {
 	unlock := p.LockUDP()
 	defer unlock()
 
+	// (1) Read the prior snapshot once at the top of the tick. Get returns
+	// a deep copy on hit and a zero Snapshot on miss; either is a safe
+	// carry-forward source for failed-tick branches below.
+	prev, _ := p.State.Get(p.Name)
+
 	client, err := p.dial()
 	if err != nil {
 		p.recordErr(err)
+		// (2) Dial-failure branch: carry prev.Values and prev.LastPoll
+		// forward (was: empty Values + p.now()).
 		p.State.RecordPoll(p.Name, Snapshot{
 			IP:       p.IP,
-			LastPoll: p.now(),
+			Values:   prev.Values,
+			LastPoll: prev.LastPoll,
 			LastErr:  err,
 		})
 		return
@@ -210,18 +232,26 @@ func (p *Poller) tick(ctx context.Context) {
 	// This matters most for the in-process MemClient backend, where a
 	// forced ErrTimeout returns instantly and would otherwise overwrite
 	// good state on the very first failed tick.
-	if lastErr != nil && len(values) == 0 {
-		if prev, ok := p.State.Get(p.Name); ok && len(prev.Values) > 0 {
-			values = prev.Values
-		}
+	if lastErr != nil && len(values) == 0 && len(prev.Values) > 0 {
+		values = prev.Values
+	}
+
+	// (3) Read-failure branch: LastPoll holds at prev.LastPoll on failure;
+	// success advances it to p.now().
+	lastPoll := p.now()
+	if lastErr != nil {
+		lastPoll = prev.LastPoll
 	}
 	snap := Snapshot{
 		IP:       p.IP,
 		Values:   values,
-		LastPoll: p.now(),
+		LastPoll: lastPoll,
 		LastErr:  lastErr,
 	}
 	p.State.RecordPoll(p.Name, snap)
+	if p.OnTick != nil {
+		p.OnTick(p.Name, snap)
+	}
 	if lastErr == nil {
 		if p.Energy != nil {
 			p.Energy.Tick(values, time.Now())

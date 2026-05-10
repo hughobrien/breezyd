@@ -487,13 +487,16 @@ func TestMain_ShutdownWaitsForInflightPoll(t *testing.T) {
 // TestMain_PollersPopulatedBeforeFirstOnPoll pins
 // SPECIFICATION-daemon.md "Wiring sequence" (G-daemon-7):
 // "handler.Pollers and handler.Schedulers must be populated BEFORE the
-// goroutines start so the first poll's OnPoll → PushHub.Notify always
+// goroutines start so the first poll's OnTick → PushHub.Notify always
 // sees a populated map (without this ordering the race detector fires)."
 //
-// Mechanic: install a test OnPoll hook that, on the first tick,
-// captures whether handler.Pollers / handler.Schedulers are populated
-// for the device that just ticked. Run under -race in CI to also
-// catch the data-race form of the bug.
+// Mechanic: install a testOnPollHook that, on the first tick, captures
+// whether handler.Pollers / handler.Schedulers are populated for the
+// device that just ticked. (The hook fires from the success-side OnPoll
+// closure, before SyncHomekit; OnTick separately drives PushHub.Notify
+// on every tick. The race we're guarding against is the first-tick map
+// publication, which both paths witness.) Run under -race in CI to
+// also catch the data-race form of the bug.
 func TestMain_PollersPopulatedBeforeFirstOnPoll(t *testing.T) {
 	is := is.New(t)
 	const (
