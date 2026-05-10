@@ -956,8 +956,8 @@ func TestPostUIPreset_BadForm(t *testing.T) {
 		sub  string
 	}{
 		{"BadPreset", map[string]any{"preset": 4, "supply": 40, "extract": 45}, "preset must be"},
-		{"BadSupply", map[string]any{"preset": 1, "supply": 5, "extract": 45}, "supply must be"},
-		{"BadExtract", map[string]any{"preset": 1, "supply": 40, "extract": 5}, "extract must be"},
+		{"BadSupply", map[string]any{"preset": 1, "supply": 5, "extract": 45}, "supply percent must be"},
+		{"BadExtract", map[string]any{"preset": 1, "supply": 40, "extract": 5}, "extract percent must be"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

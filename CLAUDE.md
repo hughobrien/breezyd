@@ -160,12 +160,24 @@ CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","
 
 ## Spec & design docs
 
-- `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md` — v1.0 design doc covering protocol decisions, daemon architecture, error semantics, status-line format. The closest thing to a "why" for the core.
+Grouped by subsystem / version. Reverse-chronological within each group.
+
+**Protocol + CLI (v1.0):**
+- `docs/superpowers/specs/2026-05-03-twinfresh-cli-design.md` — design doc covering protocol decisions, daemon architecture, error semantics, status-line format. The closest thing to a "why" for the core.
 - `docs/superpowers/specs/2026-05-03-param-map.md` — every parameter ID with type, units, observed values.
 - `docs/superpowers/specs/breezy-manual-vendor.pdf` — vendor protocol manual.
-- `docs/superpowers/specs/2026-05-04-basic-ui-design.md` — v1.1 design doc for the embedded dashboard, the bind-address tradeoff, and the optional NixOS-nginx reverse-proxy integration.
-- `docs/superpowers/specs/2026-05-08-device-backend-interface-design.md` — v1.2 design doc for the `*breezy.MemClient` in-process backend (the seam this CLAUDE.md describes under "Device backend").
-- `docs/superpowers/plans/` — implementation plans, one per shipped feature. Most relevant for current architecture: `2026-05-04-basic-ui.md` (v1.1 dashboard) and `2026-05-08-device-backend-interface.md` (v1.2 in-process backend).
+
+**Standalone CLI mode (v1.0):**
+- `docs/superpowers/specs/2026-05-04-standalone-mode-design.md` — why daemon owns UDP, how the CLI opts into daemon-mode.
+
+**Dashboard substrate (v1.1 → v1.4):**
+- `docs/superpowers/specs/2026-05-04-basic-ui-design.md` — original v1.1 motivation: bind-address tradeoff, optional NixOS-nginx reverse-proxy integration.
+- `docs/superpowers/specs/2026-05-08-datastar-migration-design.md` — current dashboard substrate (datastar + SSE + templ). Read this before touching the dashboard.
+
+**Device backend interface (v1.2):**
+- `docs/superpowers/specs/2026-05-08-device-backend-interface-design.md` — design for the in-process `*breezy.MemClient` (the seam this CLAUDE.md describes under "Device backend").
+
+Implementation plans live in `docs/superpowers/plans/`; plans for shipped-and-stable subsystems have been pruned. Designs are the evergreen reference.
 
 ## Out of scope (deliberate, not bugs)
 
