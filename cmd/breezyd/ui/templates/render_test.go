@@ -444,6 +444,126 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 // check dressed up as an integration test — moved here per #64. The
 // live-from-daemon path is still covered by the @smoke test and by the
 // SSE-push tests.
+// TestRenderUnreachableCard pins the placeholder card rendered when a
+// device is configured but has never polled successfully. It must not
+// emit any of the four collapsible block markers (info / energy /
+// sensors / schedule) or the controls block — the unreachable card is
+// header + IP/serial + a warn line, nothing more.
+func TestRenderUnreachableCard(t *testing.T) {
+	v := ui.DeviceView{
+		Name:        "office",
+		IP:          "192.168.1.42:4000",
+		Serial:      "BREEZY9876",
+		Unreachable: true,
+	}
+	var sb strings.Builder
+	if err := DeviceCard(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	wantContains := []string{
+		`class="card unreachable"`,
+		`data-device="office"`,
+		`192.168.1.42:4000`, // IP rendered in kvRow
+		`BREEZY9876`,        // serial rendered in kvRow
+		`unreachable`,       // badge text
+	}
+	wantAbsent := []string{
+		`data-block="info"`,
+		`data-block="energy"`,
+		`data-block="sensors"`,
+		`data-block="schedule"`,
+		`data-block="controls"`,
+		`<details`, // no collapsible blocks at all
+	}
+	for _, s := range wantContains {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in unreachable card render", s)
+		}
+	}
+	for _, s := range wantAbsent {
+		if strings.Contains(got, s) {
+			t.Errorf("unexpected %q in unreachable card render", s)
+		}
+	}
+}
+
+// TestRenderControlsBlock_StaleDisablesEveryControl pins that when
+// v.Stale is true, every interactive control (button + input) in the
+// controls block carries the disabled attribute. A regression here lets
+// the user fire actions against a stale device, generating spurious
+// 502s. We compare against the Stale=false baseline to avoid coupling
+// to the exact button count.
+func TestRenderControlsBlock_StaleDisablesEveryControl(t *testing.T) {
+	// Construct a view with every conditional branch in ControlsBlock
+	// active: speed_mode=manual + special_mode=off renders the MODE
+	// chips and manual slider.
+	mk := func(stale bool) ui.DeviceView {
+		return ui.DeviceView{
+			Name:        "alpha",
+			SpeedMode:   "manual",
+			SpecialMode: "off",
+			AirflowMode: "regeneration",
+			ManualPct:   30,
+			Preset1:     ui.PresetView{Supply: 30, Extract: 30},
+			Preset2:     ui.PresetView{Supply: 50, Extract: 50},
+			Preset3:     ui.PresetView{Supply: 70, Extract: 70},
+			Stale:       stale,
+		}
+	}
+
+	render := func(v ui.DeviceView) string {
+		var sb strings.Builder
+		if err := ControlsBlock(v).Render(context.Background(), &sb); err != nil {
+			t.Fatal(err)
+		}
+		return sb.String()
+	}
+
+	stale := render(mk(true))
+
+	// Walk every <button> open-tag and assert it carries `disabled`.
+	// findOpenTags returns the slice of substrings between each `<TAG`
+	// and the matching `>`, i.e. the literal attribute soup the browser
+	// will parse.
+	openTags := func(html, tag string) []string {
+		needle := "<" + tag
+		var out []string
+		idx := 0
+		for {
+			start := strings.Index(html[idx:], needle)
+			if start < 0 {
+				break
+			}
+			start += idx
+			end := strings.Index(html[start:], ">")
+			if end < 0 {
+				break
+			}
+			end += start
+			out = append(out, html[start:end+1])
+			idx = end + 1
+		}
+		return out
+	}
+
+	buttonTags := openTags(stale, "button")
+	if len(buttonTags) < 5 {
+		t.Fatalf("test view should produce ≥5 buttons (preset×3 + mode×4 + timer×2 + heater + manual + ...); got %d", len(buttonTags))
+	}
+	for i, tag := range buttonTags {
+		if !strings.Contains(tag, "disabled") {
+			t.Errorf("stale button #%d missing disabled: %s", i, tag)
+		}
+	}
+
+	// And the healthy render must not emit disabled at all.
+	healthy := render(mk(false))
+	if strings.Contains(healthy, " disabled") {
+		t.Errorf("healthy controls block must not emit disabled; got: %s", healthy)
+	}
+}
+
 func TestRenderSensorsBlock_FormattedValues(t *testing.T) {
 	s := ui.SensorsView{HumidityPct: 54, CO2PPM: 1175}
 	var sb strings.Builder
