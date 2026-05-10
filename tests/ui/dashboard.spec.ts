@@ -541,21 +541,24 @@ test.describe("editor preservation across polls (#65)", () => {
     });
   });
 
-  // Skipped: requires stale threshold <90s. The daemon hardcodes 90s
-  // (cmd/breezyd/ui_view.go) and the test config does not override it.
-  // The signal-driven stale patch is covered by the Go push_hub test.
-  test.skip("stale class applied via signal patch preserves card identity", async ({ page }) => {
+  // Stale class is wired via datastar's data-class:stale="$stale" — when
+  // the $stale signal flips true the browser adds the .stale class
+  // without re-rendering the card. We verify that property by tagging the
+  // card before the flip and re-checking the tag after the class lands.
+  // The test daemon runs at poll_interval=1s, so the derived 3× stale
+  // window is ~3s; we allow 8s of slack for poll jitter + scheduler.
+  // Refs #135.
+  test("stale class applied via signal patch preserves card identity", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
+    await expect(card).not.toHaveClass(/stale/);
 
-    // Tag the card so we can confirm it was NOT re-rendered.
+    // Tag the card so we can confirm it was NOT re-rendered when stale flipped.
     await card.evaluate((el) => { (el as HTMLElement).dataset.testTag = "marker-1"; });
 
     await simulateUDPTimeout(DEVICE, true);
     try {
-      // The daemon marks stale after 90s without a successful poll.
-      // 100s timeout; this test is skip'd because it's impractically slow.
-      await expect(card).toHaveClass(/stale/, { timeout: 100_000 });
+      await expect(card).toHaveClass(/stale/, { timeout: 8_000 });
       const stillTagged = await card.evaluate((el) => (el as HTMLElement).dataset.testTag);
       expect(stillTagged).toBe("marker-1");
     } finally {
