@@ -767,6 +767,61 @@ func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
 	is.NoErr(snap.LastErr) // post-settle tick succeeds
 }
 
+// TestPoller_PostTickHooksGatedOnSuccess pins that both Energy.Tick AND
+// OnPoll fire only when the tick recorded no error. A failed tick
+// (every read returned err) must not trigger Energy accumulation
+// (would corrupt the daily/lifetime counters with stale Values) and
+// must not push a half-empty snapshot through OnPoll (PushHub would
+// patch dashboards with a stale card).
+func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
+	is := is.New(t)
+	state := NewState()
+	dir := t.TempDir()
+	tr := &EnergyTracker{Device: "p", StateDir: dir}
+	tr.Load()
+
+	fc := &fakeClient{err: errors.New("read failed")}
+
+	var mu sync.Mutex
+	var onPollCalls int
+
+	p := &Poller{
+		Name:     "p",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001, 0x00B9},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+		Energy: tr,
+		OnPoll: func(name string, snap Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			onPollCalls++
+		},
+	}
+
+	p.tick(context.Background())
+
+	// Snapshot must record the failure.
+	snap, ok := state.Get("p")
+	is.True(ok)
+	is.True(snap.LastErr != nil)
+
+	// Energy.Tick must not have been called (LastTick still zero).
+	tr.mu.Lock()
+	is.True(tr.LastTick.IsZero()) // Energy accumulation must not run on a failed tick
+	tr.mu.Unlock()
+
+	// OnPoll must not have fired.
+	mu.Lock()
+	defer mu.Unlock()
+	is.Equal(onPollCalls, 0) // OnPoll must not run on a failed tick
+}
+
 func TestPoller_EnergyTickCalled(t *testing.T) {
 	is := is.New(t)
 	// Wire a real EnergyTracker (with t.TempDir for state) onto a poller
