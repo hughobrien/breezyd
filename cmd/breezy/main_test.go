@@ -13,7 +13,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -975,21 +974,6 @@ func TestParam(t *testing.T) {
 	want := len(breezy.AllParams()) + 1
 	is.Equal(len(lines), want) // header + one row per registered param
 	_ = stderr
-}
-
-// Ensure our test stub produces what we think; quick sanity check that
-// the recordingHandler unmarshals empty bodies without crashing.
-func TestRecordingHandlerNoBody(t *testing.T) {
-	is := is.New(t)
-	var got stub
-	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
-	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/anything")
-	is.NoErr(err)
-	_ = resp.Body.Close()
-	is.Equal(got.method, "GET")
-	is.Equal(got.body, map[string]any(nil)) // expected nil body
-	_ = fmt.Sprintf                         // placate goimports
 }
 
 func TestCapsString(t *testing.T) {

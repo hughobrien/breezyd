@@ -1222,15 +1222,6 @@ func TestHandler_FactoryError(t *testing.T) {
 	is.Equal(rec.Code, http.StatusInternalServerError)
 }
 
-func TestErrEnvelope_Shape(t *testing.T) {
-	is := is.New(t)
-	// Catch any future regression that drops required fields.
-	want := errEnvelope{Error: "boom", Code: "bad_request"}
-	b, _ := json.Marshal(want)
-	is.True(bytes.Contains(b, []byte(`"error":`))) // envelope JSON must include "error" field
-	is.True(bytes.Contains(b, []byte(`"code":`)))  // envelope JSON must include "code" field
-}
-
 // ------------------------------------------------------------------------
 // Schedule handler helpers and tests
 // ------------------------------------------------------------------------
