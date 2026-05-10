@@ -299,7 +299,7 @@ return JSON.
 | Method | Path | Source | Notes |
 |---|---|---|---|
 | `GET` | `/v1/devices` | cache | Sorted one-line summary per configured device |
-| `GET` | `/v1/devices/{name}` | cache | Full structured snapshot (`breezy.BuildStatusWithEnergy`) plus `service.schedule` and `service.energy` |
+| `GET` | `/v1/devices/{name}` | cache | Full structured snapshot plus `service.schedule` and `service.energy` |
 | `GET` | `/v1/devices/{name}/firmware` | cache | Decodes 0x0086 |
 | `GET` | `/v1/devices/{name}/efficiency` | cache | Decodes 0x0129 |
 | `GET` | `/v1/devices/{name}/faults` | cache | Decodes 0x007F as a list of `{code, kind}` pairs |

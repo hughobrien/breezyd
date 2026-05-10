@@ -31,3 +31,4 @@ tests/ui/playwright-report/
 # Plan .md files are durable and stay tracked; .tasks.json snapshots are not.
 docs/superpowers/plans/*.tasks.json
 
+.claude/

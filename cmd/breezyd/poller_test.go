@@ -64,7 +64,7 @@ func waitForSnapshot(t *testing.T, state *State, name string, deadline time.Dura
 func TestPoller_HappyPath_SingleTick(t *testing.T) {
 	is := is.New(t)
 	srv := newFakeServer(t)
-	state := NewState()
+	state := newTestState(t, nil)
 
 	p := &Poller{
 		Name:     "test",
@@ -100,7 +100,7 @@ func TestPoller_HappyPath_SingleTick(t *testing.T) {
 func TestPoller_RecordsLatestSnapshot_MultipleTicks(t *testing.T) {
 	is := is.New(t)
 	srv := newFakeServer(t)
-	state := NewState()
+	state := newTestState(t, nil)
 
 	p := &Poller{
 		Name:     "dev",
@@ -144,7 +144,7 @@ func TestPoller_RecordsLatestSnapshot_MultipleTicks(t *testing.T) {
 func TestPoller_AuthError_ClassifiedCorrectly(t *testing.T) {
 	is := is.New(t)
 	srv := newFakeServer(t)
-	state := NewState()
+	state := newTestState(t, nil)
 
 	var (
 		mu    sync.Mutex
@@ -202,7 +202,7 @@ func TestPoller_AuthError_ClassifiedCorrectly(t *testing.T) {
 
 func TestPoller_ContextCancellation_Stops(t *testing.T) {
 	srv := newFakeServer(t)
-	state := NewState()
+	state := newTestState(t, nil)
 
 	p := &Poller{
 		Name:     "x",
@@ -273,7 +273,7 @@ func (f *fakeClient) seenIDs() []breezy.ParamID {
 
 func TestPoller_NoticeWrite_SkipsFanReadsDuringSettleWindow(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 
 	fc := &fakeClient{
 		values: map[breezy.ParamID][]byte{
@@ -369,7 +369,7 @@ func TestPoller_NoticeWrite_SkipsFanReadsDuringSettleWindow(t *testing.T) {
 
 func TestPoller_NoticeWrite_NonFanWriteDoesNotSetSettle(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x004A: {0, 0}}}
 
 	p := &Poller{
@@ -400,7 +400,7 @@ func TestPoller_NoticeWrite_NonFanWriteDoesNotSetSettle(t *testing.T) {
 
 func TestPoller_NoticeWrite_TimerWriteSetsSettle(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x004A: {0, 0}, 0x0001: {1}}}
 
 	p := &Poller{
@@ -439,7 +439,7 @@ func TestPoller_FanSettle_SkippedForLocalClient(t *testing.T) {
 	// A MemClient is in-process; writes land instantly, so the firmware settle
 	// delay does not apply. NoticeWrite should not set a settle deadline when
 	// the last dialed client reports IsLocal() == true.
-	state := NewState()
+	state := newTestState(t, nil)
 
 	mc, err := breezy.NewMemClientFromFile(pollerSnapshotPath(t))
 	is.NoErr(err)
@@ -477,7 +477,7 @@ func TestPoller_FanSettle_SkippedForLocalClient(t *testing.T) {
 
 func TestPoller_BatchesLargeReadList(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{}}
 
 	// 75 distinct IDs => with batch size 30 we expect 3 batches (30, 30, 15).
@@ -549,7 +549,7 @@ func (e *fakeNetErr) Temporary() bool { return false }
 func TestPoller_OnPollFiresOnSuccess(t *testing.T) {
 	is := is.New(t)
 	srv := newFakeServer(t)
-	state := NewState()
+	state := newTestState(t, nil)
 
 	var mu sync.Mutex
 	var calls int
@@ -586,7 +586,7 @@ func TestPoller_OnPollFiresOnSuccess(t *testing.T) {
 
 func TestPoller_ReadError_RecordedInSnapshot(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	wantErr := errors.New("read failed")
 	fc := &fakeClient{err: wantErr}
 
@@ -622,7 +622,7 @@ func TestPoller_ReadError_RecordedInSnapshot(t *testing.T) {
 
 func TestPoller_FailedPollPreservesPriorValues(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
 
 	// Inject a clock so we can prove LastPoll DOES NOT advance on failed ticks.
@@ -679,7 +679,7 @@ func TestPoller_FailedPollPreservesPriorValues(t *testing.T) {
 // "unreachable" on a transient dial error.
 func TestPoller_FailedDial_PreservesPriorSnapshot(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
 
 	clock := time.Unix(1_700_000_000, 0)
@@ -730,7 +730,7 @@ func TestPoller_FailedDial_PreservesPriorSnapshot(t *testing.T) {
 // guards against an over-correction that would freeze LastPoll forever.
 func TestPoller_LastPollResumesAfterFailureClears(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
 
 	clock := time.Unix(1_700_000_000, 0)
@@ -815,7 +815,7 @@ func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
 func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
 	is := is.New(t)
 	srv := newFakeServer(t)
-	state := NewState()
+	state := newTestState(t, nil)
 
 	// Controllable clock: start well away from zero so deadline comparisons
 	// against time.Time{} (IsZero) behave correctly.
@@ -889,7 +889,7 @@ func TestPoller_FanSettle_DropsSensitiveReads_OverUDP(t *testing.T) {
 //     signals must advance even when polls are timing out.
 func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	dir := t.TempDir()
 	tr := &EnergyTracker{Device: "p", StateDir: dir}
 	tr.Load()
@@ -947,7 +947,7 @@ func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
 // UDP timeouts (SPECIFICATION-web.md "Card states").
 func TestPoller_OnTickFiresOnEveryTick(t *testing.T) {
 	is := is.New(t)
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
 
 	var mu sync.Mutex
@@ -1003,7 +1003,7 @@ func TestPoller_EnergyTickCalled(t *testing.T) {
 	tr := &EnergyTracker{Device: "p", StateDir: dir}
 	tr.Load()
 
-	state := NewState()
+	state := newTestState(t, nil)
 	fc := &fakeClient{
 		values: map[breezy.ParamID][]byte{
 			0x0001: {1},    // power_state (on)

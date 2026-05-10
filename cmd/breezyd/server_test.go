@@ -60,22 +60,15 @@ func newServerFakeDevice(t *testing.T) string {
 func newServerHandler(t *testing.T) (*Handler, *recordingPoller, string) {
 	t.Helper()
 	addr := newServerFakeDevice(t)
-
-	state := NewState()
 	rp := newRecordingPoller()
-
-	h := &Handler{
-		State: state,
-		Devices: NewDeviceRegistry(map[string]DeviceConfig{
-			"playroom": {ID: srvDeviceID, Password: srvPassword, IP: addr},
-		}),
-		Pollers: map[string]*Poller{
-			// We replace the real poller with a stub via Notice(); see below.
-		},
-		// NoticeFunc lets tests hook the per-device NoticeWrite without
-		// going through a real *Poller (which we don't need to drive here).
-		NoticeFunc: rp.Notice,
-	}
+	h := newTestHandler(t, map[string]DeviceConfig{
+		"playroom": {ID: srvDeviceID, Password: srvPassword, IP: addr},
+	},
+		// Pollers entry lets LockUDP tests insert a real *Poller later;
+		// NoticeFunc lets handler tests hook NoticeWrite without a real poller.
+		withPollers(map[string]*Poller{}),
+		withNoticeFunc(rp.Notice),
+	)
 	h.ClientFactory = func(name string) (HandlerClient, error) {
 		d, ok := h.Devices.Get(name)
 		if !ok {
