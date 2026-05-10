@@ -64,3 +64,13 @@ func withNoticeFunc(f func(string, breezy.ParamID)) handlerOpt {
 func withPollInterval(d time.Duration) handlerOpt {
 	return func(h *Handler) { h.PollInterval = d }
 }
+
+// setRunFlags wires the daemon flag variables to safe test-time values so
+// run() can be invoked without real-flag parsing. The caller must handle any
+// additional flags (--backend, --seed) and their t.Cleanup resets.
+func setRunFlags(t *testing.T, cfgPath string) {
+	t.Helper()
+	*flagConfig = cfgPath
+	*flagAddr = ""
+	*flagLogLevel = "warn"
+}

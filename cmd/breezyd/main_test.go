@@ -148,9 +148,7 @@ func TestMain_BootstrapsThenExits(t *testing.T) {
 
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")
-	*flagConfig = cfgPath
-	*flagAddr = ""
-	*flagLogLevel = "warn"
+	setRunFlags(t, cfgPath)
 
 	// First run: file doesn't exist, bootstrap writes default + returns error.
 	err := run(context.Background())
@@ -211,9 +209,7 @@ func TestMainSmoke(t *testing.T) {
 	// Override flags for this test. flag.Parse() runs from main()
 	// (not run()), so writing through the *flag pointers here is the
 	// supported route.
-	*flagConfig = cfgPath
-	*flagAddr = ""
-	*flagLogLevel = "warn"
+	setRunFlags(t, cfgPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -288,9 +284,7 @@ func TestMainMemoryBackend(t *testing.T) {
 	// Use a dummy IP — MemClient means the poller will never open a real socket.
 	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", devID, pwd)
 
-	*flagConfig = cfgPath
-	*flagAddr = ""
-	*flagLogLevel = "warn"
+	setRunFlags(t, cfgPath)
 	*flagBackend = "memory"
 	*flagSeed = mainSnapshotPath(t)
 	t.Cleanup(func() {
@@ -370,9 +364,7 @@ func TestMainBackendFlagValidation(t *testing.T) {
 
 	t.Run("seed_without_memory_backend", func(t *testing.T) {
 		is := is.New(t)
-		*flagConfig = cfgPath
-		*flagAddr = ""
-		*flagLogLevel = "warn"
+		setRunFlags(t, cfgPath)
 		*flagBackend = "udp"
 		*flagSeed = mainSnapshotPath(t)
 		t.Cleanup(func() {
@@ -386,9 +378,7 @@ func TestMainBackendFlagValidation(t *testing.T) {
 
 	t.Run("unknown_backend_value", func(t *testing.T) {
 		is := is.New(t)
-		*flagConfig = cfgPath
-		*flagAddr = ""
-		*flagLogLevel = "warn"
+		setRunFlags(t, cfgPath)
 		*flagBackend = "fakeudp"
 		*flagSeed = ""
 		t.Cleanup(func() {
@@ -424,9 +414,7 @@ func TestMain_ShutdownWaitsForInflightPoll(t *testing.T) {
 	listen := freeListenAddr(t)
 	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", devID, pwd)
 
-	*flagConfig = cfgPath
-	*flagAddr = ""
-	*flagLogLevel = "warn"
+	setRunFlags(t, cfgPath)
 	*flagBackend = "memory"
 	*flagSeed = mainSnapshotPath(t)
 	t.Cleanup(func() {
@@ -507,9 +495,7 @@ func TestMain_PollersPopulatedBeforeFirstOnPoll(t *testing.T) {
 	listen := freeListenAddr(t)
 	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", devID, pwd)
 
-	*flagConfig = cfgPath
-	*flagAddr = ""
-	*flagLogLevel = "warn"
+	setRunFlags(t, cfgPath)
 	*flagBackend = "memory"
 	*flagSeed = mainSnapshotPath(t)
 	t.Cleanup(func() {
