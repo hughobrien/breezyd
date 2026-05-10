@@ -39,7 +39,10 @@ func (h *Handler) getDevice(w http.ResponseWriter, r *http.Request) {
 		v := p.Energy.Snapshot()
 		ev = &v
 	}
-	resp := breezy.BuildStatusWithEnergy(snap.Values, name, cfg.ID, ip, lastPoll, ev)
+	resp := breezy.BuildStatus(snap.Values, name, cfg.ID, ip, lastPoll)
+	if ev != nil {
+		resp.Service["energy"] = *ev
+	}
 	if sch, ok := h.Schedulers[name]; ok && sch != nil {
 		resp.Service["schedule"] = scheduleResponseFrom(sch.Snapshot())
 	}

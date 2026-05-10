@@ -5,7 +5,6 @@ package breezy
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -192,17 +191,6 @@ func TestComputeInUserControl(t *testing.T) {
 	is.True(!ComputeInUserControl(map[ParamID][]byte{0x030B: {1}}))             // false when 0x030B=1 (frost protection)
 }
 
-func TestBuildStatusWithEnergy_NilEnergy(t *testing.T) {
-	is := is.New(t)
-	values := map[ParamID][]byte{
-		0x0001: {1},
-		0x0002: {0xFF},
-	}
-	base := BuildStatus(values, "attic", "ID001", "10.0.0.1", nil)
-	withNil := BuildStatusWithEnergy(values, "attic", "ID001", "10.0.0.1", nil, nil)
-	is.True(reflect.DeepEqual(base, withNil)) // BuildStatusWithEnergy(nil) should equal BuildStatus
-}
-
 func TestBuildStatusWithEnergy_PopulatedEnergy(t *testing.T) {
 	is := is.New(t)
 	energy := &EnergyValues{
@@ -216,7 +204,8 @@ func TestBuildStatusWithEnergy_PopulatedEnergy(t *testing.T) {
 		CoolingLifetimeKWh:  0,
 		ConsumedLifetimeKWh: 12.3,
 	}
-	s := BuildStatusWithEnergy(map[ParamID][]byte{}, "hall", "ID002", "10.0.0.2", nil, energy)
+	s := BuildStatus(map[ParamID][]byte{}, "hall", "ID002", "10.0.0.2", nil)
+	s.Service["energy"] = *energy
 	raw, ok := s.Service["energy"]
 	is.True(ok) // s.Service["energy"] missing
 	got, ok := raw.(EnergyValues)
@@ -232,7 +221,8 @@ func TestBuildStatusWithEnergy_ErrorOnUnsupportedModel(t *testing.T) {
 		Supported: false,
 		Error:     "unsupported model: Breezy 200 (type=22) — no airflow calibration",
 	}
-	s := BuildStatusWithEnergy(map[ParamID][]byte{}, "lounge", "ID003", "10.0.0.3", nil, energy)
+	s := BuildStatus(map[ParamID][]byte{}, "lounge", "ID003", "10.0.0.3", nil)
+	s.Service["energy"] = *energy
 	raw, ok := s.Service["energy"]
 	is.True(ok) // s.Service["energy"] missing
 	got, ok := raw.(EnergyValues)
@@ -250,7 +240,8 @@ func TestBuildStatusWithEnergy_JSONShape(t *testing.T) {
 		HeatingTodayKWh:    1.234,
 		HeatingLifetimeKWh: 234.5,
 	}
-	s := BuildStatusWithEnergy(map[ParamID][]byte{}, "study", "ID004", "10.0.0.4", nil, energy)
+	s := BuildStatus(map[ParamID][]byte{}, "study", "ID004", "10.0.0.4", nil)
+	s.Service["energy"] = *energy
 	out, err := json.Marshal(s)
 	is.NoErr(err)
 	js := string(out)
