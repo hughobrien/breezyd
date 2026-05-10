@@ -37,8 +37,8 @@ Tone: skeptical. Each entry includes a critical view if there's a plausible argu
   - **Critical view**: this is a stylistic dep. The stdlib `testing.T` plus a few lines of boilerplate covers everything `is` does. Eliminating means rewriting 2247 call sites — net cost ~2000 lines of churn, benefit zero. Kept as the chosen test-assertion idiom; would only revisit if the lib went unmaintained.
 
 - **pgregory.net/rapid** v1.3.0 — Property-based testing with shrinking. Used in **one file**: `pkg/breezy/frame_property_test.go` (23 references), pinning the FDFD/02 frame round-trip across random inputs.
-  - **Why this one**: declarative generators (`rapid.StringMatching(...)`, `rapid.SliceOfN(...)`) plus shrinking on failure. Reproducible across CI runs.
-  - **Critical view**: Go 1.18+ native `testing.F` fuzzing covers similar ground without an external dep. A migration is plausible but the property tests rely on rapid's strict generators (PRNG-driven, deterministic seed) — `testing.F` is corpus-driven and behaves differently. **Borderline. Re-evaluate when `frame_property_test.go` next changes substantively.**
+  - **Why this one**: declarative generators (`rapid.StringMatching(...)`, `rapid.SliceOfN(...)`, `rapid.SliceOf(rapid.Custom(genParamWrite))`) plus failure-input shrinking. Reproducible across CI runs.
+  - **Evaluation outcome (#203)**: migration to Go 1.18+ native `testing.F` evaluated and **rejected**. `testing.F` arg types are restricted to byte/string/numeric — slice-of-struct (`[]ParamID`, `[]ParamWrite`) is not directly supported, so four of the six property tests would need to pack arrays into byte slices and decode inline, losing the declarative generators. `testing.F` also doesn't shrink failing inputs the way rapid does, which is the actual debugging win. Keep.
 
 ## JS (`tests/ui/package.json`)
 
@@ -67,5 +67,5 @@ All three are `devDependencies`; nothing ships to users.
 |---|---|
 | `BurntSushi/toml`, `a-h/templ`, `brutella/hap`, `prometheus/client_golang`, `starfederation/datastar-go`, `@playwright/test`, `nixpkgs` | Load-bearing. Keep. |
 | `matryer/is` | Stylistic. Replacing means churn for no win. Keep. |
-| `pgregory.net/rapid` | One test file; Go's native `testing.F` could replace, but the semantics differ. Borderline. |
+| `pgregory.net/rapid` | Evaluated and kept (#203) — `testing.F` can't represent slice-of-struct generators and doesn't shrink. |
 | `typescript`, `tsx` | Could drop with a `.ts` → `.js` rewrite of `tests/ui/*`. Borderline. |
