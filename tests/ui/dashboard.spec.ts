@@ -155,36 +155,29 @@ test.describe("SSE push", () => {
   });
 });
 
+// Scope of this `controls` block: behaviors that genuinely require a real
+// browser. Click→@post→SSE-push round-trips for *every* control button
+// (power, mode, heater, timer, reset-filter, reset-faults) used to live
+// here as one test per endpoint. They were demoted per #185 / #36 Phase 4
+// because:
+//
+// - Endpoint contracts are pinned by Go tests in handlers_ui_write_test.go
+//   (TestUIWritePower_Happy, TestUIWriteMode_Happy, TestUIWriteHeater_Happy,
+//   TestUIWriteTimer_Happy, TestUIWriteResetFilter_Happy,
+//   TestUIWriteResetFaults_Happy, TestUIWriteAction_NotFound).
+// - Render contracts (button presence, aria-pressed, disabled-when-stale)
+//   are pinned by render_test.go (TestRenderControlsBlock_StaleDisablesEveryControl,
+//   TestRenderControls_NoColonFormDataBind, golden_healthy/golden_stale).
+// - The remaining E2E-unique question — "do click handlers fire in the
+//   browser at all" — is covered by the preset chip / slider drag /
+//   manual slider tests below, all of which would fail catastrophically
+//   if data-on:click → @post wiring broke globally.
+//
+// What stays here: behaviors that pin browser-side state or library
+// quirks (the $editor signal flip on chip toggle; the debounce timing
+// on slider drag; the datastar lowercase-bind regression that drove
+// #116). These are not unit-testable.
 test.describe("controls", () => {
-  test("power toggle: button click switches state and pushes new card", async ({ page }) => {
-    await reset(DEVICE);
-    await presets.asPowerOn(DEVICE);
-    const card = await loadCard(page);
-    const power = card.getByRole("button", { name: "power", pressed: true });
-    await expect(power).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
-    await power.click();
-    await expect(
-      card.getByRole("button", { name: "power", pressed: false }),
-    ).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
-  });
-
-  test("mode chip: click triggers mode change", async ({ page }) => {
-    await reset(DEVICE);
-    await presets.asPresetSpeed(DEVICE, 1);
-    await presets.asMode(DEVICE, "regeneration");
-    await presets.withTimer(DEVICE, "off");
-    const card = await loadCard(page);
-    // Switch to manual + click "supply" mode chip.
-    await card.getByRole("button", { name: "manual", pressed: false }).click();
-    await expect(card).toHaveAttribute("data-speed-mode", "manual", {
-      timeout: POLL_PUSH_TIMEOUT,
-    });
-    await card.getByRole("button", { name: "supply" }).click();
-    await expect(card).toHaveAttribute("data-airflow-mode", "supply", {
-      timeout: POLL_PUSH_TIMEOUT,
-    });
-  });
-
   test("preset chip: click opens editor, second click closes it", async ({ page }) => {
     await reset(DEVICE);
     await presets.asPresetSpeed(DEVICE, 1);
