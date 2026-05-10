@@ -236,8 +236,7 @@ func (s *Scheduler) Load() {
 	s.lastApply = p.LastApply
 }
 
-// save writes the current state atomically via temp+rename. Caller MUST
-// hold s.mu.
+// save writes the current state atomically. Caller MUST hold s.mu.
 func (s *Scheduler) save() error {
 	p := persistedSchedule{
 		Version:   scheduleFileVersion,
@@ -245,17 +244,8 @@ func (s *Scheduler) save() error {
 		Entries:   s.entries,
 		LastApply: s.lastApply,
 	}
-	data, err := json.Marshal(p)
-	if err != nil {
-		return fmt.Errorf("schedule: marshal: %w", err)
-	}
-	tmp := s.statePath() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("schedule: write temp: %w", err)
-	}
-	if err := os.Rename(tmp, s.statePath()); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("schedule: rename temp: %w", err)
+	if err := writeJSONAtomic(s.statePath(), p); err != nil {
+		return fmt.Errorf("schedule: %w", err)
 	}
 	return nil
 }
