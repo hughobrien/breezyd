@@ -64,6 +64,14 @@ var (
 	date    = "unknown"
 )
 
+// testOnPollHook is a process-level test seam. When non-nil, the composed
+// poll fan-out calls it on every tick BEFORE SyncHomekit / PushHub.Notify,
+// passing the live Handler so wiring-order tests can assert
+// handler.Pollers / handler.Schedulers are populated, and so blocking
+// shutdown-wait tests can sleep here. Tests must reset to nil via
+// t.Cleanup; production code never touches it.
+var testOnPollHook func(h *Handler, name string, snap Snapshot)
+
 // defaultConfigPath returns ~/.config/breezy/config.toml. When the
 // home dir can't be determined we fall back to a relative path so
 // running breezyd in a sandbox without HOME still produces a useful
@@ -182,6 +190,13 @@ func run(parent context.Context) error {
 	// browser push hub. Both are independent and idempotent; either firing
 	// in isolation is safe.
 	onPoll := func(name string, snap Snapshot) {
+		// testOnPollHook is the run-level test seam: when a test sets it,
+		// it fires synchronously on every poll tick (with handler attached
+		// so wiring-order assertions can read handler.Pollers). Production
+		// leaves it nil and incurs zero cost.
+		if hook := testOnPollHook; hook != nil {
+			hook(handler, name, snap)
+		}
 		handler.SyncHomekit(name, snap)
 		handler.PushHub.Notify(name, snap)
 	}
