@@ -40,10 +40,6 @@ Tone: skeptical. Each entry includes a critical view if there's a plausible argu
   - **Why this one**: declarative generators (`rapid.StringMatching(...)`, `rapid.SliceOfN(...)`) plus shrinking on failure. Reproducible across CI runs.
   - **Critical view**: Go 1.18+ native `testing.F` fuzzing covers similar ground without an external dep. A migration is plausible but the property tests rely on rapid's strict generators (PRNG-driven, deterministic seed) — `testing.F` is corpus-driven and behaves differently. **Borderline. Re-evaluate when `frame_property_test.go` next changes substantively.**
 
-- **prometheus/client_model** v0.6.2 — Prometheus protobuf model types. Used in **one file**: `cmd/breezyd/metrics_test.go` to introspect counter values via `dto.Metric`.
-  - **Why this one**: reading a counter's raw value requires the registry's `Write(&dto.Metric)` round-trip.
-  - **Critical view**: `prometheus/client_golang/prometheus/testutil` (already pulled in transitively) provides `ToFloat64` and `CollectAndCompare` that avoid touching the protobuf model directly. **A single-file refactor could drop this dep.** Flagged for cleanup.
-
 ## JS (`tests/ui/package.json`)
 
 All three are `devDependencies`; nothing ships to users.
@@ -74,7 +70,6 @@ All three are `devDependencies`; nothing ships to users.
 |---|---|
 | `BurntSushi/toml`, `a-h/templ`, `brutella/hap`, `prometheus/client_golang`, `starfederation/datastar-go`, `@playwright/test`, `nixpkgs` | Load-bearing. Keep. |
 | `matryer/is` | Stylistic. Replacing means churn for no win. Keep. |
-| `prometheus/client_model` | **One test file**; `prometheus/testutil` already in the dep tree covers the same need. Worth dropping. |
 | `pgregory.net/rapid` | One test file; Go's native `testing.F` could replace, but the semantics differ. Borderline. |
 | `typescript`, `tsx` | Could drop with a `.ts` → `.js` rewrite of `tests/ui/*`. Borderline. |
 | `flake-utils` | Helper inlinable, ~30 lines. Low-priority simplification. |

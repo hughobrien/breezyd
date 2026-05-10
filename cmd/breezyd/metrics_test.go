@@ -23,7 +23,6 @@ import (
 	"github.com/matryer/is"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	dto "github.com/prometheus/client_model/go"
 )
 
 // representativeSnapshot returns a Snapshot whose Values map covers
@@ -265,35 +264,20 @@ func TestMetricsRecordPollError(t *testing.T) {
 }
 
 // TestMetricsInfoLabels verifies breezy_info renders the expected
-// firmware/build_date label values from the 0x86 data block.
+// firmware/build_date label values from the 0x86 data block. Uses
+// testutil.CollectAndCompare so we don't need to reach into the
+// protobuf model (closes #201).
 func TestMetricsInfoLabels(t *testing.T) {
 	is := is.New(t)
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 	m.Update("dev", "ID0000000000002A", representativeSnapshot())
 
-	mfs, err := reg.Gather()
-	is.NoErr(err)
-	var found *dto.Metric
-	for _, mf := range mfs {
-		if mf.GetName() != "breezy_info" {
-			continue
-		}
-		if len(mf.Metric) == 0 {
-			continue
-		}
-		found = mf.Metric[0]
-		break
-	}
-	is.True(found != nil) // breezy_info series must be present
-
-	labels := map[string]string{}
-	for _, lp := range found.Label {
-		labels[lp.GetName()] = lp.GetValue()
-	}
-	is.Equal(labels["firmware"], "0.11")
-	is.Equal(labels["build_date"], "2025-03-21")
-	is.Equal(found.Gauge.GetValue(), float64(1))
+	want := `# HELP breezy_info Per-device build/firmware diagnostics (constant 1; data is in labels).
+# TYPE breezy_info gauge
+breezy_info{build_date="2025-03-21",device="dev",firmware="0.11",id="ID0000000000002A"} 1
+`
+	is.NoErr(testutil.CollectAndCompare(m.info, strings.NewReader(want), "breezy_info"))
 }
 
 func TestMetrics_SetEnergy_Supported(t *testing.T) {
