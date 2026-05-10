@@ -186,6 +186,31 @@ func TestScheduleEditRow(t *testing.T) {
 	}
 }
 
+// TestScheduleEditRow_DeleteButton pins the per-row delete button's
+// click handler — `evt.target.closest('tr').remove()` — so a typo or a
+// rewrite that regresses to a no-op (or to a server round-trip) doesn't
+// silently break delete-row in the schedule editor. The delete is purely
+// client-side; persistence happens only on form submit.
+// See SPECIFICATION-web.md "Schedule editor: Per-row controls".
+func TestScheduleEditRow_DeleteButton(t *testing.T) {
+	var sb strings.Builder
+	entry := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
+	if err := ScheduleEditRow(entry).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	const wantClick = `data-on:click="evt.target.closest('tr').remove()"`
+	if !strings.Contains(got, wantClick) {
+		t.Errorf("delete button missing click handler\nwant: %s\n--- got ---\n%s", wantClick, got)
+	}
+	if !strings.Contains(got, `class="del"`) {
+		t.Errorf("delete button missing .del class\n%s", got)
+	}
+	if !strings.Contains(got, `type="button"`) {
+		t.Errorf("delete button missing type=button (would submit the form)\n%s", got)
+	}
+}
+
 // TestSchedulePctOrigValue pins the fallback logic feeding data-orig-pct
 // directly. Redundant with TestScheduleEditRow's wantOrigPct cases, but
 // fast and useful when the helper itself changes.
@@ -220,7 +245,7 @@ func TestSchedulePctOrigValue(t *testing.T) {
 // fault path itself changes — failures point at the right thing instead
 // of "golden mismatch."
 //
-// Behaviors pinned (catalog B-04):
+// Behaviors pinned (see SPECIFICATION-web.md "Card states: Fault"):
 //   - The faults kvRow shows the FaultLevel string verbatim.
 //   - The reset-faults action button is wired to /ui/devices/<name>/reset-faults.
 //   - When NeedsAttention is true, the InfoDetails block carries the
@@ -384,8 +409,9 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 // datastar's MutationObserver-driven re-evaluation runs before the toggle
 // event fires (see #118).
 //
-// Catalog B-28 (#36) — regressed once during the htmx → datastar
-// migration; pinning here keeps it caught at unit-test speed.
+// See SPECIFICATION-web.md "Open/close binding pair". Regressed once
+// during the htmx → datastar migration; pinning here keeps it caught at
+// unit-test speed.
 func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 	v := loadView(t, "snapshot_settling")
 	cases := []struct {
