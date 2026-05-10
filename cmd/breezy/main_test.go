@@ -733,6 +733,52 @@ func TestRtcSetBadFormat(t *testing.T) {
 	is.Equal(code, 2)
 }
 
+// TestVersionVerb pins `breezy version` (the global verb) — exit 0,
+// stdout matches the documented `breezy <version> (commit <sha>, built
+// <date>)` shape. Build-time-injected ldflags supply the values; the
+// dev/none/unknown defaults from main.go's package-level vars stand in
+// during tests.
+func TestVersionVerb(t *testing.T) {
+	is := is.New(t)
+	t.Setenv("HOME", t.TempDir()) // hermetic
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"version"}, &stdout, &stderr, nil)
+	is.Equal(code, 0)
+	out := stdout.String()
+	is.True(strings.HasPrefix(out, "breezy "))
+	is.True(strings.Contains(out, " (commit "))
+	is.True(strings.Contains(out, ", built "))
+	is.True(strings.HasSuffix(out, ")\n"))
+	is.Equal(stderr.String(), "")
+}
+
+// TestVersionFlag pins `breezy --version` — same banner shape as the
+// version verb, handled inside flag.Parse via the bool flag.
+func TestVersionFlag(t *testing.T) {
+	is := is.New(t)
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--version"}, &stdout, &stderr, nil)
+	is.Equal(code, 0)
+	is.True(strings.HasPrefix(stdout.String(), "breezy "))
+	is.True(strings.Contains(stdout.String(), "(commit "))
+	is.Equal(stderr.String(), "")
+}
+
+// TestHelpVerb pins `breezy help` (the global verb form) — exit 0
+// with usage on stdout. The flag-style `-h` / `--help` paths exit 2
+// today (flag.ErrHelp falls through to `return 2`); see #133 for the
+// decide-and-align tracking issue.
+func TestHelpVerb(t *testing.T) {
+	is := is.New(t)
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"help"}, &stdout, &stderr, nil)
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout.String(), "Usage:"))
+	is.Equal(stderr.String(), "")
+}
+
 // TestUsageNoArgs / TestUnknownVerb cover the two main "exit code 2"
 // surfaces: nothing at all, and an unrecognised verb.
 func TestUsageNoArgs(t *testing.T) {
