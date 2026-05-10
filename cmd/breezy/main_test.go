@@ -730,6 +730,58 @@ func TestGetByName(t *testing.T) {
 	is.True(strings.Contains(stdout, "%"))                   // unit from registry
 }
 
+// TestGetUnknownID pins the spec'd fallback when an ID isn't in the
+// registry: hex bytes replace the typed value, no name prefix. Without
+// this, a param outside the registry would surface as a typed-decode
+// error or a meaningless empty render.
+func TestGetUnknownID(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.path = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":  "0xFFFE",
+			"hex": "abcd",
+			// no "name" / "type" — daemon doesn't know it either.
+		})
+	}))
+	defer srv.Close()
+	code, stdout, _ := runCLI(t, srv, "playroom", "get", "0xFFFE")
+	is.Equal(code, 0)
+	is.Equal(got.path, "/v1/devices/playroom/params/0xFFFE")
+	is.True(strings.Contains(stdout, "0xFFFE"))                                               // ID echoed
+	is.True(strings.Contains(stdout, "abcd"))                                                 // raw hex bytes
+	is.True(!strings.Contains(stdout, "humidity") && !strings.Contains(stdout, "(humidity)")) // no name prefix
+}
+
+// TestSet_InvalidHex pins that `set <param> <bad-hex>` exits 2 with
+// "invalid hex" on stderr and does NOT round-trip to the daemon. The
+// hex.DecodeString check runs locally before any HTTP call.
+func TestSet_InvalidHex(t *testing.T) {
+	is := is.New(t)
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+	}))
+	defer srv.Close()
+	code, _, stderr := runCLI(t, srv, "playroom", "set", "co2_threshold", "ZZZZ")
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr, "invalid hex"))
+	is.True(!hit) // bad hex must not round-trip to the daemon
+}
+
+// TestUsageNameNoVerb pins that `breezy <name>` (device-only, no verb)
+// exits 2 with the documented usage hint, no daemon traffic.
+func TestUsageNameNoVerb(t *testing.T) {
+	is := is.New(t)
+	t.Setenv("HOME", t.TempDir()) // hermetic
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"playroom"}, &stdout, &stderr, nil)
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr.String(), "usage: breezy"))
+}
+
 func TestGetByHex(t *testing.T) {
 	is := is.New(t)
 	var got stub
