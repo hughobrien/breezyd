@@ -64,6 +64,17 @@ func TestLayout(t *testing.T) {
 		`localStorage.setItem('theme'`,
 		`localStorage.removeItem('theme')`,
 		`data-theme-set`,
+		// SSE debug instrumentation in the theme popout (closes #191).
+		// $debug signals seeded on body, document-level event listeners
+		// bump them, theme-picker popout reads them. Pin the signal seed
+		// shape and the popout rows so a layout refactor doesn't silently
+		// drop the debug surface.
+		`&#34;debug&#34;:{&#34;events&#34;:0,&#34;lastEventAt&#34;:0,&#34;now&#34;:0}`,
+		`data-on:datastar-fetch__document`,
+		`data-on-interval__duration.1s`,
+		`<dl class="sse-debug"`,
+		`$debug.lastEventAt`,
+		`$debug.events`,
 	}
 	wantAbsent := []string{
 		`htmx`,
