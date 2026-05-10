@@ -61,9 +61,6 @@ All three are `devDependencies`; nothing ships to users.
 - **nixpkgs** — `github:NixOS/nixpkgs/nixos-unstable`. The universe; provides `go`, `templ`, `just`, `playwright`, `gh`, everything in `nix develop`.
   - **Critical view**: load-bearing. Nothing to debate.
 
-- **flake-utils** — `github:numtide/flake-utils`. Provides `eachDefaultSystem` so the flake exports outputs for `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin` without copy-paste.
-  - **Critical view**: the helper is ~30 lines and inlinable. Saves one input + one lock entry. Net benefit: minor.
-
 ## Critical-assessment summary
 
 | Dep | Verdict |
@@ -72,4 +69,3 @@ All three are `devDependencies`; nothing ships to users.
 | `matryer/is` | Stylistic. Replacing means churn for no win. Keep. |
 | `pgregory.net/rapid` | One test file; Go's native `testing.F` could replace, but the semantics differ. Borderline. |
 | `typescript`, `tsx` | Could drop with a `.ts` → `.js` rewrite of `tests/ui/*`. Borderline. |
-| `flake-utils` | Helper inlinable, ~30 lines. Low-priority simplification. |
