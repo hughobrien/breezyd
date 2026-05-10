@@ -59,6 +59,65 @@ ip       = "%s"
 	return cfgPath
 }
 
+// TestDaemonStateDir_Precedence pins the resolution order documented
+// at SPECIFICATION-daemon.md "State directory resolution":
+//
+//  1. $STATE_DIRECTORY (systemd) — used as-is.
+//  2. $XDG_STATE_HOME — returns $XDG_STATE_HOME/breezyd.
+//  3. neither set — returns $HOME/.local/state/breezyd.
+//
+// The created directory is always mode 0700.
+func TestDaemonStateDir_Precedence(t *testing.T) {
+	// Each subtest uses a non-existing leaf inside t.TempDir() so
+	// daemonStateDir's MkdirAll(..., 0o700) actually creates it (and the
+	// 0700 mode is observable). t.TempDir() itself creates with the host
+	// umask, which would otherwise mask the assertion.
+
+	t.Run("STATE_DIRECTORY wins over XDG_STATE_HOME", func(t *testing.T) {
+		is := is.New(t)
+		stateDir := filepath.Join(t.TempDir(), "stateDir")
+		xdg := filepath.Join(t.TempDir(), "xdg") // also set, must be ignored
+		t.Setenv("STATE_DIRECTORY", stateDir)
+		t.Setenv("XDG_STATE_HOME", xdg)
+
+		got, err := daemonStateDir()
+		is.NoErr(err)
+		is.Equal(got, stateDir) // STATE_DIRECTORY takes precedence
+		st, err := os.Stat(got)
+		is.NoErr(err)
+		is.Equal(st.Mode().Perm(), os.FileMode(0o700)) // dir mode
+	})
+
+	t.Run("XDG_STATE_HOME used when STATE_DIRECTORY unset", func(t *testing.T) {
+		is := is.New(t)
+		xdg := filepath.Join(t.TempDir(), "xdg")
+		t.Setenv("STATE_DIRECTORY", "")
+		t.Setenv("XDG_STATE_HOME", xdg)
+
+		got, err := daemonStateDir()
+		is.NoErr(err)
+		is.Equal(got, filepath.Join(xdg, "breezyd"))
+		st, err := os.Stat(got)
+		is.NoErr(err)
+		is.Equal(st.Mode().Perm(), os.FileMode(0o700))
+	})
+
+	t.Run("HOME fallback when STATE_DIRECTORY and XDG_STATE_HOME unset", func(t *testing.T) {
+		is := is.New(t)
+		home := filepath.Join(t.TempDir(), "home")
+		t.Setenv("STATE_DIRECTORY", "")
+		t.Setenv("XDG_STATE_HOME", "")
+		t.Setenv("HOME", home)
+
+		got, err := daemonStateDir()
+		is.NoErr(err)
+		is.Equal(got, filepath.Join(home, ".local", "state", "breezyd"))
+		st, err := os.Stat(got)
+		is.NoErr(err)
+		is.Equal(st.Mode().Perm(), os.FileMode(0o700))
+	})
+}
+
 // freeListenAddr binds an ephemeral 127.0.0.1 TCP port, immediately
 // closes it, and returns the addr string. There's a small TOCTOU
 // window before the daemon binds, but it's negligible in a single
