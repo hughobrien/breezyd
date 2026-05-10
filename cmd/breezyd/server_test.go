@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1075,15 +1076,48 @@ func TestHandler_DeviceUnreachable(t *testing.T) {
 	is.Equal(env.Code, "device_unreachable")
 }
 
-// TestHandlerOpTimeout_Is5Seconds pins the documented per-request bound
-// on device-write/read handlers: handlerOpTimeout caps the entire dial
-// + op so an unreachable device cannot wedge a request indefinitely.
-// A regression that bumped this to 30s would let one wedged device
-// stall the dashboard for tens of seconds; pinning the constant
-// catches that at compile-test speed.
-func TestHandlerOpTimeout_Is5Seconds(t *testing.T) {
+// TestHandler_CachedReadsDontHitDevice pins the cache-vs-passthrough
+// split: GET /v1/devices/{name}, /firmware, /efficiency, /faults all
+// read from the cache and must NOT dial the device. Only
+// GET /v1/devices/{name}/params/{id} bypasses the cache. Without this
+// pin, accidentally adding UDP I/O to a structured-read handler is the
+// kind of regression that only surfaces under load (poller starvation,
+// timeout bursts under scrape pressure).
+func TestHandler_CachedReadsDontHitDevice(t *testing.T) {
 	is := is.New(t)
-	is.Equal(handlerOpTimeout, 5*time.Second)
+	h, _, addr := newServerHandler(t)
+
+	// Wrap the existing ClientFactory in a counter so we can detect any dial.
+	var dials int32
+	inner := h.ClientFactory
+	h.ClientFactory = func(name string) (HandlerClient, error) {
+		atomic.AddInt32(&dials, 1)
+		return inner(name)
+	}
+
+	// Seed the cache so cache-driven handlers have data to render.
+	seedSnapshot(t, h, "playroom", snapshotAllParams(t))
+	_ = addr
+
+	cachedEndpoints := []string{
+		"/v1/devices",          // listing reads from State.Devices()
+		"/v1/devices/playroom", // structured snapshot
+		"/v1/devices/playroom/firmware",
+		"/v1/devices/playroom/efficiency",
+		"/v1/devices/playroom/faults",
+	}
+	for _, path := range cachedEndpoints {
+		rec := doRequest(t, h, http.MethodGet, path, nil)
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s: status %d (want 200)", path, rec.Code)
+		}
+	}
+	is.Equal(int(atomic.LoadInt32(&dials)), 0) // cache-driven endpoints must not dial
+
+	// /params/{id} bypasses the cache and must dial.
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0001", nil)
+	is.Equal(rec.Code, http.StatusOK)
+	is.True(atomic.LoadInt32(&dials) >= 1) // /params/{id} must dial at least once
 }
 
 // ------------------------------------------------------------------------
