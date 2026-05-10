@@ -128,6 +128,91 @@ func TestHomekit_SyncRoundTrip(t *testing.T) {
 	is.Equal(a.Humidity.CurrentRelativeHumidity.Value(), wantHum)
 }
 
+// TestHomekit_SyncRoundTripFull pins the Snapshot → BuildStatus → Sync
+// pipe across the full set of read-path mappings — power, fan rotation
+// (RotationSpeed prefers live fan_supply_pct), airflow mode (Supply/
+// Extract switches), heater, special-mode timer (Night/Turbo), filter
+// status, RTC battery, fault level. A regression in BuildStatus's
+// status-field naming would silently drop characteristic updates;
+// without an end-to-end test the issue would only surface when an
+// operator pulled an actual iOS Home tile.
+func TestHomekit_SyncRoundTripFull(t *testing.T) {
+	is := is.New(t)
+	const (
+		devID   = "TESTID0000000001"
+		devPwd  = "1111"
+		devName = "playroom"
+	)
+
+	srv, err := fakedevice.NewServer(homekitSnapshotPath(t), devID, devPwd)
+	is.NoErr(err)
+	t.Cleanup(func() { _ = srv.Close() })
+
+	devices := NewDeviceRegistry(map[string]DeviceConfig{
+		devName: {ID: devID, Password: devPwd, IP: srv.Addr()},
+	})
+	h := &Handler{State: NewState(), Devices: devices}
+
+	cfg := config.Homekit{Enabled: true, BridgeName: "test-bridge", StateDir: t.TempDir()}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	stop, err := h.StartHomekit(ctx, cfg, devices.Snapshot())
+	is.NoErr(err)
+	t.Cleanup(func() { _ = stop() })
+
+	// Seed every read-path param. Values are deliberately distinct from
+	// the brutella/hap defaults so a "field never written" regression
+	// surfaces as a visible mismatch.
+	snap := Snapshot{
+		IP:       srv.Addr(),
+		LastPoll: time.Now(),
+		Values: map[breezy.ParamID][]byte{
+			0x0001: {0x01},                   // power on
+			0x0002: {0xFF},                   // speed_mode = manual
+			0x0007: {0x01},                   // timer = night
+			0x0044: {byte(50)},               // manual_pct = 50
+			0x004A: {0x88, 0x13},             // fan_supply_rpm = 5000
+			0x004B: {0x88, 0x13},             // fan_extract_rpm = 5000
+			0x0025: {byte(42)},               // humidity_pct = 42
+			0x0027: {0xC8, 0x00},             // eco2_ppm = 200
+			0x001F: encTemp(15.5),            // outdoor 15.5°C
+			0x0024: {0x10, 0x0C},             // RTC volts = 3088 mV (3.088 V)
+			0x0064: {0x80, 0x51, 0x01, 0x00}, // filter remaining = 86400 s × 1 day
+			0x0063: {0x80, 0xA8, 0x61, 0x00}, // filter total ≈ 6_400_000 s
+			0x0068: {0x01},                   // heater on
+			0x0083: {0x01},                   // fault_level = warning (any non-"none")
+			0x0088: {0x00},                   // filter clean (FilterChangeIndication)
+			0x00B7: {0x02},                   // airflow_mode = supply
+			0x00B9: {17, 0},                  // unit_type = Breezy 160
+		},
+	}
+
+	h.SyncHomekit(devName, snap)
+
+	a, ok := h.homekitAccessories[devName]
+	is.True(ok)
+
+	// AirPurifier active = 1 (powered on).
+	is.Equal(a.AirPurifier.Active.Value(), 1)
+	// Heater switch on.
+	is.Equal(a.Heater.On.Value(), true)
+	// Night timer on, Turbo off (mutually exclusive).
+	is.Equal(a.Night.On.Value(), true)
+	is.Equal(a.Turbo.On.Value(), false)
+	// Airflow = supply → SupplyOnly on, ExtractOnly off.
+	is.Equal(a.SupplyOnly.On.Value(), true)
+	is.Equal(a.ExtractOnly.On.Value(), false)
+	// Humidity reflects 42.
+	is.Equal(a.Humidity.CurrentRelativeHumidity.Value(), 42.0)
+	// Outdoor temperature reflects 15.5°C.
+	is.Equal(a.TempOutdoor.CurrentTemperature.Value(), 15.5)
+	// Fault level non-"none" → StatusFault = 1 (general fault).
+	is.Equal(a.StatusFault.Value(), 1)
+	// Battery service: 3.088 V is in the linear band, level = (3088-2500)/5 ≈ 100% capped.
+	is.True(a.Battery.BatteryLevel.Value() > 0)
+	is.Equal(a.Battery.ChargingState.Value(), 2) // not chargeable
+}
+
 // TestHomekit_SyncNilMap is a no-op guard: SyncHomekit returns early when
 // homekitAccessories is nil (HomeKit disabled).
 func TestHomekit_SyncNilMap(t *testing.T) {
