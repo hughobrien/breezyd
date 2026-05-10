@@ -287,6 +287,77 @@ func TestGetUISSE_NotifyDuringInitialStateLands_Regression75(t *testing.T) {
 	is.True(strings.Contains(body, `data-device="charlie"`)) // #75 regression: Notify in Subscribe→initial-state window must land
 }
 
+// newSSETestHandlerUnreachable builds a Handler whose registered device
+// has NO Snapshot in the cache — h.collectViews() will return it with
+// Unreachable=true so the initial-state pass emits the placeholder
+// card. PushHub is wired with a passthrough renderer; not exercised
+// since these tests don't fire a Notify.
+func newSSETestHandlerUnreachable(t *testing.T, name string) *Handler {
+	t.Helper()
+	h := &Handler{
+		State: NewState(),
+		Devices: NewDeviceRegistry(map[string]DeviceConfig{
+			name: {ID: "BREEZY0000000000", Password: "1111", IP: "10.0.0.1:4000"},
+		}),
+		Pollers:    map[string]*Poller{},
+		Schedulers: map[string]*Scheduler{},
+	}
+	h.PushHub = NewPushHub(func(string, Snapshot) (*PushEvent, error) { return &PushEvent{}, nil })
+	return h
+}
+
+// TestGetUISSE_ColdLoadUnreachable pins that the cold-load initial-state
+// pass emits an unreachable placeholder card via mode=append against
+// #device-list when the device has no Snapshot yet. A regression that
+// short-circuits emitInitialCard on Unreachable=true would silently
+// hide misconfigured devices from the dashboard.
+func TestGetUISSE_ColdLoadUnreachable(t *testing.T) {
+	is := is.New(t)
+	h := newSSETestHandlerUnreachable(t, "ghost")
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	resp, err := http.DefaultClient.Do(req)
+	is.NoErr(err)
+	defer func() { _ = resp.Body.Close() }()
+
+	body := readUntil(t, resp.Body, `class="card unreachable"`, 2*time.Second)
+	is.True(strings.Contains(body, `class="card unreachable"`)) // unreachable placeholder must render
+	is.True(strings.Contains(body, `data-device="ghost"`))      // scoped to the configured device
+	is.True(strings.Contains(body, `selector #device-list`))    // cold load uses append against #device-list
+	is.True(strings.Contains(body, `mode append`))
+	is.True(strings.Contains(body, `id: device:ghost`))
+}
+
+// TestGetUISSE_ReconnectUnreachable pins that on reconnect (Last-Event-ID
+// set) the unreachable placeholder is patched in via mode=outer against
+// the existing card, not appended. Without this, the dashboard would
+// duplicate the placeholder card on every datastar auto-retry.
+func TestGetUISSE_ReconnectUnreachable(t *testing.T) {
+	is := is.New(t)
+	h := newSSETestHandlerUnreachable(t, "ghost")
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	req.Header.Set("Last-Event-ID", "device:ghost")
+	resp, err := http.DefaultClient.Do(req)
+	is.NoErr(err)
+	defer func() { _ = resp.Body.Close() }()
+
+	body := readUntil(t, resp.Body, `class="card unreachable"`, 2*time.Second)
+	is.True(strings.Contains(body, `class="card unreachable"`))    // unreachable card still renders on reconnect
+	is.True(strings.Contains(body, `selector .card[data-device=`)) // reconnect uses outer mode against .card
+	is.True(!strings.Contains(body, `selector #device-list`))      // reconnect must not append
+}
+
 func TestGetUISSE_PushEventEmitsSignalsAndBlocks(t *testing.T) {
 	is := is.New(t)
 	orig := keepaliveInterval
