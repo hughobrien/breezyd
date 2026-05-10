@@ -91,21 +91,13 @@ type Metrics struct {
 // labels common to every per-device metric.
 var deviceLabels = []string{"device", "id"}
 
-// gaugeDef describes one Prometheus gauge collector. The assign closure
-// stores the constructed *GaugeVec into the right field on *Metrics so the
-// field shape that callers depend on is unchanged.
+// gaugeDef holds one collector's spec. The `assign` closure stores the
+// constructed *GaugeVec into the matching *Metrics field — closures
+// because Go can't address struct fields by name without reflection.
 type gaugeDef struct {
 	name, help string
 	labels     []string
 	assign     func(m *Metrics, g *prometheus.GaugeVec)
-}
-
-// counterDef mirrors gaugeDef for *CounterVec collectors. Today there's
-// just one (poll_errors_total); the shape matches gaugeDef for symmetry.
-type counterDef struct {
-	name, help string
-	labels     []string
-	assign     func(m *Metrics, c *prometheus.CounterVec)
 }
 
 // withExtra returns deviceLabels followed by extras. Built per-call so
@@ -180,30 +172,23 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		{"breezyd_energy_consumed_lifetime_kwh", "Electric energy consumed by the fans cumulative (persists across daemon restart).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyConsumedLifetimeKWh = g }},
 	}
 
-	counters := []counterDef{
-		{"breezy_poll_errors_total", "Total number of poll errors, by classification.", withExtra("kind"), func(m *Metrics, c *prometheus.CounterVec) { m.pollErrorsTotal = c }},
-	}
-
 	gaugeCollectors := make([]prometheus.Collector, 0, len(gauges))
 	for _, d := range gauges {
 		g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: d.name, Help: d.help}, d.labels)
 		d.assign(m, g)
 		gaugeCollectors = append(gaugeCollectors, g)
 	}
-	counterCollectors := make([]prometheus.Collector, 0, len(counters))
-	for _, d := range counters {
-		c := prometheus.NewCounterVec(prometheus.CounterOpts{Name: d.name, Help: d.help}, d.labels)
-		d.assign(m, c)
-		counterCollectors = append(counterCollectors, c)
-	}
+
+	m.pollErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "breezy_poll_errors_total",
+		Help: "Total number of poll errors, by classification.",
+	}, withExtra("kind"))
 
 	if reg != nil {
 		for _, c := range gaugeCollectors {
 			reg.MustRegister(c)
 		}
-		for _, c := range counterCollectors {
-			reg.MustRegister(c)
-		}
+		reg.MustRegister(m.pollErrorsTotal)
 	}
 	return m
 }
