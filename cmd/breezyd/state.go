@@ -78,12 +78,6 @@ func (s *State) UpdateIP(name, ip string) {
 	s.snaps[name] = snap
 }
 
-// RecordPoll sets all fields of the snapshot atomically. It is equivalent to
-// Set but named for clarity at the poller call site.
-func (s *State) RecordPoll(name string, snap Snapshot) {
-	s.Set(name, snap)
-}
-
 // WriteThrough merges the supplied writes into the cached snapshot for
 // name, preserving LastPoll and LastErr. This implements the design spec's
 // "writes always issue UDP and update the cache on success" rule, so a GET

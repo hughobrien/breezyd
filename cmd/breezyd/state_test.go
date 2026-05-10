@@ -19,7 +19,7 @@ import (
 
 func TestState_RoundTrip(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	now := time.Now().UTC().Truncate(time.Second)
 	in := Snapshot{
 		IP: "192.168.1.148",
@@ -42,7 +42,7 @@ func TestState_RoundTrip(t *testing.T) {
 
 func TestState_RoundTrip_WithError(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	wantErr := errors.New("timeout")
 	s.Set("a", Snapshot{IP: "10.0.0.1", LastErr: wantErr})
 
@@ -54,7 +54,7 @@ func TestState_RoundTrip_WithError(t *testing.T) {
 
 func TestState_Get_Missing(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	got, ok := s.Get("nonexistent")
 	is.True(!ok) // Get must return ok=false for missing key
 	is.Equal(got, Snapshot{})
@@ -62,8 +62,9 @@ func TestState_Get_Missing(t *testing.T) {
 
 func TestState_DeepCopy_OnGet(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
-	s.Set("a", Snapshot{Values: map[breezy.ParamID][]byte{0x01: {1, 2, 3}}})
+	s := newTestState(t, map[string]Snapshot{
+		"a": {Values: map[breezy.ParamID][]byte{0x01: {1, 2, 3}}},
+	})
 
 	got, _ := s.Get("a")
 	got.Values[0x01][0] = 99
@@ -77,9 +78,8 @@ func TestState_DeepCopy_OnGet(t *testing.T) {
 
 func TestState_DeepCopy_OnSet(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
 	src := map[breezy.ParamID][]byte{0x01: {1, 2, 3}}
-	s.Set("a", Snapshot{Values: src})
+	s := newTestState(t, map[string]Snapshot{"a": {Values: src}})
 
 	// Mutate the original map after Set; must not affect storage.
 	src[0x01][0] = 99
@@ -93,12 +93,9 @@ func TestState_DeepCopy_OnSet(t *testing.T) {
 
 func TestState_UpdateIP(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
 	now := time.Now().UTC()
-	s.Set("a", Snapshot{
-		IP:       "1.1.1.1",
-		Values:   map[breezy.ParamID][]byte{0x01: {1}},
-		LastPoll: now,
+	s := newTestState(t, map[string]Snapshot{
+		"a": {IP: "1.1.1.1", Values: map[breezy.ParamID][]byte{0x01: {1}}, LastPoll: now},
 	})
 
 	s.UpdateIP("a", "2.2.2.2")
@@ -112,7 +109,7 @@ func TestState_UpdateIP(t *testing.T) {
 
 func TestState_UpdateIP_NoExistingSnapshot(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	s.UpdateIP("a", "10.0.0.5")
 
 	got, ok := s.Get("a")
@@ -123,28 +120,9 @@ func TestState_UpdateIP_NoExistingSnapshot(t *testing.T) {
 	is.Equal(got.LastErr, nil)
 }
 
-func TestState_RecordPoll(t *testing.T) {
-	is := is.New(t)
-	s := NewState()
-	snap := Snapshot{
-		IP:       "1.2.3.4",
-		Values:   map[breezy.ParamID][]byte{0x86: {6, 16, 1, 6}},
-		LastPoll: time.Now().UTC(),
-	}
-	s.RecordPoll("a", snap)
-
-	got, ok := s.Get("a")
-	is.True(ok) // Get must return ok=true after RecordPoll
-	is.Equal(got.IP, snap.IP)
-	is.Equal(got.Values, snap.Values)
-}
-
 func TestState_Devices_Sorted(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
-	s.Set("zulu", Snapshot{})
-	s.Set("alpha", Snapshot{})
-	s.Set("mike", Snapshot{})
+	s := newTestState(t, map[string]Snapshot{"zulu": {}, "alpha": {}, "mike": {}})
 
 	got := s.Devices()
 	want := []string{"alpha", "mike", "zulu"}
@@ -153,16 +131,17 @@ func TestState_Devices_Sorted(t *testing.T) {
 
 func TestState_Devices_Empty(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	got := s.Devices()
 	is.Equal(len(got), 0)
 }
 
 func TestState_Delete(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
-	s.Set("a", Snapshot{IP: "1.1.1.1"})
-	s.Set("b", Snapshot{IP: "2.2.2.2"})
+	s := newTestState(t, map[string]Snapshot{
+		"a": {IP: "1.1.1.1"},
+		"b": {IP: "2.2.2.2"},
+	})
 
 	s.Delete("a")
 
@@ -177,7 +156,7 @@ func TestState_Delete(t *testing.T) {
 
 func TestState_WriteThrough_FreshSnapshot(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	s.WriteThrough("a", []breezy.ParamWrite{
 		{ID: 0x0001, Value: []byte{0x01}},
 		{ID: 0x0044, Value: []byte{0x32}},
@@ -190,17 +169,18 @@ func TestState_WriteThrough_FreshSnapshot(t *testing.T) {
 
 func TestState_WriteThrough_PreservesPollMetadata(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
 	now := time.Now().UTC().Truncate(time.Second)
 	wantErr := errors.New("transport")
-	s.Set("a", Snapshot{
-		IP: "1.1.1.1",
-		Values: map[breezy.ParamID][]byte{
-			0x0001: {0x00},       // power off
-			0x004A: {0x10, 0x27}, // fan_supply_rpm 10000
+	s := newTestState(t, map[string]Snapshot{
+		"a": {
+			IP: "1.1.1.1",
+			Values: map[breezy.ParamID][]byte{
+				0x0001: {0x00},       // power off
+				0x004A: {0x10, 0x27}, // fan_supply_rpm 10000
+			},
+			LastPoll: now,
+			LastErr:  wantErr,
 		},
-		LastPoll: now,
-		LastErr:  wantErr,
 	})
 	s.WriteThrough("a", []breezy.ParamWrite{
 		{ID: 0x0001, Value: []byte{0x01}}, // user turns power on
@@ -217,7 +197,7 @@ func TestState_WriteThrough_PreservesPollMetadata(t *testing.T) {
 
 func TestState_WriteThrough_DeepCopiesValues(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	val := []byte{0x42}
 	s.WriteThrough("a", []breezy.ParamWrite{{ID: 0x0001, Value: val}})
 	val[0] = 0x99
@@ -227,7 +207,7 @@ func TestState_WriteThrough_DeepCopiesValues(t *testing.T) {
 
 func TestState_WriteThrough_Empty(t *testing.T) {
 	is := is.New(t)
-	s := NewState()
+	s := newTestState(t, nil)
 	s.WriteThrough("a", nil)
 	_, ok := s.Get("a")
 	is.True(!ok) // empty WriteThrough must not create a snapshot for missing device
@@ -512,7 +492,7 @@ func TestDeviceRegistry_ConcurrentReadAndUpdate(t *testing.T) {
 }
 
 func TestState_Concurrent(t *testing.T) {
-	s := NewState()
+	s := newTestState(t, nil)
 	var wg sync.WaitGroup
 	const goroutines = 10
 	const ops = 1000
