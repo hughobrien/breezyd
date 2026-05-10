@@ -196,6 +196,35 @@ func TestHandler_Healthz(t *testing.T) {
 	h, _, _ := newServerHandler(t)
 	rec := doRequest(t, h, http.MethodGet, "/healthz", nil)
 	is.Equal(rec.Code, http.StatusOK)
+
+	// Body must be the documented {"ok": true} shape.
+	var body map[string]any
+	is.NoErr(json.Unmarshal(rec.Body.Bytes(), &body))
+	is.Equal(body["ok"], true)
+}
+
+// TestHandler_RootAnchor_DoesNotCatchAPITypos pins the load-bearing `{$}`
+// anchor on the page-shell route. Without it, Go 1.22's mux treats `GET /`
+// as a prefix match catching every unmatched URL, silently turning API
+// typos and unknown routes into HTML responses instead of 404s.
+func TestHandler_RootAnchor_DoesNotCatchAPITypos(t *testing.T) {
+	is := is.New(t)
+	h, _, _ := newServerHandler(t)
+
+	// Page shell at /: HTML 200.
+	rec := doRequest(t, h, http.MethodGet, "/", nil)
+	is.Equal(rec.Code, http.StatusOK)
+	is.True(strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html")) // shell is HTML
+
+	// API-typo path under /v1/...: 404, NOT HTML.
+	rec = doRequest(t, h, http.MethodGet, "/v1/devices/zzz/typo", nil)
+	is.Equal(rec.Code, http.StatusNotFound)
+	is.True(!strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html")) // API-typo must not return HTML
+
+	// Random unmatched path: also 404, also not HTML.
+	rec = doRequest(t, h, http.MethodGet, "/totally-not-a-route", nil)
+	is.Equal(rec.Code, http.StatusNotFound)
+	is.True(!strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html"))
 }
 
 func TestHandler_ListDevices(t *testing.T) {
