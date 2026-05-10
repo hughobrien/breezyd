@@ -14,13 +14,28 @@ import (
 	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
+// defaultStaleWindow is the dashboard's stale threshold when the caller
+// can't supply one (zero PollInterval). 90s is what the daemon used as a
+// hard-coded literal before the 3×poll-interval derivation landed; keeping
+// it as the fallback preserves the prior behavior for tests that build a
+// Handler{} without setting PollInterval.
+const defaultStaleWindow = 90 * time.Second
+
 // snapshotToView converts a cached Snapshot (raw param bytes) into the
 // templ-friendly DeviceView consumed by templates. The Handler calls this
 // once per request; templates consume the result exclusively.
 //
+// staleWindow is the threshold beyond which a Snapshot's LastPoll counts
+// as stale. Production wires this from 3× the configured poll interval
+// (per SPECIFICATION-web.md "Card states"); tests that pass 0 fall back
+// to defaultStaleWindow so existing call sites don't need updating.
+//
 // Decode patterns mirror BuildStatus in pkg/breezy/status.go. Missing or
 // wrong-sized values produce a sensible zero/default rather than errors.
-func snapshotToView(name string, snap Snapshot) ui.DeviceView {
+func snapshotToView(name string, snap Snapshot, staleWindow time.Duration) ui.DeviceView {
+	if staleWindow <= 0 {
+		staleWindow = defaultStaleWindow
+	}
 	v := ui.DeviceView{
 		Name: name,
 		IP:   snap.IP,
@@ -28,7 +43,7 @@ func snapshotToView(name string, snap Snapshot) ui.DeviceView {
 	if !snap.LastPoll.IsZero() {
 		age := time.Since(snap.LastPoll)
 		v.LastPollAge = formatAge(age)
-		v.Stale = age > 90*time.Second
+		v.Stale = age > staleWindow
 	} else {
 		v.Stale = true // no poll yet
 	}

@@ -170,6 +170,7 @@ func run(parent context.Context) error {
 		State:         state,
 		Devices:       devices,
 		ClientFactory: makeClientFactory(devices, memClients),
+		PollInterval:  cfg.Daemon.PollInterval,
 	}
 	// Render closure captures handler so PushHub can build a structured
 	// PushEvent for any (name, snap) tuple — both the poll path and the

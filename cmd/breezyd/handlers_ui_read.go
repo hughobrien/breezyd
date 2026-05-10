@@ -76,9 +76,11 @@ func (h *Handler) viewFor(name string) (ui.DeviceView, bool) {
 }
 
 // buildView converts a Snapshot to a DeviceView, augmenting with Energy
-// and Schedule data from the per-device subsystems when available.
+// and Schedule data from the per-device subsystems when available. The
+// stale window is derived as 3× the daemon's configured poll interval;
+// see Handler.PollInterval and defaultStaleWindow.
 func (h *Handler) buildView(name string, snap Snapshot) ui.DeviceView {
-	v := snapshotToView(name, snap)
+	v := snapshotToView(name, snap, h.PollInterval*3)
 
 	if h.Devices != nil {
 		if cfg, ok := h.Devices.Get(name); ok {

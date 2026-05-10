@@ -165,3 +165,40 @@ func TestBuildView_DefaultsAreClean(t *testing.T) {
 	is.True(v.Power)  // Power must be true
 	is.True(!v.Stale) // Stale must be false
 }
+
+// TestBuildView_StaleWindow_DerivesFromPollInterval pins the spec's
+// "3× poll cadence" stale window (SPECIFICATION-web.md "Card states").
+// The previous implementation hard-coded 90s, which silently broke
+// dashboards configured with non-default poll_interval — at 5s cadence
+// the spec promises 15s but the code returned 90s. Catches a regression
+// where someone reverts to a hard-coded threshold or drops the ×3
+// multiplier. Refs #135.
+func TestBuildView_StaleWindow_DerivesFromPollInterval(t *testing.T) {
+	cases := []struct {
+		name         string
+		pollInterval time.Duration
+		age          time.Duration
+		wantStale    bool
+	}{
+		// 1s cadence → 3s window. Just under and just over.
+		{"1s cadence, 2s age", 1 * time.Second, 2 * time.Second, false},
+		{"1s cadence, 4s age", 1 * time.Second, 4 * time.Second, true},
+		// 30s cadence (the production default) → 90s window.
+		{"30s cadence, 60s age", 30 * time.Second, 60 * time.Second, false},
+		{"30s cadence, 120s age", 30 * time.Second, 120 * time.Second, true},
+		// 60s cadence → 180s window. Hard-coded-90s would mark this stale at 95s.
+		{"60s cadence, 95s age (hard-coded-90s would fail this)", 60 * time.Second, 95 * time.Second, false},
+		{"60s cadence, 200s age", 60 * time.Second, 200 * time.Second, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
+			h := newUITestHandler(t, "alpha")
+			h.PollInterval = tc.pollInterval
+			snap := testSnap()
+			snap.LastPoll = time.Now().Add(-tc.age)
+			v := h.buildView("alpha", snap)
+			is.Equal(v.Stale, tc.wantStale)
+		})
+	}
+}

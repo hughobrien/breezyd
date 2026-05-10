@@ -541,21 +541,25 @@ test.describe("editor preservation across polls (#65)", () => {
     });
   });
 
-  // Skipped: requires stale threshold <90s. The daemon hardcodes 90s
-  // (cmd/breezyd/ui_view.go) and the test config does not override it.
-  // The signal-driven stale patch is covered by the Go push_hub test.
+  // Skipped: surfaced a deeper bug that is out of scope for #135.
+  // The daemon's poller updates LastPoll on EVERY tick, including
+  // failed ones (cmd/breezyd/poller.go:181 and :221), so under
+  // simulateUDPTimeout the age never grows past one poll interval and
+  // the card never crosses the 3×interval stale threshold. Spec
+  // SPECIFICATION-web.md "Card states" describes stale as "no
+  // successful poll" — the fix is to preserve LastPoll on failed
+  // ticks (or split into LastSuccessfulPoll) so age reflects time
+  // since last *successful* poll. Filed as a follow-up; once landed,
+  // un-skip and adjust the timeout to ~3×poll_interval + slack.
+  // The 3×poll-interval derivation itself is verified by the Go test
+  // TestBuildView_StaleWindow_DerivesFromPollInterval.
   test.skip("stale class applied via signal patch preserves card identity", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
-
-    // Tag the card so we can confirm it was NOT re-rendered.
     await card.evaluate((el) => { (el as HTMLElement).dataset.testTag = "marker-1"; });
-
     await simulateUDPTimeout(DEVICE, true);
     try {
-      // The daemon marks stale after 90s without a successful poll.
-      // 100s timeout; this test is skip'd because it's impractically slow.
-      await expect(card).toHaveClass(/stale/, { timeout: 100_000 });
+      await expect(card).toHaveClass(/stale/, { timeout: 8_000 });
       const stillTagged = await card.evaluate((el) => (el as HTMLElement).dataset.testTag);
       expect(stillTagged).toBe("marker-1");
     } finally {
