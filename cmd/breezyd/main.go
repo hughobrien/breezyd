@@ -192,22 +192,27 @@ func run(parent context.Context) error {
 	// in isolation is safe.
 	onPoll := func(name string, snap Snapshot) {
 		// testOnPollHook is the run-level test seam: when a test sets it,
-		// it fires synchronously on every poll tick (with handler attached
-		// so wiring-order assertions can read handler.Pollers). Production
-		// leaves it nil and incurs zero cost.
+		// it fires synchronously on every successful poll tick (with handler
+		// attached so wiring-order assertions can read handler.Pollers).
+		// Production leaves it nil and incurs zero cost.
 		if hook := testOnPollHook; hook != nil {
 			hook(handler, name, snap)
 		}
 		handler.SyncHomekit(name, snap)
+	}
+	onTick := func(name string, snap Snapshot) {
+		// PushHub.Notify must fire on EVERY tick (success or failure) so
+		// the dashboard's $lastPollAge / $stale signals advance under
+		// sustained UDP timeouts (SPECIFICATION-web.md "Card states").
 		handler.PushHub.Notify(name, snap)
 	}
 	pollers, schedulers, pollersWg, startPollerGoroutines := startPollers(
 		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
-		stateDir, state, metrics, onPoll,
+		stateDir, state, metrics, onPoll, onTick,
 		handler.scheduleDial, memClients,
 	)
 	// Set the maps on the handler BEFORE spawning the goroutines so the
-	// onPoll → PushHub.Notify → buildView path always sees populated
+	// onTick → PushHub.Notify → buildView path always sees populated
 	// Pollers/Schedulers. Without this ordering, the race detector
 	// fires on the first tick.
 	handler.Pollers = pollers
@@ -380,6 +385,7 @@ func startPollers(
 	state *State,
 	metrics *Metrics,
 	onPoll func(name string, snap Snapshot),
+	onTick func(name string, snap Snapshot),
 	scheduleDialFor func(name string) func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error),
 	memClients map[string]*breezy.MemClient,
 ) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup, func()) {
@@ -415,6 +421,7 @@ func startPollers(
 				slog.Debug("poll error", "device", n, "kind", kind)
 			},
 			OnPoll: onPoll,
+			OnTick: onTick,
 			Energy: tr,
 		}
 		if mc, ok := memClients[devName]; ok {

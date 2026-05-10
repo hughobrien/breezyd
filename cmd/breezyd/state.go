@@ -19,7 +19,12 @@ type Snapshot struct {
 	// Values are the raw param values (LE bytes), keyed by ParamID, exactly as
 	// the device returned them on the most recent successful poll.
 	Values map[breezy.ParamID][]byte
-	// LastPoll is the wall-clock time of the most recent poll attempt.
+	// LastPoll is the wall-clock time of the most recent SUCCESSFUL poll.
+	// Failed ticks (dial errors, all-read failures) preserve the prior
+	// LastPoll rather than overwriting it; this is what the dashboard's
+	// 3×poll-interval stale gate (SPECIFICATION-web.md "Card states")
+	// and the breezyd_last_poll_timestamp Prometheus alert require.
+	// Zero until the first successful poll has produced a snapshot.
 	LastPoll time.Time
 	// LastErr is the error from the most recent poll attempt, or nil on success.
 	LastErr error
