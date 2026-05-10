@@ -98,14 +98,27 @@ func assertSSEErrorBody(t *testing.T, body []byte, wantSubstr string) {
 func newUIWriteTestHandler(t *testing.T) *Handler {
 	t.Helper()
 	addr := newServerFakeDevice(t)
-
-	h := newUITestHandler(t, "alpha")
-	// Replace the device config with one pointing at the real fakedevice.
-	h.Devices.Set("alpha", DeviceConfig{
-		ID:       srvDeviceID,
-		Password: srvPassword,
-		IP:       addr,
-	})
+	h := newTestHandler(t, map[string]DeviceConfig{
+		"alpha": {ID: srvDeviceID, Password: srvPassword, IP: addr},
+	},
+		withState(newTestState(t, map[string]Snapshot{
+			"alpha": {
+				IP:       addr,
+				LastPoll: time.Now(),
+				Values: map[breezy.ParamID][]byte{
+					0x0001: {0x01}, // power on
+					0x0002: {0xFF}, // manual mode
+					0x0044: {0x32}, // manual 50%
+					0x00B7: {0x01}, // regeneration
+					0x0068: {0x00}, // heater off
+					0x0088: {0x00}, // filter clean
+					0x0083: {0x00}, // fault none
+				},
+			},
+		})),
+		withPollers(map[string]*Poller{}),
+		withSchedulers(map[string]*Scheduler{}),
+	)
 	h.ClientFactory = func(name string) (HandlerClient, error) {
 		d, ok := h.Devices.Get(name)
 		if !ok {
