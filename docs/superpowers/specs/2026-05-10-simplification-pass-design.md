@@ -1,7 +1,7 @@
 # Simplification pass — design
 
 Date: 2026-05-10
-Status: Drafted, awaiting plan.
+Status: Shipped 2026-05-10.
 
 ## Goal
 
@@ -64,13 +64,15 @@ After: extract a parametric `postUIWrite` helper that takes a decode + op closur
 
 Estimated saving: ~80 LoC.
 
-### 6. Shared payload validators
+### 6. Drop redundant /ui value validation; trust ops.ErrInvalidArg
 
-Today: `handlers_device.go` (/v1) and `handlers_ui_write.go` (/ui) re-validate the same payload shapes — speed manual range, airflow mode enum, heater bool, threshold tuple bounds.
+Re-audit during planning revealed that /v1 handlers do NOT duplicate validation — they delegate to `pkg/breezy/ops.go`, which already returns `ErrInvalidArg` with well-worded messages ("mode must be one of ventilation/regeneration/supply/extract, got %q"). Only /ui pre-validates, for nicer SSE banner messages. So there's nothing to share between /v1 and /ui.
 
-After: a `validators.go` in `cmd/breezyd` with typed parse-funcs (`parseSpeedManual(any) (uint8, error)`, etc.). Both handler families call them.
+The real simplification: route `ErrInvalidArg` through `uiWriteError` as HTTP 422 with `err.Error()` as the banner text. Then delete the per-handler value-range/enum checks in /ui handlers — ops returns the same message anyway. Shape checks (nil-pointer for required fields like `on`, `mode`) stay at the handler since they precede the op call.
 
-Estimated saving: ~30-40 LoC, plus single source of truth for protocol validation. This is item 6 because it dovetails with item 5 — the validators are most naturally extracted while item 5's `postUIWrite` helper is being shaped.
+Estimated saving: ~40 LoC across the 6 /ui handlers that currently re-validate. This dovetails with item 5 — the `postUIWriteJSON` helper from item 5 is the natural place to add the `ErrInvalidArg → 422` branch.
+
+No new file. Protocol validation lives in one place (`pkg/breezy/ops.go`) as it already does for /v1.
 
 ## Out of scope
 
@@ -99,6 +101,13 @@ All items are mechanical. The only non-trivial risk is item 4 — accidentally r
 
 ## Result
 
-- Production Go: 8,727 → ~8,480 LoC (-2.8%).
+- Production Go: 8,727 → 8,548 LoC (-179 / -2.1%). `cmd/breezyd/metrics.go` 525 → 406. `cmd/breezyd/handlers_ui_write.go` 679 → 619.
 - Templ: unchanged this pass.
-- Docs: 8 fewer files, ~1000 fewer lines.
+- Docs: 8 fewer files. 10,302 lines of doc deleted (vs. ~1000 estimated — the original estimate was off; the actual doc volume removed was an order of magnitude larger).
+- Diff vs. main: 14 files changed, 1,125 insertions, 10,685 deletions.
+
+## Outcome
+
+- 5 implementation commits + spec + plan = 8 commits on `chore/simplification-pass`.
+- Item 6 was revised in-place during planning: /v1 doesn't actually duplicate /ui's validation — both delegate to `pkg/breezy/ops.go`. The simplification became "trust `ops.ErrInvalidArg` through `uiWriteError`" (422), removing per-handler value-range pre-validation and aligning /ui with /v1's existing pattern. No new `validators.go`.
+- `counterDef`/`gaugeDef` started as a symmetric pair; code-quality review caught the single-instance YAGNI on `counterDef` and it was inlined.
