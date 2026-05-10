@@ -16,7 +16,8 @@ type handlerOpt func(*Handler)
 
 // newTestHandler builds a *Handler with sensible defaults for unit tests.
 // The default ClientFactory returns an error — tests that exercise device
-// I/O must pass withClient(...) to inject a stub or fakedevice client.
+// I/O override it directly via opt funcs (none of the current migrations
+// need that, so no withClient helper is shipped — add one when needed).
 func newTestHandler(t *testing.T, devices map[string]DeviceConfig, opts ...handlerOpt) *Handler {
 	t.Helper()
 	h := &Handler{
@@ -24,7 +25,7 @@ func newTestHandler(t *testing.T, devices map[string]DeviceConfig, opts ...handl
 		State:        NewState(),
 		PollInterval: 30 * time.Second,
 		ClientFactory: func(name string) (HandlerClient, error) {
-			return nil, fmt.Errorf("newTestHandler: no client for %q (pass withClient)", name)
+			return nil, fmt.Errorf("newTestHandler: no client for %q", name)
 		},
 	}
 	for _, opt := range opts {
@@ -43,15 +44,10 @@ func newTestState(t *testing.T, snaps map[string]Snapshot) *State {
 	return s
 }
 
-// Option helpers.
+// Option helpers. Only those the current migrations actually use are
+// shipped; add more here as future migrations surface needs.
 
 func withState(s *State) handlerOpt { return func(h *Handler) { h.State = s } }
-
-func withClient(f func(string) (HandlerClient, error)) handlerOpt {
-	return func(h *Handler) { h.ClientFactory = f }
-}
-
-func withPushHub(p PushNotifier) handlerOpt { return func(h *Handler) { h.PushHub = p } }
 
 func withPollers(p map[string]*Poller) handlerOpt { return func(h *Handler) { h.Pollers = p } }
 
@@ -59,10 +55,6 @@ func withSchedulers(s map[string]*Scheduler) handlerOpt { return func(h *Handler
 
 func withNoticeFunc(f func(string, breezy.ParamID)) handlerOpt {
 	return func(h *Handler) { h.NoticeFunc = f }
-}
-
-func withPollInterval(d time.Duration) handlerOpt {
-	return func(h *Handler) { h.PollInterval = d }
 }
 
 // setRunFlags wires the daemon flag variables to safe test-time values so
