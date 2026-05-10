@@ -1120,6 +1120,47 @@ func TestHandler_CachedReadsDontHitDevice(t *testing.T) {
 	is.True(atomic.LoadInt32(&dials) >= 1) // /params/{id} must dial at least once
 }
 
+// TestHandlerOpTimeout_Is5Seconds pins the documented per-request bound
+// on device-write/read handlers: handlerOpTimeout caps the entire dial
+// + op so an unreachable device cannot wedge a request indefinitely.
+// A regression that bumped this to 30s would let one wedged device
+// stall the dashboard for tens of seconds; pinning the constant
+// catches that at compile-test speed.
+func TestHandlerOpTimeout_Is5Seconds(t *testing.T) {
+	is := is.New(t)
+	is.Equal(handlerOpTimeout, 5*time.Second)
+}
+
+// TestHandler_GetParam_AuthFailed mirrors TestHandler_AuthFailed but on
+// the read path: GET /v1/devices/{name}/params/{id} bypasses the cache
+// and goes straight to UDP, so it has its own error-classification glue
+// that needs the same auth_failed / device_unreachable mapping the
+// write path provides. Without this pin, a divergence in the read-side
+// classification would surface as confusing untyped error envelopes.
+func TestHandler_GetParam_AuthFailed(t *testing.T) {
+	is := is.New(t)
+	h, _, addr := newServerHandler(t)
+	h.Devices.Set("playroom", DeviceConfig{ID: srvDeviceID, Password: "WRONG", IP: addr})
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0001", nil)
+	is.Equal(rec.Code, http.StatusBadGateway)
+	var env errEnvelope
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	is.Equal(env.Code, "auth_failed")
+}
+
+func TestHandler_GetParam_DeviceUnreachable(t *testing.T) {
+	is := is.New(t)
+	h, _, _ := newServerHandler(t)
+	h.Devices.Set("playroom", DeviceConfig{ID: srvDeviceID, Password: srvPassword, IP: "192.0.2.1:4000"})
+
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/params/0x0001", nil)
+	is.Equal(rec.Code, http.StatusBadGateway)
+	var env errEnvelope
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	is.Equal(env.Code, "device_unreachable")
+}
+
 // ------------------------------------------------------------------------
 // 404 on unknown device for various endpoints
 // ------------------------------------------------------------------------
