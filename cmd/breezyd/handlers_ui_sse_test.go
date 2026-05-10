@@ -230,6 +230,7 @@ func TestGetUISSE_ColdLoadUsesAppendMode(t *testing.T) {
 	body := readUntil(t, resp.Body, `data-device="alpha"`, 2*time.Second)
 	is.True(strings.Contains(body, `selector #device-list`)) // cold load must target #device-list
 	is.True(strings.Contains(body, `mode append`))           // cold load must use append mode
+	is.True(strings.Contains(body, `id: device:alpha`))      // initial-card event id must use device:<name> format
 }
 
 func TestGetUISSE_ReconnectUsesOuterMode(t *testing.T) {
@@ -250,6 +251,7 @@ func TestGetUISSE_ReconnectUsesOuterMode(t *testing.T) {
 	body := readUntil(t, resp.Body, `data-device="alpha"`, 2*time.Second)
 	is.True(strings.Contains(body, `selector .card[data-device=`)) // reconnect must target .card with outer mode
 	is.True(!strings.Contains(body, `selector #device-list`))      // reconnect must not append against #device-list
+	is.True(strings.Contains(body, `id: device:alpha`))            // reconnect emits the same device:<name> id format as cold load
 }
 
 // TestGetUISSE_NotifyDuringInitialStateLands_Regression75 pins the #75
@@ -312,10 +314,28 @@ func TestGetUISSE_PushEventEmitsSignalsAndBlocks(t *testing.T) {
 
 	h.PushHub.Notify("alpha", Snapshot{})
 
-	body := readUntil(t, resp.Body, "datastar-patch-signals", 1*time.Second)
-	is.True(strings.Contains(body, "event: datastar-patch-signals")) // push emits a signals event
+	// Read until we've seen both event types. readUntil consumes its
+	// terminator so reading both events back-to-back lets us index into
+	// the combined payload.
+	first := readUntil(t, resp.Body, "datastar-patch-signals", 1*time.Second)
+	second := readUntil(t, resp.Body, "datastar-patch-elements", 1*time.Second)
+	combined := first + second
 
-	body2 := readUntil(t, resp.Body, "datastar-patch-elements", 1*time.Second)
-	combined := body + body2
-	is.True(strings.Contains(combined, "event: datastar-patch-elements")) // push emits a patch-elements event
+	is.True(strings.Contains(combined, "event: datastar-patch-signals"))
+	is.True(strings.Contains(combined, "event: datastar-patch-elements"))
+
+	// Signals must arrive BEFORE elements: card-outer reactive bindings
+	// (`data-class:stale="$stale"` etc.) need the new signal values
+	// before any block content patches in, otherwise the freshly-rendered
+	// block briefly mounts under the stale outer state and visually
+	// flickers.
+	signalsIdx := strings.Index(combined, "event: datastar-patch-signals")
+	elementsIdx := strings.Index(combined, "event: datastar-patch-elements")
+	is.True(signalsIdx >= 0 && elementsIdx >= 0)
+	is.True(signalsIdx < elementsIdx) // signals event must precede elements event
+
+	// Event IDs use the spec'd "<scope>:<deviceName>" format so reconnect
+	// (Last-Event-ID) and any future per-device replay can address them.
+	is.True(strings.Contains(combined, "id: signals:alpha")) // signals event id format
+	is.True(strings.Contains(combined, "id: block:alpha"))   // block patch event id format
 }

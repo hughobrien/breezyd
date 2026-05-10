@@ -95,6 +95,35 @@ func TestCollectViews_HappyPath(t *testing.T) {
 	}
 }
 
+// TestCollectViews_SortedByName pins that collectViews returns devices
+// in lexicographic name order regardless of registry insertion order.
+// The SSE handler relies on this for stable initial-state cold-load
+// ordering on the dashboard. Without the sort, Go's randomised map
+// iteration would jitter device tile order across page loads.
+func TestCollectViews_SortedByName(t *testing.T) {
+	is := is.New(t)
+	// Insert in non-alphabetical order to defeat any "happens to be sorted"
+	// false positive from a single map walk.
+	devices := map[string]DeviceConfig{
+		"zulu":  {ID: "BREEZYZULU000001", Password: "1111", IP: "10.0.0.1:4000"},
+		"alpha": {ID: "BREEZYALPHA00001", Password: "1111", IP: "10.0.0.2:4000"},
+		"mike":  {ID: "BREEZYMIKE000001", Password: "1111", IP: "10.0.0.3:4000"},
+		"bravo": {ID: "BREEZYBRAVO00001", Password: "1111", IP: "10.0.0.4:4000"},
+	}
+	h := &Handler{
+		State:      NewState(),
+		Devices:    NewDeviceRegistry(devices),
+		Pollers:    map[string]*Poller{},
+		Schedulers: map[string]*Scheduler{},
+	}
+	views := h.collectViews()
+	is.Equal(len(views), 4)
+	want := []string{"alpha", "bravo", "mike", "zulu"}
+	for i, w := range want {
+		is.Equal(views[i].Name, w)
+	}
+}
+
 // TestCollectViews_Unreachable is the issue #50 regression: a device
 // configured in config.toml but with no successful poll yet must show
 // up in the SSE initial-state pass as a placeholder, not be silently
