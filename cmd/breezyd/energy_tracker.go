@@ -239,13 +239,19 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 	defer e.mu.Unlock()
 
 	// Date rollover comes first: even if we skip the math below, the new
-	// day's counters should be zero.
+	// day's counters should be zero. Re-prime LastTick so the next tick
+	// runs through the first-tick branch — without this, the first
+	// post-rollover tick would accumulate dt covering pre-midnight time
+	// into the now-zeroed today counter (capped at dtCap, but still a
+	// visible spike in the daily graph). See
+	// TestEnergyTracker_Tick_RolloverDoesNotDoubleAccumulate.
 	today := now.Local().Format("2006-01-02")
 	if e.Today != today {
 		e.HeatingTodayKWh = 0
 		e.CoolingTodayKWh = 0
 		e.ConsumedTodayKWh = 0
 		e.Today = today
+		e.LastTick = time.Time{}
 		if err := e.save(); err != nil {
 			slog.Warn("energy: rollover save failed", "device", e.Device, "err", err)
 		}

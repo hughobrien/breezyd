@@ -319,6 +319,56 @@ func TestEnergyTracker_Tick_DateRollover(t *testing.T) {
 	is.Equal(tr.Today, "2026-05-06")                  // Today advanced to current calendar day
 }
 
+// TestEnergyTracker_Tick_RolloverDoesNotDoubleAccumulate pins that
+// after a date rollover, today counters reflect only post-midnight
+// ticks — they don't carry the full pre-midnight → post-midnight gap
+// (capped at dtCap, but still a measurable spike in today's totals).
+//
+// Setup:
+//  1. Prime at 23:59:50 (day A) — LastTick set, no accumulation.
+//  2. Tick at 00:00:05 (day B, 15s later, across midnight) — rollover
+//     zeros today counters. The accumulation from this tick must NOT
+//     include any dt: rollover should reset LastTick so the first
+//     post-rollover tick re-primes.
+//  3. Tick at 00:00:35 (day B, 30s after step 2) — accumulation here
+//     reflects exactly that 30s.
+//
+// Today's HeatingTodayKWh must therefore reflect only the 30s gap
+// from step 2 → step 3, not the 15s pre-midnight gap.
+func TestEnergyTracker_Tick_RolloverDoesNotDoubleAccumulate(t *testing.T) {
+	is := is.New(t)
+	dir := t.TempDir()
+	tr := &EnergyTracker{
+		Device:   "rollover-no-doublecount",
+		StateDir: dir,
+		Today:    "2026-05-05",
+	}
+
+	// Prime at 23:59:50 day A.
+	t1 := time.Date(2026, 5, 5, 23, 59, 50, 0, time.Local)
+	tr.Tick(makeRegenSnap(80, 0, 20), t1)
+	is.Equal(tr.Today, "2026-05-05")
+
+	// First post-rollover tick at 00:00:05 day B.
+	// Rollover zeroes today counters and (per spec) re-primes LastTick.
+	t2 := time.Date(2026, 5, 6, 0, 0, 5, 0, time.Local)
+	tr.Tick(makeRegenSnap(80, 0, 20), t2)
+	mid := tr.Snapshot()
+	is.Equal(tr.Today, "2026-05-06")          // rollover advanced today
+	is.Equal(mid.HeatingTodayKWh, float64(0)) // post-rollover today must start at 0 — no carry-over from pre-midnight
+
+	// Second post-rollover tick at 00:00:35 day B (30s later).
+	t3 := time.Date(2026, 5, 6, 0, 0, 35, 0, time.Local)
+	tr.Tick(makeRegenSnap(80, 0, 20), t3)
+	end := tr.Snapshot()
+
+	// Today's accumulation reflects only the 30s gap (t2 → t3), not
+	// the 15s pre-midnight (t1 → t2) plus the 30s. Concretely: end -
+	// mid is the 30s-worth, and that should match end (since mid was 0).
+	is.Equal(mid.HeatingTodayKWh, float64(0))
+	is.True(end.HeatingTodayKWh > 0) // 30s of heating must accumulate
+}
+
 func TestEnergyTracker_Tick_RolloverPersists(t *testing.T) {
 	is := is.New(t)
 	dir := t.TempDir()
