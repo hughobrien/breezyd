@@ -625,6 +625,10 @@ func TestPoller_FailedPollPreservesPriorValues(t *testing.T) {
 	state := NewState()
 	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
 
+	// Inject a clock so we can prove LastPoll DOES NOT advance on failed ticks.
+	clock := time.Unix(1_700_000_000, 0)
+	advance := func(d time.Duration) { clock = clock.Add(d) }
+
 	p := &Poller{
 		Name:     "dev",
 		IP:       "127.0.0.1:0",
@@ -636,6 +640,7 @@ func TestPoller_FailedPollPreservesPriorValues(t *testing.T) {
 		NewClient: func() (PollerClient, error) {
 			return fc, nil
 		},
+		Now: func() time.Time { return clock },
 	}
 
 	p.tick(context.Background())
@@ -644,24 +649,131 @@ func TestPoller_FailedPollPreservesPriorValues(t *testing.T) {
 	is.NoErr(first.LastErr) // first tick is the success that primes Values
 	is.Equal(first.Values[0x0001], []byte{1})
 
-	// Flip to failure and tick again — Values must persist.
+	// Flip to failure and tick again — Values AND LastPoll must persist.
 	fc.mu.Lock()
 	fc.err = errors.New("read failed")
 	fc.mu.Unlock()
+	advance(5 * time.Minute) // wall clock advances, but LastPoll must not
 
 	p.tick(context.Background())
 	second, ok := state.Get("dev")
 	is.True(ok)
 	is.True(second.LastErr != nil)                 // failed tick marks LastErr
-	is.Equal(second.Values[0x0001], []byte{1})     // prior success value is preserved
-	is.True(second.LastPoll.After(first.LastPoll)) // poll timestamp does advance
+	is.Equal(second.Values[0x0001], []byte{1})     // prior success value preserved
+	is.True(second.LastPoll.Equal(first.LastPoll)) // LastPoll preserved across failure
 
-	// Third still-failing tick must still preserve Values.
+	// Third still-failing tick must still preserve Values and LastPoll.
+	advance(5 * time.Minute)
 	p.tick(context.Background())
 	third, ok := state.Get("dev")
 	is.True(ok)
 	is.True(third.LastErr != nil)
-	is.Equal(third.Values[0x0001], []byte{1}) // continued preservation across repeated failures
+	is.Equal(third.Values[0x0001], []byte{1})     // continued preservation
+	is.True(third.LastPoll.Equal(first.LastPoll)) // continued preservation
+}
+
+// TestPoller_FailedDial_PreservesPriorSnapshot pins the dial-failure
+// branch of tick(): once a successful poll has primed Values+LastPoll,
+// a subsequent failure to construct the client must NOT overwrite them
+// with empty/now. Without this, the dashboard would briefly drop to
+// "unreachable" on a transient dial error.
+func TestPoller_FailedDial_PreservesPriorSnapshot(t *testing.T) {
+	is := is.New(t)
+	state := NewState()
+	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
+
+	clock := time.Unix(1_700_000_000, 0)
+	advance := func(d time.Duration) { clock = clock.Add(d) }
+
+	dialErr := errors.New("dial refused")
+	dialFails := false
+
+	p := &Poller{
+		Name:     "dev",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001},
+		NewClient: func() (PollerClient, error) {
+			if dialFails {
+				return nil, dialErr
+			}
+			return fc, nil
+		},
+		Now: func() time.Time { return clock },
+	}
+
+	// Successful tick primes Values+LastPoll.
+	p.tick(context.Background())
+	first, ok := state.Get("dev")
+	is.True(ok)
+	is.NoErr(first.LastErr)
+	is.Equal(first.Values[0x0001], []byte{1})
+
+	// Force dial failures and tick again.
+	dialFails = true
+	advance(5 * time.Minute)
+	p.tick(context.Background())
+
+	second, ok := state.Get("dev")
+	is.True(ok)
+	is.True(errors.Is(second.LastErr, dialErr))    // dial error recorded
+	is.Equal(second.Values[0x0001], []byte{1})     // prior values preserved
+	is.True(second.LastPoll.Equal(first.LastPoll)) // LastPoll preserved
+	is.Equal(second.IP, first.IP)                  // IP preserved
+}
+
+// TestPoller_LastPollResumesAfterFailureClears pins that once a transient
+// failure clears, the success path resumes advancing LastPoll. This
+// guards against an over-correction that would freeze LastPoll forever.
+func TestPoller_LastPollResumesAfterFailureClears(t *testing.T) {
+	is := is.New(t)
+	state := NewState()
+	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
+
+	clock := time.Unix(1_700_000_000, 0)
+	advance := func(d time.Duration) { clock = clock.Add(d) }
+
+	p := &Poller{
+		Name:     "dev",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+		Now: func() time.Time { return clock },
+	}
+
+	// Tick 1: success.
+	p.tick(context.Background())
+	first, _ := state.Get("dev")
+	is.NoErr(first.LastErr)
+
+	// Tick 2: failure — LastPoll must hold.
+	fc.mu.Lock()
+	fc.err = errors.New("transient")
+	fc.mu.Unlock()
+	advance(time.Minute)
+	p.tick(context.Background())
+	failed, _ := state.Get("dev")
+	is.True(failed.LastErr != nil)
+	is.True(failed.LastPoll.Equal(first.LastPoll))
+
+	// Tick 3: failure clears, LastPoll must advance.
+	fc.mu.Lock()
+	fc.err = nil
+	fc.mu.Unlock()
+	advance(time.Minute)
+	p.tick(context.Background())
+	resumed, _ := state.Get("dev")
+	is.NoErr(resumed.LastErr)
+	is.True(resumed.LastPoll.After(first.LastPoll)) // success advances clock
 }
 
 func TestPoller_LockUDP_SerialisesWithConcurrentCallers(t *testing.T) {
