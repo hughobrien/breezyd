@@ -16,6 +16,22 @@ type LayoutData struct {
 	DatastarVersion string // e.g. "1.0.1"
 }
 
+// debugSignalsSeed seeds the page-level $debug signal tree consumed by
+// the SSE debug rows in the theme-picker popout (closes #191). The body
+// listens for datastar-fetch events on document and bumps `events` and
+// `lastEventAt` so the user can tell at a glance whether the long-lived
+// /ui/sse stream is actually delivering. `now` is the wall-clock signal
+// driven by data-on-interval; the popout derives "open vs closed" by
+// comparing $debug.now to $debug.lastEventAt at render time.
+//
+// Only datastar-fetch is dispatched on document in v1.0.x — the wire-
+// level datastar-patch-elements / datastar-patch-signals events fire on
+// patched elements, not document, so there's no point listening for
+// them up here.
+func debugSignalsSeed() string {
+	return `{"debug":{"events":0,"lastEventAt":0,"now":0}}`
+}
+
 // Layout renders the page shell. The body opens an SSE connection to
 // /ui/sse on first datastar processing (data-init); the daemon emits
 // one datastar-patch-elements event per configured device on connect,
@@ -48,7 +64,7 @@ func Layout(d LayoutData) templ.Component {
 		var templ_7745c5c3_Var2 templ.SafeURL
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinURLErrs("/ui/style-" + d.StyleHash + ".css")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 29, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 45, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -61,13 +77,26 @@ func Layout(d LayoutData) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs("/ui/vendor/datastar-" + d.DatastarVersion + ".min.js")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 30, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 46, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"></script></head><body data-init=\"@get('/ui/sse')\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"></script></head><body data-signals=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var4 string
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(debugSignalsSeed())
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/layout.templ`, Line: 49, Col: 36}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" data-on:datastar-fetch__document=\"$debug.events = ($debug.events||0)+1; $debug.lastEventAt = Date.now()\" data-on-interval__duration.1s=\"$debug.now = Date.now()\" data-init=\"@get('/ui/sse')\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -75,7 +104,7 @@ func Layout(d LayoutData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div id=\"global-error-banner\" aria-live=\"polite\"></div><div id=\"device-list\" class=\"grid\"></div><script>\n(function() {\n  var picker = document.querySelector('.theme-picker');\n  if (!picker) return;\n  // Force closed on load: some browsers preserve <details open> across\n  // bfcache restores or session restore, which would show the popout\n  // before any user interaction.\n  picker.open = false;\n  picker.addEventListener('click', function(ev) {\n    var target = ev.target.closest('[data-theme-set]');\n    if (!target) return;\n    var theme = target.getAttribute('data-theme-set');\n    if (theme === 'auto') {\n      document.documentElement.removeAttribute('data-theme');\n      localStorage.removeItem('theme');\n    } else {\n      document.documentElement.setAttribute('data-theme', theme);\n      localStorage.setItem('theme', theme);\n    }\n    picker.open = false;\n  });\n  document.addEventListener('click', function(ev) {\n    if (picker.open && !picker.contains(ev.target)) {\n      picker.open = false;\n    }\n  });\n})();\n\t\t\t</script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div id=\"global-error-banner\" aria-live=\"polite\"></div><div id=\"device-list\" class=\"grid\"></div><script>\n(function() {\n  var picker = document.querySelector('.theme-picker');\n  if (!picker) return;\n  // Force closed on load: some browsers preserve <details open> across\n  // bfcache restores or session restore, which would show the popout\n  // before any user interaction.\n  picker.open = false;\n  picker.addEventListener('click', function(ev) {\n    var target = ev.target.closest('[data-theme-set]');\n    if (!target) return;\n    var theme = target.getAttribute('data-theme-set');\n    if (theme === 'auto') {\n      document.documentElement.removeAttribute('data-theme');\n      localStorage.removeItem('theme');\n    } else {\n      document.documentElement.setAttribute('data-theme', theme);\n      localStorage.setItem('theme', theme);\n    }\n    picker.open = false;\n  });\n  document.addEventListener('click', function(ev) {\n    if (picker.open && !picker.contains(ev.target)) {\n      picker.open = false;\n    }\n  });\n})();\n\t\t\t</script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

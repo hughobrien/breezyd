@@ -8,6 +8,22 @@ type LayoutData struct {
 	DatastarVersion string // e.g. "1.0.1"
 }
 
+// debugSignalsSeed seeds the page-level $debug signal tree consumed by
+// the SSE debug rows in the theme-picker popout (closes #191). The body
+// listens for datastar-fetch events on document and bumps `events` and
+// `lastEventAt` so the user can tell at a glance whether the long-lived
+// /ui/sse stream is actually delivering. `now` is the wall-clock signal
+// driven by data-on-interval; the popout derives "open vs closed" by
+// comparing $debug.now to $debug.lastEventAt at render time.
+//
+// Only datastar-fetch is dispatched on document in v1.0.x — the wire-
+// level datastar-patch-elements / datastar-patch-signals events fire on
+// patched elements, not document, so there's no point listening for
+// them up here.
+func debugSignalsSeed() string {
+	return `{"debug":{"events":0,"lastEventAt":0,"now":0}}`
+}
+
 // Layout renders the page shell. The body opens an SSE connection to
 // /ui/sse on first datastar processing (data-init); the daemon emits
 // one datastar-patch-elements event per configured device on connect,
@@ -29,7 +45,12 @@ templ Layout(d LayoutData) {
 			<link rel="stylesheet" href={ "/ui/style-" + d.StyleHash + ".css" }/>
 			<script type="module" src={ "/ui/vendor/datastar-" + d.DatastarVersion + ".min.js" }></script>
 		</head>
-		<body data-init="@get('/ui/sse')">
+		<body
+			data-signals={ debugSignalsSeed() }
+			data-on:datastar-fetch__document="$debug.events = ($debug.events||0)+1; $debug.lastEventAt = Date.now()"
+			data-on-interval__duration.1s="$debug.now = Date.now()"
+			data-init="@get('/ui/sse')"
+		>
 			@ThemePicker()
 			<div id="global-error-banner" aria-live="polite"></div>
 			<div id="device-list" class="grid"></div>
