@@ -655,6 +655,46 @@ func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
 	if !strings.Contains(got, `data-block="schedule"`) {
 		t.Errorf("ScheduleBlockEdit missing data-block=schedule; got=%q", got)
 	}
+	// Edit variant must force <details ... open>: collapsing the editor
+	// after a click would dump the user's typed input back to a closed
+	// state on the next render.
+	if !strings.Contains(got, `<details class="block schedule" data-block="schedule" data-edit="true" open>`) {
+		t.Errorf("ScheduleBlockEdit must force-open details; got=%q", got)
+	}
+}
+
+// TestRenderScheduleBlock_AlertWarnFooter pins that the read variant
+// renders a `<div class="warn">` footer when the schedule's last fire
+// failed (Alert=true plus a LastApply with the error). Without it,
+// daemon-reported scheduler failures would be invisible to the user.
+func TestRenderScheduleBlock_AlertWarnFooter(t *testing.T) {
+	var sb strings.Builder
+	sv := ui.ScheduleView{
+		Present:   true,
+		Enabled:   true,
+		Alert:     true,
+		LastApply: &ui.LastApplyView{At: "08:00", Err: "device_unreachable"},
+	}
+	if err := ScheduleBlock("alpha", sv, false).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	if !strings.Contains(got, `class="warn"`) {
+		t.Errorf("ScheduleBlock missing warn footer when Alert=true; got=%q", got)
+	}
+	if !strings.Contains(got, "device_unreachable") {
+		t.Errorf("ScheduleBlock warn footer must include LastApply.Err; got=%q", got)
+	}
+
+	// Negative: with Alert=false the warn footer must not render.
+	var sb2 strings.Builder
+	sv2 := ui.ScheduleView{Present: true, Enabled: true, Alert: false}
+	if err := ScheduleBlock("alpha", sv2, false).Render(context.Background(), &sb2); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sb2.String(), `class="warn"`) {
+		t.Errorf("ScheduleBlock must not render warn footer when Alert=false; got=%q", sb2.String())
+	}
 }
 
 func TestRenderScheduleEdit_EnabledCheckboxReflectsState(t *testing.T) {
@@ -692,6 +732,18 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	}
 	if !strings.Contains(got, `data-sensor-cell="co2"`) {
 		t.Errorf("SensorThresholdEdit missing data-sensor-cell; got=%q", got)
+	}
+	// Cancel button (`✕`) must point at the read URL (no /edit suffix)
+	// so clicking it swaps the edit cell back to its read variant. A
+	// typo that targets the edit URL again would leave the user stuck
+	// in the editor with no way out except form submit. templ escapes
+	// the single quotes to &#39; in dynamic-attribute output.
+	if !strings.Contains(got, `@get(&#39;/ui/devices/alpha/threshold/co2&#39;)`) {
+		t.Errorf("SensorThresholdEdit cancel button must @get the read URL; got=%q", got)
+	}
+	// Negative: must not contain a cancel pointing at the edit URL.
+	if strings.Contains(got, `@get(&#39;/ui/devices/alpha/threshold/co2/edit&#39;)`) {
+		t.Errorf("SensorThresholdEdit must not @get the /edit URL on cancel; got=%q", got)
 	}
 }
 
