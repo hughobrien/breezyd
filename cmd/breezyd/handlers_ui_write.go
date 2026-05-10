@@ -191,12 +191,17 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 // uiWriteError emits a datastar-patch-elements event into
-// #global-error-banner with the error message and the matching HTTP
-// status (401 for auth, 502 otherwise). Caller should return after this.
+// #global-error-banner with the matching HTTP status. ErrInvalidArg from
+// pkg/breezy/ops surfaces as 422 with the op's own message — that's the
+// single source of truth for protocol validation. Auth failures are 401;
+// other backend errors (timeout, transport, etc.) are 502. Caller should
+// return after this.
 func (h *Handler) uiWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, breezy.ErrAuth):
 		errorBannerSSE(w, r, http.StatusUnauthorized, "device authentication failed")
+	case errors.Is(err, breezy.ErrInvalidArg):
+		errorBannerSSE(w, r, http.StatusUnprocessableEntity, err.Error())
 	default:
 		errorBannerSSE(w, r, http.StatusBadGateway, uiBannerMsg(err))
 	}
@@ -290,150 +295,137 @@ func (h *Handler) decodeJSONBody(w http.ResponseWriter, r *http.Request, name st
 	return true
 }
 
-// postUIMode sets the airflow mode.
+// postUIWriteJSON is the spine shared by every /ui/devices/{name}/...
+// action handler that takes a JSON body. It resolves the device, decodes
+// into a fresh T, runs an optional shape-validator (for nil-pointer
+// "field required" checks that precede the device round-trip), executes
+// the op via doDeviceOp, surfaces errors through uiWriteError, and on
+// success notifies subscribers and writes 200. The op closure may return
+// breezy.ErrInvalidArg for value-range failures; uiWriteError translates
+// that into a 422 banner with the op's own message — the single source
+// of truth for protocol validation lives in pkg/breezy/ops.go.
 //
-// JSON: {"mode": "ventilation" | "regeneration" | "supply" | "extract"}
-func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
+// Pass nil for `shapeOK` if no pre-op shape check is needed. When the
+// shape check returns false it MUST have already emitted its own error
+// response (typically via h.uiValidationError).
+func postUIWriteJSON[T any](
+	h *Handler,
+	w http.ResponseWriter,
+	r *http.Request,
+	shapeOK func(req *T) bool,
+	op func(ctx context.Context, rc *recordingClient, req *T) error,
+) {
 	name := r.PathValue("name")
 	if _, ok := h.Devices.Get(name); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	var req struct {
-		Mode string `json:"mode"`
-	}
+	var req T
 	if !h.decodeJSONBody(w, r, name, &req) {
 		return
 	}
-	switch req.Mode {
-	case "ventilation", "regeneration", "supply", "extract":
-		// valid
-	default:
-		h.uiValidationError(w, r, name, "mode must be one of ventilation/regeneration/supply/extract")
+	if shapeOK != nil && !shapeOK(&req) {
 		return
 	}
-
 	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetMode(ctx, rc, req.Mode)
+		return op(ctx, rc, &req)
 	}); err != nil {
 		h.uiWriteError(w, r, err)
 		return
 	}
 	h.notifyAfterWrite(name)
 	w.WriteHeader(http.StatusOK)
+}
+
+// postUIWriteNoBody is the body-less counterpart used by reset endpoints
+// (postUIResetFilter / postUIResetFaults). Same flow without decode + shape.
+func postUIWriteNoBody(
+	h *Handler,
+	w http.ResponseWriter,
+	r *http.Request,
+	op func(ctx context.Context, rc *recordingClient) error,
+) {
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.doDeviceOp(r, name, op); err != nil {
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
+}
+
+// postUIMode sets the airflow mode.
+//
+// JSON: {"mode": "ventilation" | "regeneration" | "supply" | "extract"}
+func (h *Handler) postUIMode(w http.ResponseWriter, r *http.Request) {
+	type req struct {
+		Mode string `json:"mode"`
+	}
+	postUIWriteJSON(h, w, r, nil, func(ctx context.Context, rc *recordingClient, q *req) error {
+		return breezy.SetMode(ctx, rc, q.Mode)
+	})
 }
 
 // postUIPreset writes the per-preset supply/extract percentages.
 //
 // JSON: {"preset": 1|2|3, "supply": 10..100, "extract": 10..100}
 func (h *Handler) postUIPreset(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	var req struct {
+	type req struct {
 		Preset  int `json:"preset"`
 		Supply  int `json:"supply"`
 		Extract int `json:"extract"`
 	}
-	if !h.decodeJSONBody(w, r, name, &req) {
-		return
-	}
-	if req.Preset < 1 || req.Preset > 3 {
-		h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
-		return
-	}
-	if req.Supply < 10 || req.Supply > 100 {
-		h.uiValidationError(w, r, name, "supply must be 10..100")
-		return
-	}
-	if req.Extract < 10 || req.Extract > 100 {
-		h.uiValidationError(w, r, name, "extract must be 10..100")
-		return
-	}
-
-	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetPresetSpeed(ctx, rc, req.Preset, req.Supply, req.Extract)
-	}); err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	h.notifyAfterWrite(name)
-	w.WriteHeader(http.StatusOK)
+	postUIWriteJSON(h, w, r, nil, func(ctx context.Context, rc *recordingClient, q *req) error {
+		return breezy.SetPresetSpeed(ctx, rc, q.Preset, q.Supply, q.Extract)
+	})
 }
 
 // postUISpeed sets the fan speed (manual percentage or preset).
 //
 // JSON: {"manual": N} (10..100) XOR {"preset": N} (1..3)
 func (h *Handler) postUISpeed(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	var req struct {
+	type req struct {
 		Manual *int `json:"manual,omitempty"`
 		Preset *int `json:"preset,omitempty"`
 	}
-	if !h.decodeJSONBody(w, r, name, &req) {
-		return
-	}
-	hasManual := req.Manual != nil
-	hasPreset := req.Preset != nil
-	if hasManual == hasPreset {
-		h.uiValidationError(w, r, name, "set exactly one of 'preset' (1-3) or 'manual' (10-100)")
-		return
-	}
-	if hasPreset && (*req.Preset < 1 || *req.Preset > 3) {
-		h.uiValidationError(w, r, name, "preset must be 1, 2, or 3")
-		return
-	}
-	if hasManual && (*req.Manual < 10 || *req.Manual > 100) {
-		h.uiValidationError(w, r, name, "manual must be 10..100")
-		return
-	}
-	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		if hasPreset {
-			return breezy.SetSpeedPreset(ctx, rc, *req.Preset)
+	shape := func(q *req) bool {
+		hasManual := q.Manual != nil
+		hasPreset := q.Preset != nil
+		if hasManual == hasPreset {
+			h.uiValidationError(w, r, "", "set exactly one of 'preset' (1-3) or 'manual' (10-100)")
+			return false
 		}
-		return breezy.SetSpeedManual(ctx, rc, *req.Manual)
-	}); err != nil {
-		h.uiWriteError(w, r, err)
-		return
+		return true
 	}
-	h.notifyAfterWrite(name)
-	w.WriteHeader(http.StatusOK)
+	postUIWriteJSON(h, w, r, shape, func(ctx context.Context, rc *recordingClient, q *req) error {
+		if q.Preset != nil {
+			return breezy.SetSpeedPreset(ctx, rc, *q.Preset)
+		}
+		return breezy.SetSpeedManual(ctx, rc, *q.Manual)
+	})
 }
 
 // postUIHeater toggles the heater.
 //
 // JSON: {"on": bool}
 func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	var req struct {
+	type req struct {
 		On *bool `json:"on"`
 	}
-	if !h.decodeJSONBody(w, r, name, &req) {
-		return
+	shape := func(q *req) bool {
+		if q.On == nil {
+			h.uiValidationError(w, r, "", "missing 'on' field (true/false)")
+			return false
+		}
+		return true
 	}
-	if req.On == nil {
-		h.uiValidationError(w, r, name, "missing 'on' field (true/false)")
-		return
-	}
-
-	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetHeater(ctx, rc, *req.On)
-	}); err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	h.notifyAfterWrite(name)
-	w.WriteHeader(http.StatusOK)
+	postUIWriteJSON(h, w, r, shape, func(ctx context.Context, rc *recordingClient, q *req) error {
+		return breezy.SetHeater(ctx, rc, *q.On)
+	})
 }
 
 // postUITimer toggles a special-mode timer.
@@ -444,97 +436,45 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 // currently-active special_mode, the button sends mode=off instead.
 // This handler does not need to inspect current state.
 func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	var req struct {
+	type req struct {
 		Mode string `json:"mode"`
 	}
-	if !h.decodeJSONBody(w, r, name, &req) {
-		return
-	}
-	switch req.Mode {
-	case "off", "night", "turbo":
-		// valid
-	default:
-		h.uiValidationError(w, r, name, "mode must be one of off/night/turbo")
-		return
-	}
-
-	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.SetTimer(ctx, rc, req.Mode)
-	}); err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	h.notifyAfterWrite(name)
-	w.WriteHeader(http.StatusOK)
+	postUIWriteJSON(h, w, r, nil, func(ctx context.Context, rc *recordingClient, q *req) error {
+		return breezy.SetTimer(ctx, rc, q.Mode)
+	})
 }
 
-// postUIResetFilter resets the filter-clogged counter. No form body needed.
+// postUIResetFilter resets the filter-clogged counter. No body.
 func (h *Handler) postUIResetFilter(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+	postUIWriteNoBody(h, w, r, func(ctx context.Context, rc *recordingClient) error {
 		return breezy.ResetFilter(ctx, rc)
-	}); err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	h.notifyAfterWrite(name)
-	w.WriteHeader(http.StatusOK)
+	})
 }
 
-// postUIResetFaults clears the active fault list. No form body needed.
+// postUIResetFaults clears the active fault list. No body.
 func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
+	postUIWriteNoBody(h, w, r, func(ctx context.Context, rc *recordingClient) error {
 		return breezy.ResetFaults(ctx, rc)
-	}); err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	h.notifyAfterWrite(name)
-	w.WriteHeader(http.StatusOK)
+	})
 }
 
 // postUIPower toggles a device on/off.
 //
 // JSON: {"on": bool}
 func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.Devices.Get(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	var req struct {
+	type req struct {
 		On *bool `json:"on"`
 	}
-	if !h.decodeJSONBody(w, r, name, &req) {
-		return
+	shape := func(q *req) bool {
+		if q.On == nil {
+			h.uiValidationError(w, r, "", "missing 'on' field (true/false)")
+			return false
+		}
+		return true
 	}
-	if req.On == nil {
-		h.uiValidationError(w, r, name, "missing 'on' field (true/false)")
-		return
-	}
-
-	if err := h.doDeviceOp(r, name, func(ctx context.Context, rc *recordingClient) error {
-		return breezy.Power(ctx, rc, *req.On)
-	}); err != nil {
-		h.uiWriteError(w, r, err)
-		return
-	}
-	h.notifyAfterWrite(name)
-	w.WriteHeader(http.StatusOK)
+	postUIWriteJSON(h, w, r, shape, func(ctx context.Context, rc *recordingClient, q *req) error {
+		return breezy.Power(ctx, rc, *q.On)
+	})
 }
 
 // ---------- threshold inline editor ----------
