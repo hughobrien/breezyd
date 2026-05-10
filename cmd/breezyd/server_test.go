@@ -1075,6 +1075,17 @@ func TestHandler_DeviceUnreachable(t *testing.T) {
 	is.Equal(env.Code, "device_unreachable")
 }
 
+// TestHandlerOpTimeout_Is5Seconds pins the documented per-request bound
+// on device-write/read handlers: handlerOpTimeout caps the entire dial
+// + op so an unreachable device cannot wedge a request indefinitely.
+// A regression that bumped this to 30s would let one wedged device
+// stall the dashboard for tens of seconds; pinning the constant
+// catches that at compile-test speed.
+func TestHandlerOpTimeout_Is5Seconds(t *testing.T) {
+	is := is.New(t)
+	is.Equal(handlerOpTimeout, 5*time.Second)
+}
+
 // ------------------------------------------------------------------------
 // 404 on unknown device for various endpoints
 // ------------------------------------------------------------------------
