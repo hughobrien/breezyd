@@ -191,7 +191,7 @@ func TestComputeInUserControl(t *testing.T) {
 	is.True(!ComputeInUserControl(map[ParamID][]byte{0x030B: {1}}))             // false when 0x030B=1 (frost protection)
 }
 
-func TestBuildStatusWithEnergy_PopulatedEnergy(t *testing.T) {
+func TestStatusEnergyService_Populated(t *testing.T) {
 	is := is.New(t)
 	energy := &EnergyValues{
 		Supported:           true,
@@ -215,7 +215,7 @@ func TestBuildStatusWithEnergy_PopulatedEnergy(t *testing.T) {
 	is.Equal(got.HeatingTodayKWh, 1.234)
 }
 
-func TestBuildStatusWithEnergy_ErrorOnUnsupportedModel(t *testing.T) {
+func TestStatusEnergyService_ErrorOnUnsupportedModel(t *testing.T) {
 	is := is.New(t)
 	energy := &EnergyValues{
 		Supported: false,
@@ -231,7 +231,7 @@ func TestBuildStatusWithEnergy_ErrorOnUnsupportedModel(t *testing.T) {
 	is.True(got.Error != "") // Error should be non-empty
 }
 
-func TestBuildStatusWithEnergy_JSONShape(t *testing.T) {
+func TestStatusEnergyService_JSONShape(t *testing.T) {
 	is := is.New(t)
 	energy := &EnergyValues{
 		Supported:          true,
