@@ -191,11 +191,14 @@ at the UDP layer; (3) dial a `PollerClient` — UDP-mode dials a fresh
 (4) read the IDs in batches of `pollBatchSize = 30` (bounds packet size
 under the 256-byte FDFD/02 limit); per-batch errors are logged and
 counted but don't abort the tick; (5) **failed-poll cache semantics** —
-if every batch failed AND the previous tick's `Snapshot` had non-empty
-`Values`, reuse those `Values` so the dashboard renders "stale" with
-last-known data instead of dropping to "unreachable" (matters most for
-in-process backends where forced timeouts return instantly; real-UDP
-timeouts are slow enough that the branch rarely fires in production);
+if a batch fails or the dial fails, reuse the prior `Snapshot`'s
+`Values` AND `LastPoll` so the dashboard renders "stale" with
+last-known data instead of dropping to "unreachable", and so
+`LastPoll` reflects the most recent *successful* poll (which is what
+the 3×poll-interval stale gate and the `breezyd_last_poll_timestamp`
+Prometheus alert pattern require). Matters most for in-process
+backends where forced timeouts return instantly; real-UDP timeouts
+are slow enough that this branch rarely fires in production;
 (6) record the `Snapshot` (success-or-failure) into `State`; (7) on
 full success, call `Energy.Tick(values, now)` and the `OnPoll`
 callback.
