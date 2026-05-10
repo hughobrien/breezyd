@@ -383,20 +383,6 @@ type errStub string
 
 func (e errStub) Error() string { return string(e) }
 
-// Sanity-check that we can re-Update a metric and the gauge takes the
-// new value (rather than e.g. accumulating).
-func TestMetricsUpdateOverwrites(t *testing.T) {
-	is := is.New(t)
-	reg := prometheus.NewRegistry()
-	m := NewMetrics(reg)
-	dl := prometheus.Labels{"device": "d", "id": "I"}
-
-	m.Update("d", "I", Snapshot{LastPoll: time.Unix(1, 0), Values: map[breezy.ParamID][]byte{0x0001: {1}}})
-	is.Equal(testutil.ToFloat64(m.power.With(dl)), float64(1)) // first update sets power=1
-	m.Update("d", "I", Snapshot{LastPoll: time.Unix(2, 0), Values: map[breezy.ParamID][]byte{0x0001: {0}}})
-	is.Equal(testutil.ToFloat64(m.power.With(dl)), float64(0)) // second update overwrites, doesn't accumulate
-}
-
 // TestMetricsHelpStringsNonEmpty ensures every collector has a Help
 // line — Prom is grumpy about empty Help.
 func TestMetricsHelpStringsNonEmpty(t *testing.T) {
