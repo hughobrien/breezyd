@@ -22,8 +22,8 @@ func TestUI_GetIndex(t *testing.T) {
 	is.Equal(rec.Header().Get("Cache-Control"), "no-store")                // Cache-Control
 	body := rec.Body.String()
 	is.True(len(body) > 0) // body must be non-empty; go:embed wired
-	// Layout template renders <title>breezy</title> (index.html had "breezyd").
-	is.True(strings.Contains(body, "<title>breezy</title>")) // body must contain page title
+	// Layout template renders <title>breezyd</title>.
+	is.True(strings.Contains(body, "<title>breezyd</title>")) // body must contain page title
 }
 
 // TestUI_DoesNotInterceptAPI is a regression: the new GET /{$} pattern
