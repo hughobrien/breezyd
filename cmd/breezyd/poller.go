@@ -197,7 +197,7 @@ func (p *Poller) tick(ctx context.Context) {
 		p.recordErr(err)
 		// (2) Dial-failure branch: carry prev.Values and prev.LastPoll
 		// forward (was: empty Values + p.now()).
-		p.State.RecordPoll(p.Name, Snapshot{
+		p.State.Set(p.Name, Snapshot{
 			IP:       p.IP,
 			Values:   prev.Values,
 			LastPoll: prev.LastPoll,
@@ -248,7 +248,7 @@ func (p *Poller) tick(ctx context.Context) {
 		LastPoll: lastPoll,
 		LastErr:  lastErr,
 	}
-	p.State.RecordPoll(p.Name, snap)
+	p.State.Set(p.Name, snap)
 	if p.OnTick != nil {
 		p.OnTick(p.Name, snap)
 	}

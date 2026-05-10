@@ -123,22 +123,6 @@ func TestState_UpdateIP_NoExistingSnapshot(t *testing.T) {
 	is.Equal(got.LastErr, nil)
 }
 
-func TestState_RecordPoll(t *testing.T) {
-	is := is.New(t)
-	s := NewState()
-	snap := Snapshot{
-		IP:       "1.2.3.4",
-		Values:   map[breezy.ParamID][]byte{0x86: {6, 16, 1, 6}},
-		LastPoll: time.Now().UTC(),
-	}
-	s.RecordPoll("a", snap)
-
-	got, ok := s.Get("a")
-	is.True(ok) // Get must return ok=true after RecordPoll
-	is.Equal(got.IP, snap.IP)
-	is.Equal(got.Values, snap.Values)
-}
-
 func TestState_Devices_Sorted(t *testing.T) {
 	is := is.New(t)
 	s := NewState()
