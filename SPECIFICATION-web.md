@@ -456,7 +456,7 @@ All three editors share the same preservation mechanism: the editor's root eleme
 
 Light / dark / auto, via `localStorage.theme` and `data-theme` on `<html>`. Files: `cmd/breezyd/ui/templates/theme_picker.templ`, inline IIFE in `layout.templ`.
 
-The picker is a `<details class="theme-picker">` in the page header. The summary is the `<h1>breezy</h1>`. Clicking the heading opens the popout; the popout has three buttons (sun, moon, auto-system) with `data-theme-set` attributes. The `.theme-picker` class is the durable contract — the IIFE in `layout.templ` looks the picker up via `document.querySelector('.theme-picker')`, so renaming the class would silently break the popout's open/close logic.
+The picker is a `<details class="theme-picker">` in the page header. The summary is the `<h1>breezyd</h1>`. Clicking the heading opens the popout; the popout has three buttons (sun, moon, auto-system) with `data-theme-set` attributes. The `.theme-picker` class is the durable contract — the IIFE in `layout.templ` looks the picker up via `document.querySelector('.theme-picker')`, so renaming the class would silently break the popout's open/close logic.
 
 The IIFE in `layout.templ`:
 
