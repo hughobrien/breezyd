@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hughobrien/breezyd/internal/config"
 	"github.com/hughobrien/breezyd/pkg/breezy"
@@ -939,6 +940,16 @@ func TestHelpForms(t *testing.T) {
 	}
 }
 
+// TestNewDaemonBackend_Timeout pins the spec'd 10s per-request HTTP
+// timeout (SPECIFICATION-cli.md "daemon-mode transport"). A regression
+// to the zero value (no timeout) would let a wedged daemon hang the CLI
+// indefinitely. Refs #129.
+func TestNewDaemonBackend_Timeout(t *testing.T) {
+	is := is.New(t)
+	b := newDaemonBackend("http://example.invalid")
+	is.Equal(b.client.Timeout, 10*time.Second)
+}
+
 // TestUsageNoArgs / TestUnknownVerb cover the two main "exit code 2"
 // surfaces: nothing at all, and an unrecognised verb.
 func TestUsageNoArgs(t *testing.T) {
@@ -1128,7 +1139,10 @@ func TestStandaloneStatus(t *testing.T) {
 	}
 	code, stdout, _ := runStandalone(t, devices, "playroom", "status")
 	is.Equal(code, 0)
-	is.True(strings.Contains(stdout, "playroom")) // status output must include device name
+	is.True(strings.Contains(stdout, "playroom")) // device name
+	is.True(strings.Contains(stdout, "RH="))      // humidity line
+	is.True(strings.Contains(stdout, "manual"))   // configured speed mode (snapshot_148.json)
+	is.True(strings.Contains(stdout, "filter"))   // filter status line
 }
 
 func TestStandaloneFaults(t *testing.T) {
