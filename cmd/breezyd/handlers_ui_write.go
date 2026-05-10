@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -285,10 +284,11 @@ func errorBannerSSE(w http.ResponseWriter, r *http.Request, status int, msg stri
 
 // decodeJSONBody decodes r.Body into v. Action endpoints under
 // /ui/devices/{name}/... receive JSON payloads from datastar's @post
-// action helper (default contentType is JSON). On decode failure, emits
-// a 422 + #global-error-banner SSE event and returns false.
+// action helper (default contentType is JSON); datastar.ReadSignals is
+// the SDK-blessed parser for that envelope. On decode failure, emits a
+// 422 + #global-error-banner SSE event and returns false.
 func (h *Handler) decodeJSONBody(w http.ResponseWriter, r *http.Request, name string, v interface{}) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	if err := datastar.ReadSignals(r, v); err != nil {
 		h.uiValidationError(w, r, name, "bad JSON body")
 		return false
 	}

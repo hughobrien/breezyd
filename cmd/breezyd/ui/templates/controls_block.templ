@@ -3,6 +3,7 @@ package templates
 import (
 	"fmt"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+	"github.com/starfederation/datastar-go/datastar"
 )
 
 // ControlsBlock renders the device controls section. Exported for use
@@ -216,9 +217,13 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 // @post (rather than raw fetch()) lets datastar process the SSE-event
 // stream the handler returns on error, which is how
 // #global-error-banner gets populated for auth/UDP failures.
+//
+// Empty-payload defers to datastar.PostSSE; the with-payload form has
+// no SDK helper because the payload is a JS expression, not a Go value
+// — see issue #192.
 func postActionExpr(url, payload string) string {
 	if payload == "" {
-		return fmt.Sprintf("@post('%s')", url)
+		return datastar.PostSSE("%s", url)
 	}
 	return fmt.Sprintf("@post('%s', {payload: %s})", url, payload)
 }
