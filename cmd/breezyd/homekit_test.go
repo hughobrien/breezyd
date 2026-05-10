@@ -239,10 +239,10 @@ func TestHomekit_AccessoryAidIsLexOrdered(t *testing.T) {
 	t.Cleanup(func() { _ = stop() })
 
 	a := h.homekitAccessories
-	is.True(a["alpha"].A.Id < a["bravo"].A.Id)
-	is.True(a["bravo"].A.Id < a["mike"].A.Id)
-	is.True(a["mike"].A.Id < a["tango"].A.Id)
-	is.True(a["tango"].A.Id < a["zulu"].A.Id)
+	is.True(a["alpha"].Id < a["bravo"].Id)
+	is.True(a["bravo"].Id < a["mike"].Id)
+	is.True(a["mike"].Id < a["tango"].Id)
+	is.True(a["tango"].Id < a["zulu"].Id)
 }
 
 // newHomekitWriteTestHandler builds a Handler wired to a fakedevice via a
