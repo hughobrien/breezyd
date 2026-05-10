@@ -462,6 +462,315 @@ EOF
 
 ---
 
+### Task 2.5 (added mid-execution): Split `Poller.OnPoll` into success-only vs. every-tick fan-out
+
+**Goal:** the dashboard's SSE push fires on every tick (success and failure) so `$lastPollAge` and `$stale` signals advance under sustained UDP timeouts; HomeKit + Energy continue to fire only on successes.
+
+**Why this task exists:** discovered during Task 3 — Task 1's cache-side fix was correct but the poller's `OnPoll` callback (which dispatches to `PushHub.Notify`) is gated on `lastErr == nil`, so failed ticks never produce an SSE patch and the browser never learns. See spec addendum.
+
+**Files:**
+- Modify: `cmd/breezyd/poller.go` — add `OnTick func(name string, snap Snapshot)` field; call it after `RecordPoll` regardless of `lastErr`. Update doc on the existing `OnPoll` field.
+- Modify: `cmd/breezyd/main.go` — split the poll fan-out into two closures (`onPoll` for HomeKit, `onTick` for `PushHub.Notify`); add `onTick` parameter to `startPollers`; wire it on the `Poller` literal.
+- Modify: `cmd/breezyd/poller_test.go` — update `TestPoller_PostTickHooksGatedOnSuccess` (line 888) to reflect the new contract; add a new `TestPoller_OnTickFiresOnEveryTick`.
+- Modify: `SPECIFICATION-daemon.md` "Push hub (poll → SSE fan-out)" section — document every-tick semantics.
+
+**Acceptance criteria:**
+- [ ] `Poller.OnTick` fires on success (asserted by new test).
+- [ ] `Poller.OnTick` fires on failure (asserted by new test and updated `TestPoller_PostTickHooksGatedOnSuccess`).
+- [ ] `Poller.OnPoll` still success-only (unchanged in spirit; `TestPoller_PostTickHooksGatedOnSuccess` still asserts this for `OnPoll` and `Energy.Tick`).
+- [ ] `cmd/breezyd/main.go` wires `onTick: handler.PushHub.Notify` and `onPoll: handler.SyncHomekit`. (`testOnPollHook` keeps firing through `onPoll`.)
+- [ ] `just check` green.
+
+**Verify:** `go test ./cmd/breezyd -run TestPoller -v` and `just check`.
+
+**Steps:**
+
+- [ ] **Step 1: Update `cmd/breezyd/poller.go` — add `OnTick` field**
+
+In the `Poller` struct (around line 89-94), keep the existing `OnPoll` doc and field unchanged. Immediately after the `OnPoll` field, add:
+
+```go
+	// OnTick is called after every tick (success OR failure) with the
+	// device Name and the Snapshot that was just written to State. Use
+	// this for consumers that need to learn about failed ticks too —
+	// e.g. PushHub.Notify so the dashboard's $lastPollAge / $stale
+	// signals advance under sustained UDP timeouts. Optional; a nil
+	// OnTick is a no-op. OnPoll fires only on success and is the right
+	// hook for HomeKit characteristic sync and Energy accumulation.
+	OnTick func(name string, snap Snapshot)
+```
+
+In `tick`, after `p.State.RecordPoll(p.Name, snap)` (the line currently at ~243), add the `OnTick` call BEFORE the existing `if lastErr == nil` block:
+
+```go
+	p.State.RecordPoll(p.Name, snap)
+	if p.OnTick != nil {
+		p.OnTick(p.Name, snap)
+	}
+	if lastErr == nil {
+		if p.Energy != nil {
+			p.Energy.Tick(values, time.Now())
+		}
+		if p.OnPoll != nil {
+			p.OnPoll(p.Name, snap)
+		}
+	}
+```
+
+- [ ] **Step 2: Update `cmd/breezyd/main.go` — split the fan-out**
+
+Around line 193, the current `onPoll` closure dispatches to both `handler.SyncHomekit` and `handler.PushHub.Notify`. Split it. Replace lines 193-203 with:
+
+```go
+	onPoll := func(name string, snap Snapshot) {
+		// testOnPollHook is the run-level test seam: when a test sets it,
+		// it fires synchronously on every successful poll tick (with handler
+		// attached so wiring-order assertions can read handler.Pollers).
+		// Production leaves it nil and incurs zero cost.
+		if hook := testOnPollHook; hook != nil {
+			hook(handler, name, snap)
+		}
+		handler.SyncHomekit(name, snap)
+	}
+	onTick := func(name string, snap Snapshot) {
+		// PushHub.Notify must fire on EVERY tick (success or failure) so
+		// the dashboard's $lastPollAge / $stale signals advance under
+		// sustained UDP timeouts (SPECIFICATION-web.md "Card states").
+		handler.PushHub.Notify(name, snap)
+	}
+```
+
+Then update the `startPollers` call (around line 204) to pass `onTick`:
+
+```go
+	pollers, schedulers, pollersWg, startPollerGoroutines := startPollers(
+		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
+		stateDir, state, metrics, onPoll, onTick,
+		handler.scheduleDial, memClients,
+	)
+```
+
+Update the `startPollers` function signature (line 375) to accept `onTick`:
+
+```go
+func startPollers(
+	parent context.Context,
+	devices map[string]DeviceConfig,
+	interval time.Duration,
+	stateDir string,
+	state *State,
+	metrics *Metrics,
+	onPoll func(name string, snap Snapshot),
+	onTick func(name string, snap Snapshot),
+	scheduleDialFor func(name string) func(ctx context.Context) (breezy.DeviceClient, HandlerClient, error),
+	memClients map[string]*breezy.MemClient,
+) (map[string]*Poller, map[string]*Scheduler, *sync.WaitGroup, func()) {
+```
+
+And inside the loop where the `Poller` is constructed (around line 405-419), set `OnTick`:
+
+```go
+		p := &Poller{
+			Name:     devName,
+			IP:       d.IP,
+			DeviceID: d.ID,
+			Password: d.Password,
+			Interval: interval,
+			State:    state,
+			ReadIDs:  defaultReadIDs(),
+			OnError: func(n, kind string) {
+				metrics.RecordPollError(n, devID, kind)
+				slog.Debug("poll error", "device", n, "kind", kind)
+			},
+			OnPoll: onPoll,
+			OnTick: onTick,
+			Energy: tr,
+		}
+```
+
+- [ ] **Step 3: Update `TestPoller_PostTickHooksGatedOnSuccess`**
+
+The existing test at `cmd/breezyd/poller_test.go:888` pins that `OnPoll` and `Energy.Tick` don't fire on failure. The test's docstring claims this protects PushHub from "stale card" patches — that intent is now obsolete (we explicitly want PushHub to receive failed ticks). Update the docstring AND add an `OnTick` assertion:
+
+Replace the function body (and its docstring) with:
+
+```go
+// TestPoller_PostTickHooksGatedOnSuccess pins the contract for the
+// poller's per-tick hooks. After the SSE-on-failure addendum:
+//   - OnPoll  : success-only (HomeKit characteristic sync; stale data
+//               there would mark a healthy device wrong).
+//   - Energy  : success-only (would corrupt daily/lifetime kWh
+//               accumulators with stale Values).
+//   - OnTick  : every tick — the dashboard's $lastPollAge / $stale
+//               signals must advance even when polls are timing out.
+func TestPoller_PostTickHooksGatedOnSuccess(t *testing.T) {
+	is := is.New(t)
+	state := NewState()
+	dir := t.TempDir()
+	tr := &EnergyTracker{Device: "p", StateDir: dir}
+	tr.Load()
+
+	fc := &fakeClient{err: errors.New("read failed")}
+
+	var mu sync.Mutex
+	var onPollCalls, onTickCalls int
+
+	p := &Poller{
+		Name:     "p",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001, 0x00B9},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+		Energy: tr,
+		OnPoll: func(name string, snap Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			onPollCalls++
+		},
+		OnTick: func(name string, snap Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			onTickCalls++
+		},
+	}
+
+	p.tick(context.Background())
+
+	// Snapshot must record the failure.
+	snap, ok := state.Get("p")
+	is.True(ok)
+	is.True(snap.LastErr != nil)
+
+	// Energy.Tick must not have been called (LastTick still zero).
+	tr.mu.Lock()
+	is.True(tr.LastTick.IsZero()) // Energy accumulation must not run on a failed tick
+	tr.mu.Unlock()
+
+	mu.Lock()
+	defer mu.Unlock()
+	is.Equal(onPollCalls, 0) // OnPoll must not run on a failed tick (HomeKit sync)
+	is.Equal(onTickCalls, 1) // OnTick MUST run on every tick (dashboard SSE)
+}
+```
+
+- [ ] **Step 4: Add `TestPoller_OnTickFiresOnEveryTick`**
+
+Insert immediately after `TestPoller_PostTickHooksGatedOnSuccess`:
+
+```go
+// TestPoller_OnTickFiresOnEveryTick pins that OnTick is called for both
+// success and failure ticks, in order, with the recorded Snapshot. This
+// is what powers the dashboard's stale-class fan-out under sustained
+// UDP timeouts (SPECIFICATION-web.md "Card states").
+func TestPoller_OnTickFiresOnEveryTick(t *testing.T) {
+	is := is.New(t)
+	state := NewState()
+	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
+
+	var mu sync.Mutex
+	var snaps []Snapshot
+
+	p := &Poller{
+		Name:     "p",
+		IP:       "127.0.0.1:0",
+		DeviceID: pollerTestDeviceID,
+		Password: pollerTestPassword,
+		Interval: 1 * time.Hour,
+		State:    state,
+		ReadIDs:  []breezy.ParamID{0x0001},
+		NewClient: func() (PollerClient, error) {
+			return fc, nil
+		},
+		OnTick: func(name string, snap Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			snaps = append(snaps, snap)
+		},
+	}
+
+	// Tick 1: success.
+	p.tick(context.Background())
+
+	// Tick 2: failure.
+	fc.mu.Lock()
+	fc.err = errors.New("transient")
+	fc.mu.Unlock()
+	p.tick(context.Background())
+
+	// Tick 3: success again.
+	fc.mu.Lock()
+	fc.err = nil
+	fc.mu.Unlock()
+	p.tick(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	is.Equal(len(snaps), 3)        // every tick fires OnTick
+	is.NoErr(snaps[0].LastErr)     // first tick was a success
+	is.True(snaps[1].LastErr != nil) // second tick was a failure
+	is.NoErr(snaps[2].LastErr)     // third tick was a success
+}
+```
+
+- [ ] **Step 5: Update `SPECIFICATION-daemon.md` "Push hub (poll → SSE fan-out)" section**
+
+The current text says producers include "the poller's `OnPoll` hook." Update to reflect that the hub is wired to `OnTick`, not `OnPoll`. Find the line near line 535:
+
+```
+that backs the dashboard's SSE stream. Producers (the poller's `OnPoll`
+hook, action handlers' post-write paths)
+```
+
+Replace with:
+
+```
+that backs the dashboard's SSE stream. Producers (the poller's `OnTick`
+hook — every tick, success or failure — and action handlers' post-write paths)
+```
+
+- [ ] **Step 6: Run targeted tests**
+
+Run: `go test ./cmd/breezyd -run "TestPoller_PostTickHooksGatedOnSuccess|TestPoller_OnTickFiresOnEveryTick" -v`
+
+Expected: both PASS.
+
+- [ ] **Step 7: Run full poller suite + `just check`**
+
+Run: `go test ./cmd/breezyd -run TestPoller -v && just check`
+
+Expected: green. Watch for any test that builds a Poller without setting `OnTick` and depends on it being unused — there shouldn't be any (the field is optional with a nil-check), but confirm.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add cmd/breezyd/poller.go cmd/breezyd/main.go cmd/breezyd/poller_test.go SPECIFICATION-daemon.md
+git commit -m "$(cat <<'EOF'
+fix(daemon): push to dashboard on every tick, not just successes (refs #178)
+
+Splits Poller.OnPoll into two hooks:
+- OnPoll (success-only): SyncHomekit, Energy.Tick. Avoids HomeKit
+  churn on transient failures and corrupted energy counters.
+- OnTick (every tick): PushHub.Notify. Dashboard's $lastPollAge and
+  $stale signals advance under sustained UDP timeouts so the
+  data-class:stale="$stale" toggle fires per SPECIFICATION-web.md
+  "Card states".
+
+This is the second half of the #178 fix. Task 1 corrected the
+cache-side LastPoll semantics; without this commit the metric-side
+behavior was right but the user-visible dashboard never learned.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ### Task 3: Un-skip Playwright stale-class test
 
 **Goal:** `tests/ui/dashboard.spec.ts:556` runs (no longer `test.skip`) and passes against the fixed daemon.

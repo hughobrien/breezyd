@@ -174,6 +174,46 @@ preserves card identity`):
   This is a `sync.RWMutex.RLock` + map lookup + struct copy — negligible at
   one tick per poll interval per device.
 
+## Addendum: SSE push on failed ticks (discovered during implementation)
+
+Surfaced when the Playwright stale-class test still failed after the
+cache-side fix landed. The cache-side change correctly preserves
+`Snapshot.LastPoll` so `/metrics` and any cache reader see "no successful
+poll for >stale-window," but the dashboard never learns: the poller's
+fan-out callback `OnPoll` (which dispatches to `PushHub.Notify` and the
+SSE pipe) is gated on `lastErr == nil` (`cmd/breezyd/poller.go:244-251`).
+Under sustained UDP timeouts no push is ever sent, so the browser's
+`$lastPollAge` and `$stale` signals stay frozen at the values from the
+last successful tick. The dashboard's `data-class:stale="$stale"` toggle
+therefore never flips and the spec'd visible behavior is missing.
+
+Existing test `TestPoller_PostTickHooksGatedOnSuccess`
+(`cmd/breezyd/poller_test.go:888`) was written specifically to keep
+`OnPoll` from "patch dashboards with a stale card" — that intent
+predates the spec'd stale class. The right fix is to split the hook
+rather than punch a hole in `OnPoll`'s gating:
+
+- `Poller.OnPoll` keeps its current contract: success-only,
+  carries known-good `Snapshot`. `SyncHomekit` and `Energy.Tick`
+  continue to dispatch from here. HomeKit doesn't churn on transient
+  failures; energy counters don't accumulate stale data.
+- `Poller.OnTick` (new field) fires after every tick — success or
+  failure — with the recorded `Snapshot`. `PushHub.Notify` dispatches
+  from here so the dashboard learns about stale state.
+
+Scope additions:
+- `cmd/breezyd/poller.go`: add `OnTick func(name string, snap Snapshot)`,
+  call it inside `tick` after `RecordPoll`, before the `lastErr == nil`
+  guard.
+- `cmd/breezyd/main.go`: split the poll fan-out closure; thread an
+  `onTick` argument through `startPollers` alongside `onPoll`.
+- `cmd/breezyd/poller_test.go`: update `TestPoller_PostTickHooksGatedOnSuccess`
+  to reflect the new contract — `OnPoll` and `Energy.Tick` still
+  success-only; add a new assertion that `OnTick` DID fire on the
+  failed tick. Add a new `TestPoller_OnTickFiresOnEveryTick`.
+- `SPECIFICATION-daemon.md` "Push hub (poll → SSE fan-out)" section:
+  document that the hub receives every tick, not just successes.
+
 ## Acceptance checklist
 
 From issue #178 plus the implementation:
