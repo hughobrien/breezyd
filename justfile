@@ -45,6 +45,14 @@ test-staticcheck:
 test-test-admin:
 	go test -tags breezyd_test_admin ./cmd/breezyd/ -run TestAdmin
 
+# Tests with coverage. Per-package lines come from `go test -cover`;
+# the `total:` line from `go tool cover -func`. HTML drill-down:
+#   go tool cover -html=coverage.out
+coverage:
+	go test -coverprofile=coverage.out -covermode=atomic ./...
+	@echo ""
+	@go tool cover -func=coverage.out | tail -1
+
 # match what CI runs on every PR: vet + race + lint + asan + msan + UI.
 # Slower than check-all (~3 min sequential locally; CI runs the same set in
 # parallel jobs). Use this when you want to reproduce a CI failure locally

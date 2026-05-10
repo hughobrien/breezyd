@@ -140,3 +140,31 @@ jobs:
       - name: Run Playwright
         working-directory: tests/ui
         run: pnpm exec playwright test
+
+  # Test coverage = `just coverage`. Display only — no gate. Per-package
+  # lines come from `go test -cover`; the `total:` line from `go tool cover
+  # -func`. The output is wrapped in a fenced code block and appended to
+  # $GITHUB_STEP_SUMMARY so it appears on the PR's checks page in the same
+  # shape it does in a local terminal.
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install just
+        uses: extractions/setup-just@v3
+      - name: Coverage summary
+        run: |
+          {
+            echo '## Test coverage'
+            echo ''
+            echo '```'
+            just coverage
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
