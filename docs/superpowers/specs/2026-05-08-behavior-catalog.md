@@ -23,7 +23,7 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 | B-01 | Initial render for a healthy, polled device | done | ✓ |
 | B-02 | Stale device card | done | ✓ |
 | B-03 | Unreachable / never-polled device | TODO | partial |
-| B-04 | Device with active fault(s) | TODO | ✗ |
+| B-04 | Device with active fault(s) | done | ✓ |
 | B-05 | Sensor threshold alert (eCO₂ / VOC / RH) | TODO | partial |
 | B-06 | Schedule alert (failed fire) | TODO | partial |
 | B-07 | Energy block: per-model calibration missing | TODO | partial |
@@ -37,7 +37,7 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 | B-14 | Mode chip click | TODO | ✓ |
 | B-15 | Preset chip click → editor open/close | TODO | ✓ |
 | B-16 | Manual button click | TODO | ✗ |
-| B-17 | Manual slider drag (debounced) | TODO | ✗ |
+| B-17 | Manual slider drag (debounced) | done | ✓ |
 | B-18 | Preset slider with match-speeds | TODO | ✗ |
 | B-19 | Preset slider with automode | TODO | ✗ |
 | B-20 | Timer button click | TODO | ✗ |
@@ -45,15 +45,15 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 | B-22 | Reset faults button | TODO | ✗ |
 | B-23 | Threshold editor: open → edit → save | TODO | ✓ |
 | B-24 | Schedule editor: open → add row → save | TODO | partial |
-| B-25 | Schedule editor: action toggle clears pct | TODO (#44) | ✗ |
+| B-25 | Schedule editor: action toggle clears pct | done | ✓ |
 | B-26 | Schedule editor: delete row | TODO | ✗ |
 | B-27 | Theme picker: light / dark / auto | TODO | partial |
-| B-28 | `<details>` open-state persistence across polls | TODO | ✗ |
+| B-28 | `<details>` open-state persistence across polls | done | ✓ |
 | **Push channel** | | | |
 | B-29 | Initial state on `/ui/sse` connect | done | ✓ |
 | B-30 | Per-device update on poll | TODO | ✓ |
 | B-31 | Reconnect via page reload | TODO | ✓ |
-| B-32 | Reconnect via datastar auto-retry | TODO | ✗ |
+| B-32 | Reconnect via datastar auto-retry | done | partial |
 | B-33 | Keepalive while idle | TODO | ✗ |
 | B-34 | `#global-error-banner` populates on action error | done | ✓ |
 | **Configuration / persistence** | | | |
@@ -135,9 +135,9 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 
 **Tests today:** `tests/ui/dashboard.spec.ts` covers the configured-but-unreachable case at the smoke level (the `playroom` device in the live deploy renders as `card unreachable`); no Go-level render-contract test pins the structural details. Goldens in `cmd/breezyd/ui/templates/testdata/` do not include this state.
 
-### B-04: Device with active fault(s) (TODO)
+### B-04: Device with active fault(s)
 
-**Tests today:** none. Goldens cover only `none` / sensor-alert / schedule-alert. Need a golden + Go contract test for fault-non-empty.
+**Tests today:** `cmd/breezyd/ui/templates/render_test.go` (`TestInfoDetails_ActiveFault`) — three cases (alarm / warning / none) assert the faults row, the reset-faults button wiring, and the `.device-info.alert` class hook that tints the device name.
 
 ### B-05: Sensor threshold alert (TODO)
 
@@ -200,13 +200,13 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 
 **Expected outcome:**
 - → `off`: the row's pct `<input>` is cleared (`value=""`), gets `readonly`, gains the `pct-disabled` class.
-- away from `off` (when previously `off`): the input loses `readonly` and `pct-disabled`, value defaults to a sensible number.
+- away from `off` (when previously `off`): the input loses `readonly` and `pct-disabled`, value restores from `data-orig-pct` (the row's last-saved Pct, or `50` for off rows / out-of-range values).
 
-**Status:** **broken** — the static render is correct (`schedulePctValue`) but the `<select>` has no `data-on:change` binding, so the toggle is invisible to the DOM until form submit + server re-render. Tracked as #44.
+**Implementation:** the action `<select>` carries an inline `data-on:change` expression that locates the row's pct input via `evt.target.closest('tr').querySelector('input[name=pct]')` and updates value / `readonly` / class accordingly. `data-orig-pct` is rendered by `schedulePctOrigValue`. Off rows persist as `Pct=0` (a free in-band sentinel — valid range is `[10..100]`) instead of a misleading `10`.
 
-**Source specs:** [2026-05-06-schedule-system-design.md](./2026-05-06-schedule-system-design.md)
+**Source specs:** [2026-05-06-schedule-system-design.md](./2026-05-06-schedule-system-design.md), [2026-05-08-schedule-editor-pct-sync-design.md](./2026-05-08-schedule-editor-pct-sync-design.md)
 
-**Tests:** none yet — adding one is part of #44.
+**Tests:** `cmd/breezyd/ui/templates/render_test.go` (`TestScheduleEditRow` pins the `data-on:change` literal and `data-orig-pct` across five Pct cases; `TestSchedulePctOrigValue` covers the fallback helper); `tests/ui/dashboard.spec.ts` exercises the round-trip in the editor without a save+reload.
 
 ---
 
@@ -226,9 +226,9 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 
 **Tests today:** none directly — `TestUIWriteSpeed_HappyManual` covers the endpoint, but the button → `manual=N` shortcut (using `manualBtnPct(v)`) is not asserted from the UI.
 
-### B-17: Manual slider drag (debounced) (TODO)
+### B-17: Manual slider drag (debounced)
 
-**Tests today:** none. The 200ms debounce + `evt.target.valueAsNumber` payload is implicit; needs an E2E test that drags + asserts only the final value POSTs.
+**Tests today:** `tests/ui/dashboard.spec.ts` (`preset slider drag debounces — one POST per drag`) — synthesizes rapid drag events and asserts exactly one POST lands per drag, pinning the `data-on:change__debounce.200ms` modifier against accidental relaxation. The manual slider's drag-payload bug is separately pinned by `manual slider drag posts dragged value (closes #116)`.
 
 ### B-18: Preset slider with match-speeds (TODO)
 
@@ -254,12 +254,6 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 
 **Tests today:** Go-level handler tests in `cmd/breezyd/handlers_ui_write_test.go` (schedule PUT + new-row); no E2E test of the full flow.
 
-### B-25: Schedule editor: action toggle clears pct (TODO — #44)
-
-**Status:** broken. See dedicated entry above.
-
-**Tests today:** none. Adding one is part of #44.
-
 ### B-26: Schedule editor: delete row (TODO)
 
 **Tests today:** none. The delete button uses `evt.target.closest('tr').remove()` — purely client-side until form submit.
@@ -268,9 +262,9 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 
 **Tests today:** `tests/ui/dashboard.spec.ts` includes a theme-related test; persistence via `localStorage` is not directly asserted.
 
-### B-28: `<details>` open-state persistence across polls (TODO)
+### B-28: `<details>` open-state persistence across polls
 
-**Tests today:** none. Logic depends on `data-attr:open="$detailsOpen.X"` per-card signals plus the seeded `data-signals` JSON; pin with both a Go contract test on the rendered `data-signals` payload and an E2E test that opens a details, waits a poll, asserts it stays open.
+**Tests today:** `cmd/breezyd/ui/templates/render_test.go` (`TestRenderBlocks_DetailsOpenBinding`) asserts every collapsible block carries the binding pair (`data-attr:open="$detailsOpen.<key>"` on `<details>` + `data-on:click` on `<summary>` to flip the signal). The E2E half is `tests/ui/dashboard.spec.ts` (`details summary click toggles open state (round-trip)`) — opens, closes, asserts no revert. Pinned at unit-test speed; regressed once during the htmx → datastar migration.
 
 ---
 
@@ -285,7 +279,7 @@ The **Tests** column is the live coverage map — `✓` = pinned by an existing 
 The page shell starts with an empty `<div id="device-list" class="grid"></div>`; after this initial pass it contains one `.card[data-device="..."]` per device.
 
 **Edge cases:**
-- Reconnect (B-31, B-32): same pass runs, but cards already exist in DOM. Append duplicates them — see B-32 for current handling and known limitation.
+- Reconnect (B-31, B-32): on a `Last-Event-ID` reconnect, the handler emits each card with mode `outer` against `.card[data-device=...]` so existing cards are replaced in place rather than appended; cold-load (no `Last-Event-ID`, including page reload) still uses mode `append` against `#device-list`. See B-32.
 - Zero configured devices: connection still established, no patch events sent until keepalive (B-33) fires.
 
 **Source specs:** [2026-05-04-basic-ui-design.md](./2026-05-04-basic-ui-design.md), [2026-05-08-datastar-migration-design.md](./2026-05-08-datastar-migration-design.md)
@@ -326,9 +320,9 @@ The page shell starts with an empty `<div id="device-list" class="grid"></div>`;
 
 **Tests today:** `tests/ui/dashboard.spec.ts` (`reconnect: EventSource reconnects after a forced close` — uses `page.reload()`).
 
-### B-32: Reconnect via datastar auto-retry (TODO)
+### B-32: Reconnect via datastar auto-retry
 
-**Tests today:** none. Datastar's stream auto-retries on connection drop; current behavior duplicates cards (B-29 edge case). No test simulates a true mid-stream disconnect.
+**Tests today:** `cmd/breezyd/handlers_ui_sse_test.go` (`TestGetUISSE_ColdLoadUsesAppendMode`, `TestGetUISSE_ReconnectUsesOuterMode`) pin the wire contract — the handler differentiates cold-load vs reconnect via the `Last-Event-ID` header (`emitInitialCard`): cold load uses `mode=append` against `#device-list`, reconnect uses `mode=outer` against `.card[data-device=...]` to replace in-place. `tests/ui/dashboard.spec.ts` (`page reload does not duplicate the device card`) covers the cold-load path end-to-end. The mid-stream-disconnect E2E variant is not covered (datastar's `AbortController` for the SSE stream is not exposed) — `partial` reflects that gap.
 
 ### B-33: Keepalive while idle (TODO)
 
