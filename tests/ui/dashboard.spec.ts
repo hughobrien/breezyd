@@ -541,19 +541,11 @@ test.describe("editor preservation across polls (#65)", () => {
     });
   });
 
-  // Skipped: surfaced a deeper bug that is out of scope for #135.
-  // The daemon's poller updates LastPoll on EVERY tick, including
-  // failed ones (cmd/breezyd/poller.go:181 and :221), so under
-  // simulateUDPTimeout the age never grows past one poll interval and
-  // the card never crosses the 3×interval stale threshold. Spec
-  // SPECIFICATION-web.md "Card states" describes stale as "no
-  // successful poll" — the fix is to preserve LastPoll on failed
-  // ticks (or split into LastSuccessfulPoll) so age reflects time
-  // since last *successful* poll. Filed as a follow-up; once landed,
-  // un-skip and adjust the timeout to ~3×poll_interval + slack.
-  // The 3×poll-interval derivation itself is verified by the Go test
-  // TestBuildView_StaleWindow_DerivesFromPollInterval.
-  test.skip("stale class applied via signal patch preserves card identity", async ({ page }) => {
+  // Verifies SPECIFICATION-web.md "Card states": after the stale window
+  // (3×poll_interval = 3s with the test daemon's poll_interval=1s) of
+  // failed polls, the card gets the stale class via signal patch
+  // without DOM replacement (data-testTag survives).
+  test("stale class applied via signal patch preserves card identity", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
     await card.evaluate((el) => { (el as HTMLElement).dataset.testTag = "marker-1"; });
