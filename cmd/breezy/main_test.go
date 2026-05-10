@@ -191,6 +191,78 @@ func TestHeater(t *testing.T) {
 	is.Equal(code, 0)
 	is.Equal(got.path, "/v1/devices/playroom/heater")
 	is.Equal(got.body["on"], true)
+
+	// `off` is the symmetric happy path.
+	got = stub{}
+	code, _, _ = runCLI(t, srv, "playroom", "heater", "off")
+	is.Equal(code, 0)
+	is.Equal(got.body["on"], false)
+}
+
+// TestHeater_BadArg pins that an unrecognised heater arg exits 2 with a
+// usage-style message and does NOT round-trip to the daemon.
+func TestHeater_BadArg(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+
+	code, _, stderr := runCLI(t, srv, "playroom", "heater", "junk")
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr, "must be on or off")) // validation message
+	is.Equal(got.path, "")                                 // must not have round-tripped
+}
+
+// TestHeater_MissingArg pins that `breezy <name> heater` (no on/off)
+// exits 2 with a usage hint, no daemon round-trip.
+func TestHeater_MissingArg(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+
+	code, _, stderr := runCLI(t, srv, "playroom", "heater")
+	is.Equal(code, 2)
+	is.True(strings.Contains(stderr, "usage:")) // usage hint
+	is.Equal(got.path, "")                      // no daemon traffic on missing arg
+}
+
+// TestModeValidation_CaseInsensitive pins the case-insensitive
+// canonicalisation in cmdMode: an uppercase arg lands as the canonical
+// lowercase mode in the body sent to the daemon.
+func TestModeValidation_CaseInsensitive(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+
+	for _, in := range []string{"REGENERATION", "Regeneration", "rEGENERATION"} {
+		got = stub{}
+		code, _, _ := runCLI(t, srv, "playroom", "mode", in)
+		is.Equal(code, 0)
+		is.Equal(got.body["mode"], "regeneration") // any case must canonicalise
+	}
+}
+
+// TestHeater_CaseInsensitive pins the same canonicalisation on cmdHeater.
+func TestHeater_CaseInsensitive(t *testing.T) {
+	is := is.New(t)
+	var got stub
+	srv := httptest.NewServer(recordingHandler(t, &got, 200, map[string]any{"ok": true}))
+	defer srv.Close()
+
+	for _, in := range []string{"ON", "On", "oN"} {
+		got = stub{}
+		code, _, _ := runCLI(t, srv, "playroom", "heater", in)
+		is.Equal(code, 0)
+		is.Equal(got.body["on"], true)
+	}
+	for _, in := range []string{"OFF", "Off"} {
+		got = stub{}
+		code, _, _ := runCLI(t, srv, "playroom", "heater", in)
+		is.Equal(code, 0)
+		is.Equal(got.body["on"], false)
+	}
 }
 
 // TestCLI_Threshold drives `breezy <name> threshold <kind> <value>` end-to-end
@@ -475,6 +547,35 @@ func TestStatus(t *testing.T) {
 	}
 	// No-override case must NOT include the warning line.
 	is.True(!strings.Contains(stdout, "sensor override")) // no override warning when in_user_control=true
+}
+
+// TestStatus_FaultsLine pins the spec'd render branch: when
+// service.fault_level is non-"none", status output adds a `faults` line
+// that points at `breezy <name> faults`. Without it, the user has no
+// signal that the unit is in alarm/warning state.
+func TestStatus_FaultsLine(t *testing.T) {
+	is := is.New(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"name": "playroom", "ip": "192.168.1.148:4000",
+			"configured": map[string]any{"power": true, "speed_mode": "manual", "manual_pct": 30},
+			"live": map[string]any{
+				"in_user_control": true,
+				"sensor_alerts":   map[string]any{},
+			},
+			"sensors": map[string]any{},
+			"service": map[string]any{
+				"fault_level": "warning",
+			},
+		})
+	}))
+	defer srv.Close()
+
+	code, stdout, _ := runCLI(t, srv, "playroom", "status")
+	is.Equal(code, 0)
+	is.True(strings.Contains(stdout, "faults     : warning"))   // fault level rendered
+	is.True(strings.Contains(stdout, "breezy playroom faults")) // pointer to detail verb
 }
 
 // TestStatusSensorOverride ensures the warning fires when the daemon
