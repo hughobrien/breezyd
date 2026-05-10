@@ -150,6 +150,19 @@ func envelopeErr(status int, raw []byte, transportErr error) error {
 	return fmt.Errorf("HTTP %d: %s", status, body)
 }
 
+// postWrite issues a POST against `path` with `body` (or no body when nil)
+// and treats any transport error or 4xx/5xx response as a typed error via
+// envelopeErr. Used by every write-style operation — Power, Mode, Heater,
+// etc. all follow this exact pattern, and consolidating it here makes the
+// 11 daemon write methods one-liners.
+func (d *daemonBackend) postWrite(ctx context.Context, path string, body any) error {
+	status, raw, err := d.httpJSON(ctx, http.MethodPost, path, body)
+	if err != nil || status >= 400 {
+		return envelopeErr(status, raw, err)
+	}
+	return nil
+}
+
 func (d *daemonBackend) Status(ctx context.Context, name string) (breezy.Status, error) {
 	status, raw, err := d.httpJSON(ctx, http.MethodGet, "/v1/devices/"+name, nil)
 	if err != nil || status >= 400 {
@@ -163,43 +176,23 @@ func (d *daemonBackend) Status(ctx context.Context, name string) (breezy.Status,
 }
 
 func (d *daemonBackend) Power(ctx context.Context, name string, on bool) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/power", map[string]any{"on": on})
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/power", map[string]any{"on": on})
 }
 
 func (d *daemonBackend) SpeedPreset(ctx context.Context, name string, preset int) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/speed", map[string]any{"preset": preset})
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/speed", map[string]any{"preset": preset})
 }
 
 func (d *daemonBackend) SpeedManual(ctx context.Context, name string, pct int) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/speed", map[string]any{"manual": pct})
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/speed", map[string]any{"manual": pct})
 }
 
 func (d *daemonBackend) Mode(ctx context.Context, name, mode string) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/mode", map[string]any{"mode": mode})
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/mode", map[string]any{"mode": mode})
 }
 
 func (d *daemonBackend) Heater(ctx context.Context, name string, on bool) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/heater", map[string]any{"on": on})
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/heater", map[string]any{"on": on})
 }
 
 func (d *daemonBackend) ThresholdConfig(ctx context.Context, name string, kind string, value *int, enabled *bool) error {
@@ -210,35 +203,19 @@ func (d *daemonBackend) ThresholdConfig(ctx context.Context, name string, kind s
 	if enabled != nil {
 		body["enabled"] = *enabled
 	}
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/threshold", body)
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/threshold", body)
 }
 
 func (d *daemonBackend) Timer(ctx context.Context, name, mode string) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/timer", map[string]any{"mode": mode})
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/timer", map[string]any{"mode": mode})
 }
 
 func (d *daemonBackend) ResetFilter(ctx context.Context, name string) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/filter/reset", nil)
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/filter/reset", nil)
 }
 
 func (d *daemonBackend) ResetFaults(ctx context.Context, name string) error {
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/faults/reset", nil)
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/faults/reset", nil)
 }
 
 func (d *daemonBackend) Faults(ctx context.Context, name string) ([]breezy.FaultCode, error) {
@@ -308,20 +285,11 @@ func (d *daemonBackend) GetParam(ctx context.Context, name string, id breezy.Par
 
 func (d *daemonBackend) SetParam(ctx context.Context, name string, id breezy.ParamID, value []byte) error {
 	path := fmt.Sprintf("/v1/devices/%s/params/0x%04X", name, uint16(id))
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, path, map[string]any{"hex": hex.EncodeToString(value)})
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, path, map[string]any{"hex": hex.EncodeToString(value)})
 }
 
 func (d *daemonBackend) SetRTC(ctx context.Context, name string, t time.Time) error {
-	body := map[string]any{"time": t.Format(time.RFC3339)}
-	status, raw, err := d.httpJSON(ctx, http.MethodPost, "/v1/devices/"+name+"/rtc", body)
-	if err != nil || status >= 400 {
-		return envelopeErr(status, raw, err)
-	}
-	return nil
+	return d.postWrite(ctx, "/v1/devices/"+name+"/rtc", map[string]any{"time": t.Format(time.RFC3339)})
 }
 
 func (d *daemonBackend) Devices(ctx context.Context) ([]lsRow, error) {
