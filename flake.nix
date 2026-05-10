@@ -3,10 +3,84 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }: let
+  outputs = { self, nixpkgs }: let
+    # Inlined replacement for flake-utils.lib.eachDefaultSystem. Builds the
+    # per-system attrset once (so pkgs / breezyd-pkg evaluate once per
+    # system), then transposes via genAttrs so the flake exports the
+    # standard `packages.<system>.*`, `apps.<system>.*`, etc. shape.
+    systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+    forEachSystem = f: nixpkgs.lib.genAttrs systems f;
+
+    perSystem = forEachSystem (system: let
+      pkgs = import nixpkgs { inherit system; };
+
+      version = "1.8.1";
+      commitOrDirty = if self ? rev then self.rev else "dirty";
+
+      breezyd-pkg = pkgs.buildGoModule {
+        pname = "breezyd";
+        inherit version;
+        src = ./.;
+        vendorHash = "sha256-2gEDFpGwMey/Zt4AWp0fyJNRxTibAT7+WVdv1RLR/6A=";
+        subPackages = [ "cmd/breezyd" "cmd/breezy" ];
+        # Reproducible: omit `-X main.date=…` so two builds of the same
+        # commit produce identical binaries.
+        ldflags = [
+          "-s" "-w"
+          "-X main.version=${version}"
+          "-X main.commit=${commitOrDirty}"
+        ];
+        # This is a network-protocol package — its tests don't need
+        # network access, but the integration tests need a real device
+        # behind a build tag. Run only the default test set.
+        doCheck = true;
+        meta = with pkgs.lib; {
+          description = "Go library, daemon, and CLI for Vents Twinfresh Breezy ERVs";
+          homepage = "https://github.com/hughobrien/breezyd";
+          license = licenses.gpl3Plus;
+          platforms = platforms.unix;
+          mainProgram = "breezyd";
+        };
+      };
+    in {
+      packages = {
+        default = breezyd-pkg;
+        breezyd = breezyd-pkg;
+        breezy = breezyd-pkg; # same derivation produces both binaries
+      };
+
+      apps = {
+        default = {
+          type = "app";
+          program = "${breezyd-pkg}/bin/breezyd";
+        };
+        breezyd = {
+          type = "app";
+          program = "${breezyd-pkg}/bin/breezyd";
+        };
+        breezy = {
+          type = "app";
+          program = "${breezyd-pkg}/bin/breezy";
+        };
+      };
+
+      devShells.default = pkgs.mkShell {
+        packages = with pkgs; [
+          go
+          gopls
+          gotools
+          go-tools
+          goreleaser
+          just
+          templ
+        ];
+      };
+
+      formatter = pkgs.nixpkgs-fmt;
+    });
+
     # Wrap the bare module so it defaults services.breezyd.package to the
     # flake's own build for the host's system. Without this wrapper, the
     # module falls back to pkgs.breezyd — which doesn't exist in nixpkgs
@@ -16,76 +90,13 @@
       services.breezyd.package = lib.mkDefault
         self.packages.${pkgs.stdenv.hostPlatform.system}.default;
     };
-    moduleOutputs = {
-      nixosModules.default = defaultModule;
-      nixosModules.breezyd = defaultModule;
-    };
-  in moduleOutputs // flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs { inherit system; };
+  in {
+    nixosModules.default = defaultModule;
+    nixosModules.breezyd = defaultModule;
 
-        version = "1.8.1";
-        commitOrDirty = if self ? rev then self.rev else "dirty";
-
-        breezyd-pkg = pkgs.buildGoModule {
-          pname = "breezyd";
-          inherit version;
-          src = ./.;
-          vendorHash = "sha256-2gEDFpGwMey/Zt4AWp0fyJNRxTibAT7+WVdv1RLR/6A=";
-          subPackages = [ "cmd/breezyd" "cmd/breezy" ];
-          # Reproducible: omit `-X main.date=…` so two builds of the same
-          # commit produce identical binaries.
-          ldflags = [
-            "-s" "-w"
-            "-X main.version=${version}"
-            "-X main.commit=${commitOrDirty}"
-          ];
-          # This is a network-protocol package — its tests don't need
-          # network access, but the integration tests need a real device
-          # behind a build tag. Run only the default test set.
-          doCheck = true;
-          meta = with pkgs.lib; {
-            description = "Go library, daemon, and CLI for Vents Twinfresh Breezy ERVs";
-            homepage = "https://github.com/hughobrien/breezyd";
-            license = licenses.gpl3Plus;
-            platforms = platforms.unix;
-            mainProgram = "breezyd";
-          };
-        };
-      in {
-        packages = {
-          default = breezyd-pkg;
-          breezyd = breezyd-pkg;
-          breezy = breezyd-pkg; # same derivation produces both binaries
-        };
-
-        apps = {
-          default = {
-            type = "app";
-            program = "${breezyd-pkg}/bin/breezyd";
-          };
-          breezyd = {
-            type = "app";
-            program = "${breezyd-pkg}/bin/breezyd";
-          };
-          breezy = {
-            type = "app";
-            program = "${breezyd-pkg}/bin/breezy";
-          };
-        };
-
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            go
-            gopls
-            gotools
-            go-tools
-            goreleaser
-            just
-            templ
-          ];
-        };
-
-        formatter = pkgs.nixpkgs-fmt;
-      });
+    packages   = forEachSystem (system: perSystem.${system}.packages);
+    apps       = forEachSystem (system: perSystem.${system}.apps);
+    devShells  = forEachSystem (system: perSystem.${system}.devShells);
+    formatter  = forEachSystem (system: perSystem.${system}.formatter);
+  };
 }
