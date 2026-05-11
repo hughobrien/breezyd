@@ -55,10 +55,21 @@ func snapshotToView(name string, snap Snapshot, staleWindow time.Duration) ui.De
 	v.Schedule = ui.ScheduleView{}
 	v.Energy = nil
 
-	// Configured: what the user set.
+	// Configured: what the user set. Power is true whenever the firmware
+	// power param (0x0001) is 1 OR a special-mode timer (0x0007 → night
+	// / turbo) is active — turbo can be enabled via the IR remote
+	// without touching 0x0001, and the firmware runs the fans regardless
+	// of the power param while a timer is set. The view-derived flag
+	// keeps the dashboard's power button honest in that case.
+	powerParamOn := false
 	if b, ok := breezy.Uint8At(snap.Values, 0x0001); ok {
-		v.Power = b == 1
+		powerParamOn = b == 1
 	}
+	timerActive := false
+	if b, ok := breezy.Uint8At(snap.Values, 0x0007); ok && b != 0 {
+		timerActive = true
+	}
+	v.Power = powerParamOn || timerActive
 	if b, ok := breezy.Uint8At(snap.Values, 0x0002); ok {
 		switch b {
 		case 0xFF:

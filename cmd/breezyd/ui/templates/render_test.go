@@ -1134,6 +1134,12 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;night&#39;}})`,
 		`var active = $specialMode.` + name + ` === &#39;turbo&#39;`,
 		`$specialModeRemainingSeconds.` + name + ` = $turboDurationSeconds.` + name,
+		// Activating a timer also optimistically flips $power=true so the
+		// power button reflects the on-state instantly (the firmware runs
+		// the fans on timer regardless of 0x0001, and postUITimer
+		// explicitly writes Power(true) too — pinning the optimistic side
+		// keeps the click latency under one frame).
+		`$power.` + name + ` = true`,
 		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;turbo&#39;}})`,
 		// Heater toggle: posts inverse of $heater signal.
 		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: !$heater.` + name + `}})`,
