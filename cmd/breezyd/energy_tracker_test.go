@@ -136,6 +136,7 @@ func TestEnergyTracker_Snapshot_IsCopy(t *testing.T) {
 // tenths of a degree.
 func makeRegenSnap(fanPct int, outdoorC, supplyC float64) map[breezy.ParamID][]byte {
 	return map[breezy.ParamID][]byte{
+		0x0001: {1},               // power = on (Tick's power-state gate)
 		0x00B7: {1},               // airflow_mode = regeneration (value used by Tick)
 		0x0002: {0xFF},            // speed_mode = manual
 		0x0044: {byte(fanPct)},    // manual_pct
@@ -151,6 +152,7 @@ func makeRegenSnap(fanPct int, outdoorC, supplyC float64) map[breezy.ParamID][]b
 // runs at supplyPct (preset3's 0x3E), extract at extractPct (0x3F).
 func makeRegenSnapAsymmetric(supplyPct, extractPct int, outdoorC, supplyC float64) map[breezy.ParamID][]byte {
 	return map[breezy.ParamID][]byte{
+		0x0001: {1}, // power = on
 		0x00B7: {1},
 		0x0002: {3}, // speed_mode = preset3
 		0x003E: {byte(supplyPct)},
@@ -269,6 +271,30 @@ func TestEnergyTracker_Tick_NonRegenSkipped(t *testing.T) {
 	snap := tr.Snapshot()
 	is.Equal(snap.HeatingTodayKWh, float64(0)) // non-regen mode must not accumulate
 	is.Equal(snap.InstantW, float64(0))        // non-regen zeros instantaneous power
+	is.Equal(snap.ConsumedW, float64(0))
+}
+
+// TestEnergyTracker_Tick_PoweredOffSkipped pins the power-state gate
+// (#31): a unit in regeneration mode but powered off must NOT
+// accumulate energy. Found during the live-deployment audit — two
+// powered-off devices were ticking 40-160W into their counters
+// because the regen-mode gate alone passes when fans aren't moving
+// air.
+func TestEnergyTracker_Tick_PoweredOffSkipped(t *testing.T) {
+	is := is.New(t)
+	tr := newTracker(t)
+	tr.Load()
+	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	t1 := t0.Add(5 * time.Second)
+	// Prime in regen + powered on.
+	tr.Tick(makeRegenSnap(50, 0, 20), t0)
+	// Second tick: still regen, but power flipped off.
+	off := makeRegenSnap(50, 0, 20)
+	off[0x0001] = []byte{0}
+	tr.Tick(off, t1)
+	snap := tr.Snapshot()
+	is.Equal(snap.HeatingTodayKWh, float64(0)) // powered off must not accumulate
+	is.Equal(snap.InstantW, float64(0))        // powered off zeros instantaneous power
 	is.Equal(snap.ConsumedW, float64(0))
 }
 

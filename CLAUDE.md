@@ -95,7 +95,7 @@ When enabled, the daemon runs a brutella/hap HAP server that exposes each config
 
 ### Energy tracking (always on)
 
-After every successful poll, each device's `EnergyTracker` (in `cmd/breezyd/energy_tracker.go`) computes instantaneous heat-recovery W and fan-electric-draw W, accumulating heating/cooling/consumed kWh per day and lifetime. Tracking is gated to regeneration airflow_mode (the only mode where the heat exchanger is actually working) — manual, supply-only, extract-only, and ventilation modes are no-ops for the accumulator.
+After every successful poll, each device's `EnergyTracker` (in `cmd/breezyd/energy_tracker.go`) computes instantaneous heat-recovery W and fan-electric-draw W, accumulating heating/cooling/consumed kWh per day and lifetime. Tracking is gated on **both** regeneration airflow_mode AND power=on — manual, supply-only, extract-only, and ventilation modes are no-ops for the accumulator, as are powered-off units (fans aren't moving air, so no energy is actually being recovered or consumed regardless of the airflow_mode setting).
 
 Per-device state lives at `<state_dir>/energy_<device>.json` and survives daemon restarts. Lifetime counters carry over; today counters reset at local midnight. The state directory is `$STATE_DIRECTORY` if systemd sets it (NixOS / production) or `$XDG_STATE_HOME/breezyd` otherwise.
 
