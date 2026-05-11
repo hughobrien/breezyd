@@ -438,10 +438,17 @@ func startPollers(
 		sch.Load() // always returns nil; missing/malformed handled internally with slog.Warn
 		schedulers[devName] = sch
 
+		syncer := &RTCSyncer{
+			Device:  devName,
+			LockUDP: p.LockUDP,
+			Dial:    scheduleDialFor(devName),
+		}
+
 		startFns = append(startFns, func() {
-			wg.Add(2)
+			wg.Add(3)
 			go func() { defer wg.Done(); p.Run(parent) }()
 			go func() { defer wg.Done(); sch.Run(parent) }()
+			go func() { defer wg.Done(); syncer.Run(parent) }()
 		})
 	}
 

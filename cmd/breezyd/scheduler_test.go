@@ -17,7 +17,10 @@ import (
 )
 
 // schedFakeClient implements breezy.DeviceClient for tests.
+// mu protects writes so tests that poll writes from the main goroutine
+// while a syncer/scheduler goroutine appends are race-free.
 type schedFakeClient struct {
+	mu     sync.Mutex
 	writes [][]breezy.ParamWrite
 	err    error
 }
@@ -26,6 +29,8 @@ func (f *schedFakeClient) ReadParams(_ context.Context, _ []breezy.ParamID) (map
 	return map[breezy.ParamID][]byte{}, nil
 }
 func (f *schedFakeClient) WriteParams(_ context.Context, ws []breezy.ParamWrite) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.err != nil {
 		return f.err
 	}
@@ -34,8 +39,17 @@ func (f *schedFakeClient) WriteParams(_ context.Context, ws []breezy.ParamWrite)
 }
 func (f *schedFakeClient) IsLocal() bool { return false }
 
+// writeCount returns the number of WriteParams batches received so far.
+func (f *schedFakeClient) writeCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.writes)
+}
+
 // flatWrites returns every ParamWrite in order across all WriteParams calls.
 func (f *schedFakeClient) flatWrites() []breezy.ParamWrite {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	out := []breezy.ParamWrite{}
 	for _, batch := range f.writes {
 		out = append(out, batch...)
