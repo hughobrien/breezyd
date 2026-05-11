@@ -31,10 +31,10 @@ func TestHomekit_BridgeIdentity(t *testing.T) {
 	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
-	devices := NewDeviceRegistry(map[string]DeviceConfig{
+	devCfgs := map[string]DeviceConfig{
 		"playroom": {ID: devID, Password: devPwd, IP: srv.Addr()},
-	})
-	h := &Handler{State: NewState(), Devices: devices}
+	}
+	h := newTestHandler(t, devCfgs)
 
 	cfg := config.Homekit{
 		Enabled:    true,
@@ -43,7 +43,7 @@ func TestHomekit_BridgeIdentity(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	stop, err := h.StartHomekit(ctx, cfg, devices.Snapshot())
+	stop, err := h.StartHomekit(ctx, cfg, h.Devices.Snapshot())
 	is.NoErr(err)
 	t.Cleanup(func() { _ = stop() })
 
@@ -119,31 +119,25 @@ func TestHomekit_SyncRoundTrip(t *testing.T) {
 	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
-	stateDir := t.TempDir()
-	devices := NewDeviceRegistry(map[string]DeviceConfig{
+	devCfgs := map[string]DeviceConfig{
 		devName: {
 			ID:       devID,
 			Password: devPwd,
 			IP:       srv.Addr(),
 		},
-	})
-
-	state := NewState()
-	h := &Handler{
-		State:   state,
-		Devices: devices,
 	}
+	h := newTestHandler(t, devCfgs)
 
 	cfg := config.Homekit{
 		Enabled:    true,
 		BridgeName: "test-bridge",
-		StateDir:   stateDir,
+		StateDir:   t.TempDir(),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stop, err := h.StartHomekit(ctx, cfg, devices.Snapshot())
+	stop, err := h.StartHomekit(ctx, cfg, h.Devices.Snapshot())
 	is.NoErr(err)
 	t.Cleanup(func() { _ = stop() })
 
@@ -185,15 +179,14 @@ func TestHomekit_SyncRoundTripFull(t *testing.T) {
 	is.NoErr(err)
 	t.Cleanup(func() { _ = srv.Close() })
 
-	devices := NewDeviceRegistry(map[string]DeviceConfig{
+	h := newTestHandler(t, map[string]DeviceConfig{
 		devName: {ID: devID, Password: devPwd, IP: srv.Addr()},
 	})
-	h := &Handler{State: NewState(), Devices: devices}
 
 	cfg := config.Homekit{Enabled: true, BridgeName: "test-bridge", StateDir: t.TempDir()}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	stop, err := h.StartHomekit(ctx, cfg, devices.Snapshot())
+	stop, err := h.StartHomekit(ctx, cfg, h.Devices.Snapshot())
 	is.NoErr(err)
 	t.Cleanup(func() { _ = stop() })
 
@@ -253,11 +246,9 @@ func TestHomekit_SyncRoundTripFull(t *testing.T) {
 // TestHomekit_SyncNilMap is a no-op guard: SyncHomekit returns early when
 // homekitAccessories is nil (HomeKit disabled).
 func TestHomekit_SyncNilMap(t *testing.T) {
-	h := &Handler{
-		Devices: NewDeviceRegistry(map[string]DeviceConfig{
-			"x": {ID: "ID", Password: "pw", IP: "127.0.0.1:4000"},
-		}),
-	}
+	h := newTestHandler(t, map[string]DeviceConfig{
+		"x": {ID: "ID", Password: "pw", IP: "127.0.0.1:4000"},
+	})
 	// Must not panic.
 	h.SyncHomekit("x", Snapshot{})
 }
@@ -333,19 +324,14 @@ func TestHomekit_AccessoryAidIsLexOrdered(t *testing.T) {
 	// place, aids land alphabetically: alpha < bravo < mike < tango < zulu.
 	// Without it, map iteration randomisation gives ~1/120 odds of producing
 	// alphabetical aids by chance.
-	devices := map[string]DeviceConfig{
+	devCfgs := map[string]DeviceConfig{
 		"zulu":  {ID: devID, Password: devPwd, IP: srv.Addr()},
 		"alpha": {ID: devID, Password: devPwd, IP: srv.Addr()},
 		"mike":  {ID: devID, Password: devPwd, IP: srv.Addr()},
 		"tango": {ID: devID, Password: devPwd, IP: srv.Addr()},
 		"bravo": {ID: devID, Password: devPwd, IP: srv.Addr()},
 	}
-
-	state := NewState()
-	h := &Handler{
-		State:   state,
-		Devices: NewDeviceRegistry(devices),
-	}
+	h := newTestHandler(t, devCfgs)
 
 	cfg := config.Homekit{
 		Enabled:    true,
@@ -356,7 +342,7 @@ func TestHomekit_AccessoryAidIsLexOrdered(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stop, err := h.StartHomekit(ctx, cfg, devices)
+	stop, err := h.StartHomekit(ctx, cfg, devCfgs)
 	is.NoErr(err)
 	t.Cleanup(func() { _ = stop() })
 
@@ -386,22 +372,17 @@ func newHomekitWriteTestHandler(t *testing.T) (*Handler, homekitWriteCallbacks, 
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 
-	state := NewState()
-	devices := NewDeviceRegistry(map[string]DeviceConfig{
+	var h *Handler
+	h = newTestHandler(t, map[string]DeviceConfig{
 		devName: {ID: devID, Password: devPwd, IP: srv.Addr()},
-	})
-	h := &Handler{
-		State:   state,
-		Devices: devices,
-	}
-	h.ClientFactory = func(name string) (HandlerClient, error) {
+	}, withClientFactory(func(name string) (HandlerClient, error) {
 		d, ok := h.Devices.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("unknown device %q", name)
 		}
 		return breezy.NewClient(d.IP, d.ID, d.Password,
 			breezy.WithRetries(0), breezy.WithTimeout(500*time.Millisecond))
-	}
+	}))
 
 	a := homekit.NewBreezyAccessory(devName, devID, srv.Addr())
 	cb := registerWriteCallbacks(h, devName, a)

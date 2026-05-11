@@ -57,6 +57,10 @@ func withNoticeFunc(f func(string, breezy.ParamID)) handlerOpt {
 	return func(h *Handler) { h.NoticeFunc = f }
 }
 
+func withClientFactory(f func(string) (HandlerClient, error)) handlerOpt {
+	return func(h *Handler) { h.ClientFactory = f }
+}
+
 // setRunFlags wires the daemon flag variables to safe test-time values so
 // run() can be invoked without real-flag parsing. The caller must handle any
 // additional flags (--backend, --seed) and their t.Cleanup resets.
