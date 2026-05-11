@@ -415,9 +415,11 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 			t.Errorf("missing plain cell marker %q", want)
 		}
 	}
-	// Controls block reactive data-edit binding. The attribute is a static
-	// literal in the templ file so single quotes are not HTML-escaped.
-	if !strings.Contains(got, `data-attr:data-edit="$editor !== 0 ? 'true' : null"`) {
+	// Controls block reactive data-edit binding, scoped per-device so the
+	// preset editor on one card doesn't light up data-edit on siblings.
+	// The attribute is dynamic-interpolated so single quotes are HTML-
+	// escaped to &#39; in the rendered output.
+	if !strings.Contains(got, `data-attr:data-edit="$editor.`+v.Name+` !== 0 ? &#39;true&#39; : null"`) {
 		t.Errorf("controls reactive data-edit binding missing")
 	}
 }
@@ -669,9 +671,9 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 	}
 	got := sb.String()
 	wantContains := []string{
-		// Booleans use value-form data-bind.
-		`data-bind="automode"`,
-		`data-bind="matchSpeeds"`,
+		// Booleans use value-form data-bind, scoped per-device.
+		`data-bind="automode.` + v.Name + `"`,
+		`data-bind="matchSpeeds.` + v.Name + `"`,
 		// Manual slider still reads evt.target.valueAsNumber in the @post.
 		`{manual: evt.target.valueAsNumber}`,
 		// Manual slider binds to per-card local signal via value-form (no colon).
@@ -685,6 +687,9 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 		// Must not bind to the plain $manualPct (unscoped) signal.
 		`data-bind="manualPct"`,
 		`{manual: $manualPct}`,
+		// Unscoped automode/matchSpeeds would leak across cards.
+		`data-bind="automode"`,
+		`data-bind="matchSpeeds"`,
 	}
 	for _, s := range wantContains {
 		if !strings.Contains(got, s) {
@@ -698,11 +703,11 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 	}
 
 	// Spec: automode and matchSpeeds toggles are pure client-side state.
-	// Walk each `data-bind="<key>"` checkbox tag and assert it carries
-	// neither @post nor data-on:change — accidentally adding either would
-	// generate spurious daemon traffic on every toggle.
+	// Walk each `data-bind="<key>.<name>"` checkbox tag and assert it
+	// carries neither @post nor data-on:change — accidentally adding
+	// either would generate spurious daemon traffic on every toggle.
 	for _, key := range []string{"automode", "matchSpeeds"} {
-		needle := `data-bind="` + key + `"`
+		needle := `data-bind="` + key + `.` + v.Name + `"`
 		idx := strings.Index(got, needle)
 		if idx < 0 {
 			continue // missing marker is already caught by wantContains above
@@ -833,21 +838,28 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	}
 }
 
-// TestPresetChipExpr pins the strict-equality toggle on the per-card
-// $editor signal: clicking chip n flips $editor between 0 and n.
-// Strict equality (===) matters because $editor is the same JS engine
-// across stringified-vs-numeric edge cases — `==` would coerce and
-// match unexpectedly when the seed type drifted (see G-web-8 and the
-// preset numeric-typing test).
+// TestPresetChipExpr pins the strict-equality toggle on the per-device
+// $editor.<name> signal: clicking chip n flips $editor.<name> between 0
+// and n. Strict equality (===) matters because the JS engine handles
+// stringified-vs-numeric edge cases — `==` would coerce and match
+// unexpectedly when the seed type drifted (see G-web-8 and the preset
+// numeric-typing test).
+//
+// The signal is scoped per device so opening preset n on one card does
+// not open the same preset's editor on every sibling card.
 func TestPresetChipExpr(t *testing.T) {
 	got := presetChipExpr("alpha", 2)
-	want := "$editor = $editor === 2 ? 0 : 2; @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
+	want := "$editor.alpha = $editor.alpha === 2 ? 0 : 2; @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
 	if got != want {
 		t.Errorf("presetChipExpr(alpha, 2):\n  got: %s\n want: %s", got, want)
 	}
 	// Negative: must use strict equality, not loose.
-	if strings.Contains(got, "$editor == 2") {
+	if strings.Contains(got, "$editor.alpha == 2") {
 		t.Errorf("presetChipExpr must use strict equality (===), got: %s", got)
+	}
+	// Negative: must scope $editor per-device, not unscoped.
+	if strings.Contains(got, "$editor =") || strings.Contains(got, "$editor ===") {
+		t.Errorf("presetChipExpr must scope $editor per-device; got: %s", got)
 	}
 }
 
@@ -855,22 +867,24 @@ func TestPresetChipExpr(t *testing.T) {
 // (name, n, side) tuple. Locks the four implied-mode branches without
 // a browser:
 //
-//   - $automode → 'ventilation'
+//   - $automode.<name> → 'ventilation'
 //   - both ≥ 10 → 'regeneration'
 //   - sup=0, ext≥10 → 'extract'
 //   - sup≥10, ext=0 → 'supply'
 //
-// Plus the 1..9 → 0 snap, the matchSpeeds mirror, and the per-preset
-// scoping ($preset[n].{supply,extract} reads).
+// Plus the 1..9 → 0 snap, the matchSpeeds mirror, and the per-device
+// per-preset scoping ($preset.<name>[n].{supply,extract} reads). The
+// per-device nesting is what stops dragging on one card from moving
+// another card's slider in lockstep.
 func TestPresetSliderExpr_SupplyN2(t *testing.T) {
 	got := presetSliderExpr("alpha", 2, "supply")
 	want := "let raw = parseInt(evt.target.value, 10); " +
 		"let v = (raw > 0 && raw < 10) ? 0 : raw; " +
-		"$preset[2].supply = v; if ($matchSpeeds) $preset[2].extract = v; " +
-		"let sup = $preset[2].supply, ext = $preset[2].extract; " +
+		"$preset.alpha[2].supply = v; if ($matchSpeeds.alpha) $preset.alpha[2].extract = v; " +
+		"let sup = $preset.alpha[2].supply, ext = $preset.alpha[2].extract; " +
 		"if (sup >= 10 && ext >= 10) @post('/ui/devices/alpha/preset', {payload: {preset: 2, supply: sup, extract: ext}}); " +
 		"let implied = null; " +
-		"if ($automode) implied = 'ventilation'; " +
+		"if ($automode.alpha) implied = 'ventilation'; " +
 		"else if (sup >= 10 && ext >= 10) implied = 'regeneration'; " +
 		"else if (sup === 0 && ext >= 10) implied = 'extract'; " +
 		"else if (sup >= 10 && ext === 0) implied = 'supply'; " +
@@ -883,15 +897,15 @@ func TestPresetSliderExpr_SupplyN2(t *testing.T) {
 
 // TestPresetSliderExpr_ExtractMirrorsCorrectly pins that the extract
 // side mirrors to supply (not the other way around). Without this,
-// dragging the extract slider with $matchSpeeds=true would silently
-// fail to update the supply side.
+// dragging the extract slider with $matchSpeeds.<name>=true would
+// silently fail to update the supply side.
 func TestPresetSliderExpr_ExtractMirrorsCorrectly(t *testing.T) {
 	got := presetSliderExpr("alpha", 1, "extract")
-	if !strings.Contains(got, "$preset[1].extract = v;") {
+	if !strings.Contains(got, "$preset.alpha[1].extract = v;") {
 		t.Errorf("extract slider must self-update extract; got: %s", got)
 	}
-	if !strings.Contains(got, "if ($matchSpeeds) $preset[1].supply = v;") {
-		t.Errorf("extract slider must mirror to supply when matchSpeeds; got: %s", got)
+	if !strings.Contains(got, "if ($matchSpeeds.alpha) $preset.alpha[1].supply = v;") {
+		t.Errorf("extract slider must mirror to supply when matchSpeeds.<name>; got: %s", got)
 	}
 }
 
@@ -900,8 +914,11 @@ func TestPresetSliderExpr_ExtractMirrorsCorrectly(t *testing.T) {
 // seed. The runtime fields (stale / speedMode / etc.) are covered by
 // TestCardSignalsFor_JSON below; this pins the static half.
 //
-// detailsOpen is now namespaced per-device: $detailsOpen.<name>.<section>
-// so toggling one card's section doesn't flip siblings. See #25.
+// Every static-flag signal is namespaced per-device:
+// $automode.<name> / $matchSpeeds.<name> / $editor.<name> /
+// $detailsOpen.<name>.<section>. Toggling one card's flag does not flip
+// the same flag on siblings. See #25 (detailsOpen), #29 + #216
+// (runtime fields), and the present fix (editor/automode/matchSpeeds/preset).
 func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 	v := ui.DeviceView{
 		// Doesn't matter: only static fields under test.
@@ -913,18 +930,29 @@ func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 		t.Fatalf("unmarshal: %v\nseed: %s", err, raw)
 	}
 
-	if got["automode"] != false {
-		t.Errorf("automode: want false, got %v", got["automode"])
+	// Each static flag is a nested map keyed by device name.
+	checkNestedBool := func(key string, want bool) {
+		outer, ok := got[key].(map[string]any)
+		if !ok {
+			t.Errorf("%s: want object, got %T", key, got[key])
+			return
+		}
+		if outer[v.Name] != want {
+			t.Errorf("%s.%s: want %v, got %v", key, v.Name, want, outer[v.Name])
+		}
 	}
-	if got["matchSpeeds"] != true {
-		t.Errorf("matchSpeeds: want true, got %v", got["matchSpeeds"])
-	}
-	// json.Unmarshal lands ints as float64.
-	if got["editor"] != float64(0) {
-		t.Errorf("editor: want 0, got %v", got["editor"])
+	checkNestedBool("automode", false)
+	checkNestedBool("matchSpeeds", true)
+
+	// editor is an int — json.Unmarshal lands it as float64.
+	editorOuter, ok := got["editor"].(map[string]any)
+	if !ok {
+		t.Errorf("editor: want object, got %T", got["editor"])
+	} else if editorOuter[v.Name] != float64(0) {
+		t.Errorf("editor.%s: want 0, got %v", v.Name, editorOuter[v.Name])
 	}
 
-	// detailsOpen is now a nested map: {"alpha": {"info":false, ...}}
+	// detailsOpen is a nested map: {"alpha": {"info":false, ...}}
 	detailsOuter, ok := got["detailsOpen"].(map[string]any)
 	if !ok {
 		t.Fatalf("detailsOpen: want object, got %T", got["detailsOpen"])
@@ -946,13 +974,18 @@ func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 	}
 }
 
-// TestInitialCardSignals_PresetSeedTypedAsNumber pins that preset.<n>.{
-// supply,extract} is seeded as a JSON number, not a string. If the seed
-// ever drifted to strings, datastar's data-bind on the preset sliders
-// would silently flip type; mid-drag reseeds would clobber the user's
-// in-progress value with a string. Spec calls this out explicitly.
+// TestInitialCardSignals_PresetSeedTypedAsNumber pins that
+// preset.<name>.<n>.{supply,extract} is seeded as a JSON number, not a
+// string. If the seed ever drifted to strings, datastar's data-bind on
+// the preset sliders would silently flip type; mid-drag reseeds would
+// clobber the user's in-progress value with a string. Spec calls this
+// out explicitly.
+//
+// Preset is nested under the device name so dragging one card's slider
+// does not move another card's matching slider via shared signal state.
 func TestInitialCardSignals_PresetSeedTypedAsNumber(t *testing.T) {
 	v := ui.DeviceView{
+		Name:    "alpha",
 		Preset1: ui.PresetView{Supply: 30, Extract: 40},
 		Preset2: ui.PresetView{Supply: 50, Extract: 60},
 		Preset3: ui.PresetView{Supply: -1, Extract: 70}, // -1 sentinel maps to 50
@@ -962,32 +995,36 @@ func TestInitialCardSignals_PresetSeedTypedAsNumber(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("unmarshal: %v\nseed: %s", err, raw)
 	}
-	preset, ok := got["preset"].(map[string]any)
+	presetOuter, ok := got["preset"].(map[string]any)
 	if !ok {
 		t.Fatalf("preset: want object, got %T", got["preset"])
+	}
+	preset, ok := presetOuter[v.Name].(map[string]any)
+	if !ok {
+		t.Fatalf("preset.%s: want object, got %T", v.Name, presetOuter[v.Name])
 	}
 
 	for _, n := range []string{"1", "2", "3"} {
 		entry, ok := preset[n].(map[string]any)
 		if !ok {
-			t.Errorf("preset.%s: want object, got %T", n, preset[n])
+			t.Errorf("preset.%s.%s: want object, got %T", v.Name, n, preset[n])
 			continue
 		}
 		for _, side := range []string{"supply", "extract"} {
-			v := entry[side]
-			if _, ok := v.(float64); !ok {
-				t.Errorf("preset.%s.%s: want JSON number, got %T (%v)", n, side, v, v)
+			val := entry[side]
+			if _, ok := val.(float64); !ok {
+				t.Errorf("preset.%s.%s.%s: want JSON number, got %T (%v)", v.Name, n, side, val, val)
 			}
 		}
 	}
 
 	// Spot-check: -1 sentinel mapped to 50.
 	if preset["3"].(map[string]any)["supply"] != float64(50) {
-		t.Errorf("preset.3.supply: want 50 (sentinel-mapped), got %v", preset["3"].(map[string]any)["supply"])
+		t.Errorf("preset.%s.3.supply: want 50 (sentinel-mapped), got %v", v.Name, preset["3"].(map[string]any)["supply"])
 	}
 	// Spot-check: real value passed through.
 	if preset["1"].(map[string]any)["supply"] != float64(30) {
-		t.Errorf("preset.1.supply: want 30, got %v", preset["1"].(map[string]any)["supply"])
+		t.Errorf("preset.%s.1.supply: want 30, got %v", v.Name, preset["1"].(map[string]any)["supply"])
 	}
 }
 
