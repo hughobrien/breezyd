@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-05-11
+
+Patch release: dashboard bug fixes + dep refresh since v2.0.0. No new features; no `/v1` or CLI surface change.
+
+### Fixed
+
+- **Cross-card signal bleed** (#29, #25). On a multi-device deployment, `$speedMode`, `$airflowMode`, `$stale`, `$lastPollAge`, `$sensorsAlert`, and `$detailsOpen` were page-global signals — every card's SSE signal patch overwrote the previous, so cards visually reflected whichever device pushed most recently. Symptoms ranged from "open Sensors on card A also opens it on B and C" to invariant violations like "both `manual` and a `presetN` button highlighted on the same card simultaneously." All per-card signals now scoped per device via the nested-map pattern `$<signal>.<deviceName>`. Datastar's deep-merge keeps sibling devices' values coexisting.
+- **Energy tracker accumulated while device was powered off** (#31). The accumulator's regen-mode gate (`airflow_mode == 1`) passed even when `power == 0`, so a unit left in regeneration mode but powered off ticked instantaneous W and kWh into the day/lifetime counters even though fans weren't moving air. Added a power-state gate (`0x0001 == 1`) immediately after the regen gate. Found during a live-deployment audit of v2.0.0; two of three test units were silently double-counting.
+- **Info-block patch nested orphan power buttons in the DOM** (#32). PR #215 (a11y fix) wrapped `<details>` + power-button in a `<div class="device-info-wrap">` to keep the button visible when the panel collapses, but kept `data-block="info"` on the inner `<details>`. The push pipeline's outer-mode patch selector targeted `[data-block="info"]`, so each poll replaced `<details>` with a wrap-containing-details-plus-button — nesting a new wrap inside the original wrap and leaving the previous power button behind as an orphan. Symptom: two power buttons in the DOM ~5% of the time; visible to keyboard users as a duplicate tabstop and caught by Playwright's `getByRole` strict-mode check. Moved `data-block="info"` to the wrap div so the patch boundary matches the template root.
+- **`<details>` summary contained an interactive `<button>`** (a11y, #24). The power button in `InfoDetails` sat inside `<summary>` with `data-on:click__stop` to avoid the summary's toggle firing. Keyboard/AT users got inconsistent behaviour and the a11y audit flagged three elements (once per device card). Moved the button to a sibling AFTER `<summary>` but inside `<details>`, positioned absolutely top-right via CSS.
+- **Manual slider pct display stale until release** (#26). The `<span class="val">` rendered `v.ManualPct` server-side and didn't update until the next SSE patch (~one poll cycle). Now bound to a per-card local signal `$_manualPct.<name>` via `data-bind`; the val span reads it live via `data-text`. Underscore prefix keeps the signal client-only.
+- **Schedule `enabled` checkbox required entering edit mode** (#27). The read variant rendered the checkbox `disabled`; toggling required clicking "edit schedule" → toggle → save. New `POST /ui/devices/{name}/schedule/enabled` endpoint plus `Scheduler.SetEnabled` flip ONLY the enabled bit (no entry mutation, no `firedAt` clear). Read-variant checkbox now POSTs via `data-on:change`.
+- Identifier-safety validation on device names in `internal/config.Load`. Names must match `^[A-Za-z_][A-Za-z0-9_]*$` since they appear as datastar signal-path segments after the per-card-signal refactor.
+
+### Changed
+
+- Go modules: `a-h/templ` 0.3.1001 → 0.3.1020 (direct); `prometheus/common`, `procfs`, `miekg/dns`, `klauspost/compress`, `golang.org/x/*` indirect minor/patch bumps.
+- JS devDeps (test-only; nothing ships to users): `@playwright/test` ^1.49 → ^1.59; `typescript` ^5.6 → ^6.0 (major; test suite compiles + runs unchanged); `tsx` ^4.19 → ^4.21.
+- Nixpkgs flake input bumped to nixos-unstable @ 2026-05-05.
+- `flake.nix::vendorHash` recomputed for the new `go.sum`.
+- Regenerated `*_templ.go` files with `templ v0.3.1020` (silences the version-check warning during `templ generate`; output semantically identical).
+- `examples/` directory added at repo root with `breezyd.service` and `breezyd.toml`. The README's Linux+systemd section now points at them instead of inlining ~60 lines.
+
 ## [2.0.0] - 2026-05-11
 
 Major milestone covering six days of dashboard, scheduling, energy, and substrate work. `/v1/*` JSON API and CLI surface are unchanged from `1.8.x`; the bump is driven by the dashboard substrate replacement (htmx → datastar + SSE + templ), the new always-on subsystems (schedule, energy tracking, daily RTC sync), and the DST handling fix.
