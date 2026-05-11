@@ -138,6 +138,12 @@ templ timerBtn(v ui.DeviceView, label, value string) {
 // turbo) is read from the seeded $<mode>DurationSeconds signal so the
 // initial countdown reflects the device's configured value. Server
 // poll overwrites both signals once it catches up.
+//
+// When the duration signal is 0 (device hasn't been polled yet, or its
+// firmware doesn't expose 0x0302 / 0x0303), the seed is 0 and the
+// countdown readout falls back to a "<mode> timer active" placeholder
+// — see timerRemaining's data-text expression — until the next poll
+// fills in real values.
 func timerClickExpr(name, value string) string {
 	post := postActionExpr(
 		fmt.Sprintf("/ui/devices/%s/timer", name),
@@ -161,13 +167,19 @@ func timerClickExpr(name, value string) string {
 // via the page-level fmtRemaining helper (see layout.templ). A 1-second
 // data-on-interval tick decrements the local countdown signal so the
 // display ticks smoothly; the server's poll then corrects any drift.
+//
+// When the remaining-seconds signal is 0 but a timer mode is active
+// (the device hasn't yet returned a duration, or its firmware doesn't
+// expose 0x0302 / 0x0303), the readout falls back to "<mode> timer
+// active" rather than going blank — the next poll replaces it with the
+// real countdown.
 templ timerRemaining(v ui.DeviceView) {
 	<div
 		class="ctrl-label timer-remaining"
 		style="display:none"
 		data-show={ fmt.Sprintf("$specialMode.%s !== 'off'", v.Name) }
 		data-on-interval__duration.1s={ fmt.Sprintf("if ($specialMode.%s !== 'off' && $specialModeRemainingSeconds.%s > 0) $specialModeRemainingSeconds.%s--", v.Name, v.Name, v.Name) }
-		data-text={ fmt.Sprintf("fmtRemaining($specialModeRemainingSeconds.%s)", v.Name) }
+		data-text={ fmt.Sprintf("$specialModeRemainingSeconds.%s > 0 ? fmtRemaining($specialModeRemainingSeconds.%s) : ($specialMode.%s + ' timer active')", v.Name, v.Name, v.Name) }
 	></div>
 }
 

@@ -570,6 +570,33 @@ func TestScheduler_SetEnabled(t *testing.T) {
 	is.Equal(isEnabled, true) // enabled must be true after SetEnabled(true)
 }
 
+// TestScheduler_ForcedOffWhenEmpty pins the invariant that a schedule
+// with no entries cannot be enabled — neither via Replace(true, nil)
+// nor via SetEnabled(true) on an already-empty schedule. "Enabled with
+// nothing to fire" is a UI state that misleads users into thinking
+// something will happen at some scheduled time.
+func TestScheduler_ForcedOffWhenEmpty(t *testing.T) {
+	is := is.New(t)
+	s, _ := newSchedTest(t)
+
+	// Replace(true, []) must coerce enabled→false.
+	is.NoErr(s.Replace(true, nil))
+	snap := s.Snapshot()
+	is.Equal(snap.Enabled, false) // empty entries forces enabled=false
+	is.Equal(len(snap.Entries), 0)
+
+	// SetEnabled(true) on an empty schedule must also stay false.
+	is.NoErr(s.SetEnabled(true))
+	snap = s.Snapshot()
+	is.Equal(snap.Enabled, false) // SetEnabled(true) on empty stays false
+
+	// Once a row is added, enabling works normally.
+	entry := ScheduleEntry{At: 480, Action: "regeneration", Pct: 60}
+	is.NoErr(s.Replace(true, []ScheduleEntry{entry}))
+	snap = s.Snapshot()
+	is.Equal(snap.Enabled, true) // enabled=true with one entry survives
+}
+
 // TestScheduler_ReplaceClearsInflightRetry asserts the spec contract that
 // editing the schedule mid-retry drops the in-flight retry (and resets
 // lastApply, since a fresh schedule starts fresh — no stale alert banner).
