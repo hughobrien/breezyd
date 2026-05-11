@@ -82,6 +82,17 @@ func snapshotToView(name string, snap Snapshot, staleWindow time.Duration) ui.De
 	if raw, ok := snap.Values[0x000B]; ok && len(raw) == 3 {
 		secs := int(raw[2])*3600 + int(raw[1])*60 + int(raw[0])
 		v.SpecialModeRemaining = formatSeconds(secs)
+		v.SpecialModeRemainingSeconds = secs
+	}
+	// Per-mode timer durations (params 0x0302 night, 0x0303 turbo).
+	// 2-byte TypeDuration encoding: [min, hr] little-endian. Exposed
+	// to the dashboard so the timer-chip click handler can seed the
+	// countdown signal optimistically before the next poll catches up.
+	if raw, ok := snap.Values[0x0302]; ok && len(raw) == 2 {
+		v.NightDurationSeconds = int(raw[1])*3600 + int(raw[0])*60
+	}
+	if raw, ok := snap.Values[0x0303]; ok && len(raw) == 2 {
+		v.TurboDurationSeconds = int(raw[1])*3600 + int(raw[0])*60
 	}
 
 	// Per-preset stored supply/extract percentages.

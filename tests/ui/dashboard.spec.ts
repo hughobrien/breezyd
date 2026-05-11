@@ -201,6 +201,12 @@ test.describe("SSE push", () => {
 test.describe("controls", () => {
   test("preset chip: click opens editor, second click closes it", async ({ page }) => {
     await reset(DEVICE);
+    // The seed has timer=turbo (0x0007=02). Speed-chip aria-pressed is
+    // gated on $specialMode === 'off' so that an active timer
+    // de-highlights the previously-selected speed chip. Clear the timer
+    // here so the pressed:true assertion below can match the chip
+    // after the click.
+    await presets.withTimer(DEVICE, "off");
     await presets.asPresetSpeed(DEVICE, 1);
     const card = await loadCard(page);
     const editor2 = card.locator('[data-preset-editor="2"]');
