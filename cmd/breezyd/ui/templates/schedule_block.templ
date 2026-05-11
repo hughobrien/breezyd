@@ -19,14 +19,19 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 			data-block="schedule"
 			data-attr:open={ detailsOpenBinding(name, "schedule") }
 		>
-			<summary data-on:click={ detailsOpenToggle(name, "schedule") }><h3>SCHEDULE</h3></summary>
+			<summary data-on:click={ detailsOpenToggle(name, "schedule") }>
+				<h3>SCHEDULE</h3>
+				if s.Enabled && s.NextEvent != "" {
+					<span class="next-event" data-show={ fmt.Sprintf("!$detailsOpen.%s.schedule", name) }>next event: { s.NextEvent }</span>
+				}
+			</summary>
 			<div class="schedule-toolbar">
 				<label>
 					<input
 						type="checkbox"
 						if s.Enabled { checked }
 						data-on:change={ postActionExpr(fmt.Sprintf("/ui/devices/%s/schedule/enabled", name), "{enabled: evt.target.checked}") }
-						if stale { disabled }
+						if stale || len(s.Entries) == 0 { disabled }
 					/>
 					enabled
 				</label>
@@ -99,7 +104,7 @@ templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg strin
 				<span class="grow"></span>
 				<button
 					type="button"
-					data-on:click={ datastar.GetSSE("/ui/devices/%s/schedule/new-row", name) }
+					data-on:click={ scheduleAddRowExpr(name) }
 				>+ add row</button>
 				<button
 					type="button"
@@ -160,10 +165,33 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 			<button
 				type="button"
 				class="del"
-				data-on:click="evt.target.closest('tr').remove()"
+				data-on:click={ scheduleDelRowExpr() }
 			>×</button>
 		</td>
 	</tr>
+}
+
+// scheduleDelRowExpr removes the row and, when it was the last one,
+// unticks + disables the form's "enabled" checkbox. Mirrors the
+// backend's forced-off invariant (Scheduler.SetEnabled / Replace force
+// enabled=false on empty entries) so the user sees the consistent
+// state before they hit save rather than only after.
+func scheduleDelRowExpr() string {
+	return "var tr = evt.target.closest('tr'); var form = tr.closest('form'); tr.remove(); " +
+		"if (form.querySelectorAll('tbody tr').length === 0) { " +
+		"var cb = form.querySelector('input[type=checkbox][name=enabled]'); " +
+		"cb.checked = false; cb.disabled = true; }"
+}
+
+// scheduleAddRowExpr re-enables the form's "enabled" checkbox (which
+// scheduleDelRowExpr may have disabled after the last row was removed)
+// and then issues the SSE GET that appends a fresh row to the table.
+// Datastar processes the JS prefix synchronously before the @get
+// fires, so by the time the new row lands the checkbox is already
+// interactive again.
+func scheduleAddRowExpr(name string) string {
+	return "var cb = evt.target.closest('form').querySelector('input[type=checkbox][name=enabled]'); cb.disabled = false; " +
+		datastar.GetSSE("/ui/devices/%s/schedule/new-row", name)
 }
 
 templ scheduleActionOption(value, label, current string) {

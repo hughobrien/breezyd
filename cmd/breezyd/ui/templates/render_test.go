@@ -198,11 +198,12 @@ func TestScheduleEditRow(t *testing.T) {
 }
 
 // TestScheduleEditRow_DeleteButton pins the per-row delete button's
-// click handler — `evt.target.closest('tr').remove()` — so a typo or a
-// rewrite that regresses to a no-op (or to a server round-trip) doesn't
-// silently break delete-row in the schedule editor. The delete is purely
-// client-side; persistence happens only on form submit.
-// See SPECIFICATION-web.md "Schedule editor: Per-row controls".
+// click handler — removes the row, and when no rows remain, also
+// unticks + disables the form's "enabled" checkbox to mirror the
+// backend's forced-off invariant. A typo or a rewrite that regresses
+// to a no-op (or to a server round-trip) silently breaks delete-row.
+// The delete is purely client-side; persistence happens only on form
+// submit. See SPECIFICATION-web.md "Schedule editor: Per-row controls".
 func TestScheduleEditRow_DeleteButton(t *testing.T) {
 	var sb strings.Builder
 	entry := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
@@ -210,9 +211,16 @@ func TestScheduleEditRow_DeleteButton(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sb.String()
-	const wantClick = `data-on:click="evt.target.closest('tr').remove()"`
-	if !strings.Contains(got, wantClick) {
-		t.Errorf("delete button missing click handler\nwant: %s\n--- got ---\n%s", wantClick, got)
+	// Templ HTML-encodes single quotes inside attribute values.
+	wantContains := []string{
+		`tr.remove()`,
+		`form.querySelectorAll(&#39;tbody tr&#39;).length === 0`,
+		`cb.checked = false; cb.disabled = true`,
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(got, want) {
+			t.Errorf("delete button missing fragment %q\n--- got ---\n%s", want, got)
+		}
 	}
 	if !strings.Contains(got, `class="del"`) {
 		t.Errorf("delete button missing .del class\n%s", got)

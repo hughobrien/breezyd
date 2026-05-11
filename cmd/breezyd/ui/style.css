@@ -148,6 +148,7 @@ h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
    content. Sensors is expanded by default; alert-active force-expansion
    is computed in JS, see renderCard. */
 details.energy > summary,
+details.block.schedule > summary,
 details.block.sensors > summary {
   display: flex;
   align-items: baseline;
@@ -430,6 +431,18 @@ details.block.schedule > summary > h3 { margin: 0; }
 .ctrl-pair { display: flex; gap: 0.75rem; align-items: flex-start; }
 .ctrl-group-timer { flex: 1 1 auto; min-width: 0; }
 .ctrl-group-heater { flex: 0 0 auto; }
+/* Schedule summary's "next event: HH:MM" indicator. Right-pinned via
+   margin-left:auto in the summary's flex layout; styled as muted body
+   text (override the heading defaults the .block summary rule applies
+   to its children). Hidden via data-show when the schedule details is
+   expanded so the table below is the only source of "what fires when". */
+details.block.schedule > summary > .next-event {
+  margin-left: auto;
+  color: var(--fg-weak);
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: normal;
+}
 .alert-fire { color: var(--error); }
 .value-clickable { cursor: pointer; }
 .value-clickable:hover {
