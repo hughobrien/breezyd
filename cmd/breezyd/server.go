@@ -259,7 +259,6 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /ui/devices/{name}/threshold/{kind}/edit", h.getUIThresholdEdit)
 	mux.HandleFunc("PUT /ui/devices/{name}/threshold", h.putUIThreshold)
 	mux.HandleFunc("GET /ui/devices/{name}/schedule", h.getUIScheduleRead)
-	mux.HandleFunc("GET /ui/devices/{name}/schedule/edit", h.getUIScheduleEdit)
 	mux.HandleFunc("GET /ui/devices/{name}/schedule/new-row", h.getUIScheduleNewRow)
 	mux.HandleFunc("PUT /ui/devices/{name}/schedule", h.putUISchedule)
 	mux.HandleFunc("POST /ui/devices/{name}/schedule/enabled", h.postUISchedEnabled)

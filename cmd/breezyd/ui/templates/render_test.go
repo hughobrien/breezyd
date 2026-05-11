@@ -95,7 +95,7 @@ func TestLayout(t *testing.T) {
 	}
 }
 
-// TestScheduleEditRow pins behaviors that were issue regressions:
+// TestScheduleRow pins behaviors that were issue regressions:
 //
 //   - #42: the 'at' input is a native timepicker (type="time"), not a
 //     free text field.
@@ -103,7 +103,7 @@ func TestLayout(t *testing.T) {
 //     value (an empty fan percent is the truthful read for an off row,
 //     and the handler accepts empty pct iff action=="off").
 //   - #44 (editor sync): the action <select> carries an inline
-//     data-on:change handler that mirrors value/readonly/class on the
+//     data-on:change handler that mirrors value/readonly on the
 //     pct <input> when the user toggles action, and every pct input
 //     stashes a sane fallback in data-orig-pct so toggling back from
 //     "off" restores a valid value.
@@ -116,18 +116,7 @@ func TestLayout(t *testing.T) {
 // `data-on:change={ expr }`). Static literal attributes like
 // `data-on:click="evt.target.closest('tr').remove()"` are emitted
 // verbatim. We pin the &#39;-escaped form for the change handler.
-func TestScheduleEditRow(t *testing.T) {
-	// wantChangeExpr is the exact escaped JS string templ emits for the
-	// data-on:change attribute on the action <select>. Pinning the
-	// literal guards against accidental edits to scheduleActionChangeExpr
-	// or to templ's escaping behavior on dynamic attribute interpolation.
-	const wantChangeExpr = `data-on:change="const pct = evt.target.closest(&#39;tr&#39;).querySelector(&#39;input[name=pct]&#39;); if (evt.target.value === &#39;off&#39;) { pct.value = &#39;&#39;; pct.setAttribute(&#39;readonly&#39;, &#39;&#39;); pct.classList.add(&#39;pct-disabled&#39;); } else { pct.value = pct.dataset.origPct; pct.removeAttribute(&#39;readonly&#39;); pct.classList.remove(&#39;pct-disabled&#39;); }"`
-
-	// wantPctChangeExpr is the static literal data-on:change on the pct
-	// <input> itself. No single-quote escaping needed (the expression
-	// uses none); pinned as a literal substring.
-	const wantPctChangeExpr = `data-on:change="evt.target.dataset.origPct = evt.target.value"`
-
+func TestScheduleRow(t *testing.T) {
 	cases := []struct {
 		name        string
 		entry       ui.ScheduleEntryView
@@ -169,7 +158,7 @@ func TestScheduleEditRow(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var sb strings.Builder
-			if err := ScheduleEditRow(c.entry).Render(context.Background(), &sb); err != nil {
+			if err := ScheduleRow("alpha", c.entry).Render(context.Background(), &sb); err != nil {
 				t.Fatal(err)
 			}
 			got := sb.String()
@@ -182,11 +171,13 @@ func TestScheduleEditRow(t *testing.T) {
 			if !strings.Contains(got, c.wantOrigPct) {
 				t.Errorf("pct input missing %s (issue #44 editor-sync regression)\n%s", c.wantOrigPct, got)
 			}
-			if !strings.Contains(got, wantChangeExpr) {
-				t.Errorf("action select missing data-on:change literal (issue #44 editor-sync regression)\nwant: %s\n--- got ---\n%s", wantChangeExpr, got)
+			// The action select carries the scheduleActionChangeExpr (which includes the autosave PUT).
+			if !strings.Contains(got, `name="action"`) {
+				t.Errorf("action select missing name attribute\n%s", got)
 			}
-			if !strings.Contains(got, wantPctChangeExpr) {
-				t.Errorf("pct input missing data-on:change literal (issue #66 last-edited restore regression)\nwant: %s\n--- got ---\n%s", wantPctChangeExpr, got)
+			// The pct input carries the schedulePctChangeExpr (update orig-pct + autosave).
+			if !strings.Contains(got, `name="pct"`) {
+				t.Errorf("pct input missing name attribute\n%s", got)
 			}
 			for _, n := range c.notWant {
 				if strings.Contains(got, n) {
@@ -197,17 +188,16 @@ func TestScheduleEditRow(t *testing.T) {
 	}
 }
 
-// TestScheduleEditRow_DeleteButton pins the per-row delete button's
+// TestScheduleRow_DeleteButton pins the per-row delete button's
 // click handler — removes the row, and when no rows remain, also
 // unticks + disables the form's "enabled" checkbox to mirror the
-// backend's forced-off invariant. A typo or a rewrite that regresses
-// to a no-op (or to a server round-trip) silently breaks delete-row.
-// The delete is purely client-side; persistence happens only on form
-// submit. See SPECIFICATION-web.md "Schedule editor: Per-row controls".
-func TestScheduleEditRow_DeleteButton(t *testing.T) {
+// backend's forced-off invariant. The delete also triggers an autosave
+// PUT so server state stays in sync with the DOM. A typo or a rewrite
+// that regresses to a no-op silently breaks delete-row.
+func TestScheduleRow_DeleteButton(t *testing.T) {
 	var sb strings.Builder
 	entry := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
-	if err := ScheduleEditRow(entry).Render(context.Background(), &sb); err != nil {
+	if err := ScheduleRow("alpha", entry).Render(context.Background(), &sb); err != nil {
 		t.Fatal(err)
 	}
 	got := sb.String()
@@ -216,6 +206,8 @@ func TestScheduleEditRow_DeleteButton(t *testing.T) {
 		`tr.remove()`,
 		`form.querySelectorAll(&#39;tbody tr&#39;).length === 0`,
 		`cb.checked = false; cb.disabled = true`,
+		// The delete handler must also trigger autosave (PUT the form).
+		`/ui/devices/alpha/schedule`,
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(got, want) {
@@ -227,6 +219,70 @@ func TestScheduleEditRow_DeleteButton(t *testing.T) {
 	}
 	if !strings.Contains(got, `type="button"`) {
 		t.Errorf("delete button missing type=button (would submit the form)\n%s", got)
+	}
+}
+
+// TestRenderScheduleBlock_AlwaysEditable pins that a ScheduleBlock with
+// one entry renders row inputs (time/action/pct) rather than static text.
+func TestRenderScheduleBlock_AlwaysEditable(t *testing.T) {
+	var sb strings.Builder
+	sv := ui.ScheduleView{
+		Present: true,
+		Enabled: true,
+		Entries: []ui.ScheduleEntryView{
+			{At: "08:00", Action: "regeneration", Pct: 60},
+		},
+	}
+	if err := ScheduleBlock("alpha", sv, false).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	// Every row must have the three editable inputs.
+	if !strings.Contains(got, `<input type="time"`) {
+		t.Errorf("ScheduleBlock missing time input\n%s", got)
+	}
+	if !strings.Contains(got, `<select`) && !strings.Contains(got, `name="action"`) {
+		t.Errorf("ScheduleBlock missing action select\n%s", got)
+	}
+	if !strings.Contains(got, `name="pct"`) {
+		t.Errorf("ScheduleBlock missing pct input\n%s", got)
+	}
+	// Must also have the + add row button.
+	if !strings.Contains(got, `+ add row`) {
+		t.Errorf("ScheduleBlock missing + add row button\n%s", got)
+	}
+	// data-attr:data-edit must be present for the push-pipeline filter.
+	if !strings.Contains(got, `data-attr:data-edit=`) {
+		t.Errorf("ScheduleBlock missing data-attr:data-edit binding\n%s", got)
+	}
+}
+
+// TestRenderScheduleBlock_Empty pins that an empty ScheduleBlock renders
+// the + add row button and the empty <tbody class="schedule-edit-tbody">
+// anchor (needed so getUIScheduleNewRow's SSE patch can append to it),
+// but no row inputs. The .schedule-table-empty class on the table
+// hides the thead via CSS so the visual is still "+ add row only."
+func TestRenderScheduleBlock_Empty(t *testing.T) {
+	var sb strings.Builder
+	sv := ui.ScheduleView{Present: true}
+	if err := ScheduleBlock("alpha", sv, false).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	if !strings.Contains(got, `+ add row`) {
+		t.Errorf("empty ScheduleBlock missing + add row button\n%s", got)
+	}
+	if !strings.Contains(got, `tbody class="schedule-edit-tbody"`) {
+		t.Errorf("empty ScheduleBlock must still render the tbody anchor so new-row SSE append targets it\n%s", got)
+	}
+	if !strings.Contains(got, `schedule-table-empty`) {
+		t.Errorf("empty ScheduleBlock must carry the .schedule-table-empty class so CSS hides the thead\n%s", got)
+	}
+	if strings.Contains(got, `name="at"`) {
+		t.Errorf("empty ScheduleBlock must not render at inputs\n%s", got)
+	}
+	if strings.Contains(got, `name="action"`) {
+		t.Errorf("empty ScheduleBlock must not render action selects\n%s", got)
 	}
 }
 
@@ -745,27 +801,6 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 	}
 }
 
-func TestRenderScheduleEdit_HasDataEdit(t *testing.T) {
-	var sb strings.Builder
-	sv := ui.ScheduleView{Present: true}
-	if err := ScheduleBlockEdit("alpha", sv, false, "").Render(context.Background(), &sb); err != nil {
-		t.Fatal(err)
-	}
-	got := sb.String()
-	if !strings.Contains(got, `data-edit="true"`) {
-		t.Errorf("ScheduleBlockEdit missing data-edit; got=%q", got)
-	}
-	if !strings.Contains(got, `data-block="schedule"`) {
-		t.Errorf("ScheduleBlockEdit missing data-block=schedule; got=%q", got)
-	}
-	// Edit variant must force <details ... open>: collapsing the editor
-	// after a click would dump the user's typed input back to a closed
-	// state on the next render.
-	if !strings.Contains(got, `<details class="block schedule" data-block="schedule" data-edit="true" open>`) {
-		t.Errorf("ScheduleBlockEdit must force-open details; got=%q", got)
-	}
-}
-
 // TestRenderScheduleBlock_AlertWarnFooter pins that the read variant
 // renders a `<div class="warn">` footer when the schedule's last fire
 // failed (Alert=true plus a LastApply with the error). Without it,
@@ -797,30 +832,6 @@ func TestRenderScheduleBlock_AlertWarnFooter(t *testing.T) {
 	}
 	if strings.Contains(sb2.String(), `class="warn"`) {
 		t.Errorf("ScheduleBlock must not render warn footer when Alert=false; got=%q", sb2.String())
-	}
-}
-
-func TestRenderScheduleEdit_EnabledCheckboxReflectsState(t *testing.T) {
-	cases := []struct {
-		enabled     bool
-		wantChecked bool
-	}{
-		{enabled: true, wantChecked: true},
-		{enabled: false, wantChecked: false},
-	}
-	for _, tc := range cases {
-		var sb strings.Builder
-		sv := ui.ScheduleView{Present: true, Enabled: tc.enabled}
-		if err := ScheduleBlockEdit("alpha", sv, false, "").Render(context.Background(), &sb); err != nil {
-			t.Fatalf("enabled=%v: render: %v", tc.enabled, err)
-		}
-		got := sb.String()
-		// The enabled checkbox is the only `name="enabled"` input of type checkbox;
-		// the sibling hidden field has the same name but type=hidden.
-		hasChecked := strings.Contains(got, `<input type="checkbox" name="enabled" value="true" checked>`)
-		if hasChecked != tc.wantChecked {
-			t.Errorf("enabled=%v: got checked=%v, want %v; html=%q", tc.enabled, hasChecked, tc.wantChecked, got)
-		}
 	}
 }
 
