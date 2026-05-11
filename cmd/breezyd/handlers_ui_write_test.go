@@ -848,10 +848,11 @@ func TestUISchedulePut_Happy(t *testing.T) {
 	})
 	defer func() { _ = resp.Body.Close() }()
 	is.Equal(resp.StatusCode, 200)
+	is.Equal(resp.Header.Get("Content-Type"), "text/event-stream") // SSE response
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	// Returns read variant — should show schedule block with rows.
-	is.True(strings.Contains(bs, `class="block schedule"`)) // body has schedule block
+	// Returns empty SSE response — no datastar-patch-elements event.
+	is.True(!strings.Contains(bs, "event: datastar-patch-elements")) // body has NO patch-elements event
 	// Verify the scheduler was actually updated.
 	snap := h.Schedulers["alpha"].Snapshot()
 	is.True(snap.Enabled)          // scheduler must be enabled after PUT

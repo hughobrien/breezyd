@@ -80,6 +80,22 @@ func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name,
 	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg))
 }
 
+// scheduleAcknowledgeSSE writes a 200 OK SSE response with no
+// datastar-patch-elements events — the autosave handler's success
+// path. The form's DOM state is already correct on the client (the
+// user just typed it); sending back a re-rendered fragment would
+// clobber whatever input still has focus. The next regular poll
+// cycle refreshes the block once the user collapses or moves on.
+//
+// Mirrors errorBannerSSE's shape but emits no events. The SSE
+// content-type + 200 status is still required so datastar's @put
+// fetch action processes the response cleanly rather than treating
+// it as an error.
+func scheduleAcknowledgeSSE(w http.ResponseWriter, r *http.Request) {
+	sse := newSSE(w, r)
+	_ = sse // keep the import dependency; emitting no events.
+}
+
 // emptyScheduleEntry returns the seed values for a freshly-added edit
 // row. Used by both getUIScheduleNewRow (when the user clicks
 // "+ add row") and scheduleEditFrag (when entering edit mode with no
@@ -203,7 +219,7 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.scheduleReadFrag(w, r, name)
+	scheduleAcknowledgeSSE(w, r)
 }
 
 // postUISchedEnabled toggles the enabled bit on a device's schedule
