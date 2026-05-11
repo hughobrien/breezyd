@@ -18,11 +18,11 @@ import (
 // each backed by a seeded Snapshot so the read-side helpers have data.
 func newUITestHandler(t *testing.T, names ...string) *Handler {
 	t.Helper()
-	state := NewState()
 	devices := make(map[string]DeviceConfig, len(names))
+	snaps := make(map[string]Snapshot, len(names))
 	for _, name := range names {
 		devices[name] = DeviceConfig{ID: "TESTID00000000" + name[:2], Password: "1111", IP: "127.0.0.1:4000"}
-		state.Set(name, Snapshot{
+		snaps[name] = Snapshot{
 			IP:       "127.0.0.1:4000",
 			LastPoll: time.Now(),
 			Values: map[breezy.ParamID][]byte{
@@ -34,15 +34,13 @@ func newUITestHandler(t *testing.T, names ...string) *Handler {
 				0x0088: {0x00}, // filter clean
 				0x0083: {0x00}, // fault none
 			},
-		})
+		}
 	}
-	h := &Handler{
-		State:      state,
-		Devices:    NewDeviceRegistry(devices),
-		Pollers:    map[string]*Poller{},
-		Schedulers: map[string]*Scheduler{},
-	}
-	return h
+	return newTestHandler(t, devices,
+		withState(newTestState(t, snaps)),
+		withPollers(map[string]*Poller{}),
+		withSchedulers(map[string]*Scheduler{}),
+	)
 }
 
 // testSnap returns a minimal Snapshot for use in buildView tests.
@@ -110,12 +108,10 @@ func TestCollectViews_SortedByName(t *testing.T) {
 		"mike":  {ID: "BREEZYMIKE000001", Password: "1111", IP: "10.0.0.3:4000"},
 		"bravo": {ID: "BREEZYBRAVO00001", Password: "1111", IP: "10.0.0.4:4000"},
 	}
-	h := &Handler{
-		State:      NewState(),
-		Devices:    NewDeviceRegistry(devices),
-		Pollers:    map[string]*Poller{},
-		Schedulers: map[string]*Scheduler{},
-	}
+	h := newTestHandler(t, devices,
+		withPollers(map[string]*Poller{}),
+		withSchedulers(map[string]*Scheduler{}),
+	)
 	views := h.collectViews()
 	is.Equal(len(views), 4)
 	want := []string{"alpha", "bravo", "mike", "zulu"}
@@ -133,12 +129,10 @@ func TestCollectViews_Unreachable(t *testing.T) {
 	devices := map[string]DeviceConfig{
 		"ghost": {ID: "BREEZYGHOST00001", Password: "1111", IP: "10.0.0.99:4000"},
 	}
-	h := &Handler{
-		State:      NewState(),
-		Devices:    NewDeviceRegistry(devices),
-		Pollers:    map[string]*Poller{},
-		Schedulers: map[string]*Scheduler{},
-	}
+	h := newTestHandler(t, devices,
+		withPollers(map[string]*Poller{}),
+		withSchedulers(map[string]*Scheduler{}),
+	)
 	views := h.collectViews()
 	is.Equal(len(views), 1)
 	v := views[0]

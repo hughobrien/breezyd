@@ -45,21 +45,14 @@ func newMemHandler(t *testing.T) (*Handler, *breezy.MemClient) {
 		t.Fatalf("NewMemClientFromFile: %v", err)
 	}
 
-	h := &Handler{
-		State: NewState(),
-		Devices: NewDeviceRegistry(map[string]DeviceConfig{
-			"playroom": {ID: srvDeviceID, Password: srvPassword, IP: "127.0.0.1:0"},
-		}),
-		// Pollers is empty so lockDevice returns a no-op unlock — fine for
-		// MemClient which doesn't need the UDP serialisation mutex.
-		Pollers: map[string]*Poller{},
-	}
-	h.ClientFactory = func(name string) (HandlerClient, error) {
+	h := newTestHandler(t, map[string]DeviceConfig{
+		"playroom": {ID: srvDeviceID, Password: srvPassword, IP: "127.0.0.1:0"},
+	}, withClientFactory(func(name string) (HandlerClient, error) {
 		if name == "playroom" {
 			return mc, nil
 		}
 		return nil, fmt.Errorf("unknown device %q", name)
-	}
+	}))
 	return h, mc
 }
 
@@ -262,16 +255,11 @@ func TestAdminUDPBackend(t *testing.T) {
 	is := is.New(t)
 	// Build a handler whose ClientFactory returns a stub that is NOT a
 	// *breezy.MemClient, simulating a UDP backend.
-	h := &Handler{
-		State: NewState(),
-		Devices: NewDeviceRegistry(map[string]DeviceConfig{
-			"playroom": {ID: srvDeviceID, Password: srvPassword, IP: "127.0.0.1:0"},
-		}),
-		Pollers: map[string]*Poller{},
-	}
-	h.ClientFactory = func(name string) (HandlerClient, error) {
+	h := newTestHandler(t, map[string]DeviceConfig{
+		"playroom": {ID: srvDeviceID, Password: srvPassword, IP: "127.0.0.1:0"},
+	}, withClientFactory(func(name string) (HandlerClient, error) {
 		return &udpStubClient{}, nil
-	}
+	}))
 
 	endpoints := []string{
 		"/test/devices/playroom/params/01",

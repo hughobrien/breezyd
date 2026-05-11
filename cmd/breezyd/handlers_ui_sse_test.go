@@ -294,14 +294,13 @@ func TestGetUISSE_NotifyDuringInitialStateLands_Regression75(t *testing.T) {
 // since these tests don't fire a Notify.
 func newSSETestHandlerUnreachable(t *testing.T, name string) *Handler {
 	t.Helper()
-	h := &Handler{
-		State: NewState(),
-		Devices: NewDeviceRegistry(map[string]DeviceConfig{
-			name: {ID: "BREEZY0000000000", Password: "1111", IP: "10.0.0.1:4000"},
-		}),
-		Pollers:    map[string]*Poller{},
-		Schedulers: map[string]*Scheduler{},
+	devices := map[string]DeviceConfig{
+		name: {ID: "BREEZY0000000000", Password: "1111", IP: "10.0.0.1:4000"},
 	}
+	h := newTestHandler(t, devices,
+		withPollers(map[string]*Poller{}),
+		withSchedulers(map[string]*Scheduler{}),
+	)
 	h.PushHub = NewPushHub(func(string, Snapshot) (*PushEvent, error) { return &PushEvent{}, nil })
 	return h
 }
