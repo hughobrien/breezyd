@@ -106,13 +106,11 @@ func timerMode(currentMode, requestedMode string) string {
 	return requestedMode
 }
 
-// manualSliderRow renders the manual fan-pct range input. Reads
-// evt.target.valueAsNumber directly in the @post expression rather than
-// going through a $manualPct signal — value-form data-bind would enforce
-// signal-wins on every card re-render, clobbering the server-rendered
-// value attribute when the data-signals seed lags a poll. The input's
-// own value is the only state needed; let it be the source of truth.
-// See #116.
+// manualSliderRow renders the manual fan-pct range input. Binds to a
+// per-card local signal $_manualPct.<name> (underscore prefix = client-only,
+// not sent in @post bodies) so the val display updates live during drag.
+// The debounced data-on:change still reads evt.target.valueAsNumber directly —
+// no change to wire behaviour. See #26 and #116.
 templ manualSliderRow(v ui.DeviceView) {
 	<div class="slider-row fan-slider-row">
 		<span class="fan-side"></span>
@@ -122,10 +120,11 @@ templ manualSliderRow(v ui.DeviceView) {
 			min="10"
 			max="100"
 			step="1"
+			data-bind={ fmt.Sprintf("_manualPct.%s", v.Name) }
 			value={ fmt.Sprintf("%d", v.ManualPct) }
 			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
 		/>
-		<span class="val">{ fmt.Sprintf("%d%%", v.ManualPct) }</span>
+		<span class="val" data-text={ fmt.Sprintf("$_manualPct.%s + '%%'", v.Name) }></span>
 	</div>
 }
 

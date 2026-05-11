@@ -117,6 +117,17 @@ h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
   margin-bottom: 0.25rem;
 }
 .device-info > summary > .toggle-inline { margin-left: auto; }
+.device-info-wrap {
+    position: relative;
+}
+.device-info > summary {
+    padding-right: 5rem;
+}
+.power-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+}
 .device-info > summary::-webkit-details-marker { display: none; }
 .device-info > summary::before {
   content: "▶";

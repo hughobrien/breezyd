@@ -423,8 +423,8 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 }
 
 // TestRenderBlocks_DetailsOpenBinding pins that every collapsible
-// <details> block in the card pairs `data-attr:open="$detailsOpen.<key>"`
-// on the <details> with `data-on:click="$detailsOpen.<key> = !$detailsOpen.<key>"`
+// <details> block in the card pairs `data-attr:open="$detailsOpen.<name>.<key>"`
+// on the <details> with `data-on:click="$detailsOpen.<name>.<key> = !$detailsOpen.<name>.<key>"`
 // on its <summary>. The pair makes user-toggled and signal-driven open state
 // consistent: the click flips the signal, the browser also toggles the open
 // attribute, and data-attr:open re-applies the (now-matching) signal so
@@ -432,11 +432,17 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 // datastar's MutationObserver-driven re-evaluation runs before the toggle
 // event fires (see #118).
 //
+// Bindings are scoped per-device (e.g. $detailsOpen.attic.sensors) so
+// toggling one card's section does not flip the same section on sibling
+// cards. See #25 and detailsOpenBinding / detailsOpenToggle helpers.
+//
 // See SPECIFICATION-web.md "Open/close binding pair". Regressed once
 // during the htmx → datastar migration; pinning here keeps it caught at
 // unit-test speed.
 func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 	v := loadView(t, "snapshot_settling")
+	// v.Name is "attic" — the device-name prefix in every binding.
+	name := v.Name
 	cases := []struct {
 		block      string
 		wantAttr   string
@@ -445,8 +451,8 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 	}{
 		{
 			block:      "info",
-			wantAttr:   `data-attr:open="$detailsOpen.info"`,
-			wantToggle: `data-on:click="$detailsOpen.info = !$detailsOpen.info"`,
+			wantAttr:   `data-attr:open="$detailsOpen.` + name + `.info"`,
+			wantToggle: `data-on:click="$detailsOpen.` + name + `.info = !$detailsOpen.` + name + `.info"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := InfoDetails(v).Render(context.Background(), &sb)
@@ -455,8 +461,8 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 		},
 		{
 			block:      "sensors",
-			wantAttr:   `data-attr:open="$detailsOpen.sensors"`,
-			wantToggle: `data-on:click="$detailsOpen.sensors = !$detailsOpen.sensors"`,
+			wantAttr:   `data-attr:open="$detailsOpen.` + name + `.sensors"`,
+			wantToggle: `data-on:click="$detailsOpen.` + name + `.sensors = !$detailsOpen.` + name + `.sensors"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := SensorsBlock(v.Name, v.Sensors).Render(context.Background(), &sb)
@@ -465,8 +471,8 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 		},
 		{
 			block:      "energy",
-			wantAttr:   `data-attr:open="$detailsOpen.energy"`,
-			wantToggle: `data-on:click="$detailsOpen.energy = !$detailsOpen.energy"`,
+			wantAttr:   `data-attr:open="$detailsOpen.` + name + `.energy"`,
+			wantToggle: `data-on:click="$detailsOpen.` + name + `.energy = !$detailsOpen.` + name + `.energy"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := EnergyBlock(v.Name, v.Energy).Render(context.Background(), &sb)
@@ -475,8 +481,8 @@ func TestRenderBlocks_DetailsOpenBinding(t *testing.T) {
 		},
 		{
 			block:      "schedule",
-			wantAttr:   `data-attr:open="$detailsOpen.schedule"`,
-			wantToggle: `data-on:click="$detailsOpen.schedule = !$detailsOpen.schedule"`,
+			wantAttr:   `data-attr:open="$detailsOpen.` + name + `.schedule"`,
+			wantToggle: `data-on:click="$detailsOpen.` + name + `.schedule = !$detailsOpen.` + name + `.schedule"`,
 			render: func() (string, error) {
 				var sb strings.Builder
 				err := ScheduleBlock(v.Name, v.Schedule, v.Stale).Render(context.Background(), &sb)
@@ -651,10 +657,10 @@ func TestRenderSensorsBlock_FormattedValues(t *testing.T) {
 //
 // The boolean checkboxes (automode, matchSpeeds) use value-form
 // `data-bind="<key>"`, which preserves casing in the value position.
-// The manual slider doesn't bind to a signal at all — its @post reads
-// evt.target.valueAsNumber directly, sidestepping the value-form
-// "signal-wins overrides server-rendered value" issue when a poll
-// re-renders the card with a fresh value attribute.
+// The manual slider binds to the per-card local signal `_manualPct.<name>`
+// via value-form data-bind (no colon) so the val display updates live
+// during drag. The @post still reads evt.target.valueAsNumber directly
+// — no change to wire behaviour. See #26.
 func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 	v := loadView(t, "snapshot_manual")
 	var sb strings.Builder
@@ -666,16 +672,17 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 		// Booleans use value-form data-bind.
 		`data-bind="automode"`,
 		`data-bind="matchSpeeds"`,
-		// Manual slider reads input value directly via evt.target — no bind.
+		// Manual slider still reads evt.target.valueAsNumber in the @post.
 		`{manual: evt.target.valueAsNumber}`,
+		// Manual slider binds to per-card local signal via value-form (no colon).
+		`data-bind="_manualPct.` + v.Name + `"`,
 	}
 	wantAbsent := []string{
 		// Colon-form for any camelCase signal silently lowercases the key.
 		`data-bind:manualPct`,
 		`data-bind:matchSpeeds`,
 		`data-bind:automode`,
-		// Manual slider must not bind to $manualPct — that would re-introduce
-		// the signal-wins clobber on outer re-renders.
+		// Must not bind to the plain $manualPct (unscoped) signal.
 		`data-bind="manualPct"`,
 		`{manual: $manualPct}`,
 	}
@@ -892,6 +899,9 @@ func TestPresetSliderExpr_ExtractMirrorsCorrectly(t *testing.T) {
 // flags and detailsOpen defaults baked into every card's data-signals
 // seed. The runtime fields (stale / speedMode / etc.) are covered by
 // TestCardSignalsFor_JSON below; this pins the static half.
+//
+// detailsOpen is now namespaced per-device: $detailsOpen.<name>.<section>
+// so toggling one card's section doesn't flip siblings. See #25.
 func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 	v := ui.DeviceView{
 		// Doesn't matter: only static fields under test.
@@ -914,9 +924,14 @@ func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 		t.Errorf("editor: want 0, got %v", got["editor"])
 	}
 
-	details, ok := got["detailsOpen"].(map[string]any)
+	// detailsOpen is now a nested map: {"alpha": {"info":false, ...}}
+	detailsOuter, ok := got["detailsOpen"].(map[string]any)
 	if !ok {
 		t.Fatalf("detailsOpen: want object, got %T", got["detailsOpen"])
+	}
+	details, ok := detailsOuter[v.Name].(map[string]any)
+	if !ok {
+		t.Fatalf("detailsOpen.%s: want object, got %T", v.Name, detailsOuter[v.Name])
 	}
 	wantOpen := map[string]bool{
 		"info":     false,
@@ -926,7 +941,7 @@ func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 	}
 	for k, w := range wantOpen {
 		if details[k] != w {
-			t.Errorf("detailsOpen.%s: want %v, got %v", k, w, details[k])
+			t.Errorf("detailsOpen.%s.%s: want %v, got %v", v.Name, k, w, details[k])
 		}
 	}
 }

@@ -931,6 +931,77 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 	is.True(strings.Contains(bs, "/ui/devices/alpha/schedule")) // body has schedule URL
 }
 
+// ---------- postUISchedEnabled tests ----------
+
+// TestPostUISchedEnabled_Happy verifies the enabled-toggle endpoint flips
+// the scheduler's enabled bit and notifies the PushHub.
+func TestPostUISchedEnabled_Happy(t *testing.T) {
+	is := is.New(t)
+	h := newUIScheduleTestHandler(t)
+	notifies := attachFakePushHub(h)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	// Start enabled=false; flip to true.
+	sch := h.Schedulers["alpha"]
+	snap := sch.Snapshot()
+	is.Equal(snap.Enabled, false) // scheduler starts disabled
+
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/schedule/enabled", map[string]any{"enabled": true})
+	defer func() { _ = resp.Body.Close() }()
+	is.Equal(resp.StatusCode, 200)
+	notifies.assertCalledFor(t, "alpha")
+
+	snap = sch.Snapshot()
+	is.Equal(snap.Enabled, true) // scheduler must be enabled after POST
+}
+
+// TestPostUISchedEnabled_MissingField pins that a missing 'enabled' field
+// returns a 422 SSE error banner.
+func TestPostUISchedEnabled_MissingField(t *testing.T) {
+	is := is.New(t)
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/schedule/enabled", map[string]any{})
+	defer func() { _ = resp.Body.Close() }()
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
+	is.Equal(resp.Header.Get("Datastar-Status"), "422")
+	body, _ := io.ReadAll(resp.Body)
+	assertSSEErrorBody(t, body, "missing")
+}
+
+// TestPostUISchedEnabled_UnknownDevice pins that an unknown device name
+// returns 404.
+func TestPostUISchedEnabled_UnknownDevice(t *testing.T) {
+	is := is.New(t)
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/ui/devices/nope/schedule/enabled", map[string]any{"enabled": true})
+	defer func() { _ = resp.Body.Close() }()
+	is.Equal(resp.StatusCode, 404)
+}
+
+// TestPostUISchedEnabled_NoScheduler pins that a device without a wired
+// scheduler returns a 422 SSE error banner.
+func TestPostUISchedEnabled_NoScheduler(t *testing.T) {
+	is := is.New(t)
+	// newUIWriteTestHandler has no schedulers wired.
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := postJSON(t, srv.URL+"/ui/devices/alpha/schedule/enabled", map[string]any{"enabled": true})
+	defer func() { _ = resp.Body.Close() }()
+	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
+	is.Equal(resp.Header.Get("Datastar-Status"), "422")
+	body, _ := io.ReadAll(resp.Body)
+	assertSSEErrorBody(t, body, "schedule not configured")
+}
+
 // ---------- postUIPreset tests ----------
 
 func TestPostUIPreset_Success(t *testing.T) {

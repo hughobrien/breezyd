@@ -527,6 +527,49 @@ func TestRetry_RetriesCounterIncrements(t *testing.T) {
 	is.Equal(s.Snapshot().LastApply.Retries, 2) // Retries=2 after second retry
 }
 
+// TestScheduler_SetEnabled pins that SetEnabled flips only the enabled bit
+// and persists without touching entries, firedAt, retry, or lastApply.
+func TestScheduler_SetEnabled(t *testing.T) {
+	is := is.New(t)
+	s, _ := newSchedTest(t)
+
+	// Seed some entries and state to verify they survive SetEnabled.
+	entry := ScheduleEntry{At: 480, Action: "regeneration", Pct: 60}
+	is.NoErr(s.Replace(true, []ScheduleEntry{entry}))
+
+	// Manually set firedAt and lastApply to confirm they aren't touched.
+	s.mu.Lock()
+	s.firedAt = map[ScheduleTime]time.Time{480: atHM(8, 0)}
+	s.lastApply = &LastApply{At: 480, Fired: atHM(8, 0), OK: true}
+	s.mu.Unlock()
+
+	// Disable.
+	is.NoErr(s.SetEnabled(false))
+
+	s.mu.Lock()
+	isEnabled := s.enabled
+	entriesLen := len(s.entries)
+	firedAtLen := len(s.firedAt)
+	lastApplyNil := s.lastApply == nil
+	retryNil := s.retry == nil
+	s.mu.Unlock()
+
+	is.Equal(isEnabled, false)    // enabled must be false after SetEnabled(false)
+	is.Equal(entriesLen, 1)       // entries must not change
+	is.Equal(firedAtLen, 1)       // firedAt must not change
+	is.Equal(lastApplyNil, false) // lastApply must not change
+	is.Equal(retryNil, true)      // retry was nil and stays nil
+
+	// Re-enable.
+	is.NoErr(s.SetEnabled(true))
+
+	s.mu.Lock()
+	isEnabled = s.enabled
+	s.mu.Unlock()
+
+	is.Equal(isEnabled, true) // enabled must be true after SetEnabled(true)
+}
+
 // TestScheduler_ReplaceClearsInflightRetry asserts the spec contract that
 // editing the schedule mid-retry drops the in-flight retry (and resets
 // lastApply, since a fresh schedule starts fresh — no stale alert banner).
