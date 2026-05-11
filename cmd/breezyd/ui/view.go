@@ -33,8 +33,14 @@ type DeviceView struct {
 	Preset2 PresetView
 	Preset3 PresetView
 
-	SpecialMode          string // "off" | "night" | "turbo"
-	SpecialModeRemaining string // human-readable, empty when SpecialMode=="off"
+	SpecialMode                 string // "off" | "night" | "turbo"
+	SpecialModeRemaining        string // human-readable, empty when SpecialMode=="off"
+	SpecialModeRemainingSeconds int    // raw seconds; 0 when SpecialMode=="off"
+	// Configured per-mode timer durations (params 0x0302 night, 0x0303 turbo).
+	// Used by the timer-chip click handler to seed the countdown optimistically
+	// before the server's first poll catches up.
+	NightDurationSeconds int
+	TurboDurationSeconds int
 
 	FirmwareVersion string // "X.YY" or "—"
 	FirmwareDate    string // "YYYY-MM-DD" or "—"
@@ -150,27 +156,33 @@ type LastApplyView struct {
 // PR #215). Bindings reference $<signal>.<deviceName> rather than the
 // bare $<signal>.
 type CardSignals struct {
-	Stale        map[string]bool   `json:"stale"`
-	Power        map[string]bool   `json:"power"`
-	SpeedMode    map[string]string `json:"speedMode"`
-	AirflowMode  map[string]string `json:"airflowMode"`
-	SpecialMode  map[string]string `json:"specialMode"`
-	Heater       map[string]bool   `json:"heater"`
-	LastPollAge  map[string]string `json:"lastPollAge"`
-	SensorsAlert map[string]bool   `json:"sensorsAlert"`
+	Stale                       map[string]bool   `json:"stale"`
+	Power                       map[string]bool   `json:"power"`
+	SpeedMode                   map[string]string `json:"speedMode"`
+	AirflowMode                 map[string]string `json:"airflowMode"`
+	SpecialMode                 map[string]string `json:"specialMode"`
+	SpecialModeRemainingSeconds map[string]int    `json:"specialModeRemainingSeconds"`
+	NightDurationSeconds        map[string]int    `json:"nightDurationSeconds"`
+	TurboDurationSeconds        map[string]int    `json:"turboDurationSeconds"`
+	Heater                      map[string]bool   `json:"heater"`
+	LastPollAge                 map[string]string `json:"lastPollAge"`
+	SensorsAlert                map[string]bool   `json:"sensorsAlert"`
 }
 
 // CardSignalsFor extracts CardSignals from a DeviceView.
 func CardSignalsFor(v DeviceView) CardSignals {
 	return CardSignals{
-		Stale:        map[string]bool{v.Name: v.Stale},
-		Power:        map[string]bool{v.Name: v.Power},
-		SpeedMode:    map[string]string{v.Name: v.SpeedMode},
-		AirflowMode:  map[string]string{v.Name: v.AirflowMode},
-		SpecialMode:  map[string]string{v.Name: v.SpecialMode},
-		Heater:       map[string]bool{v.Name: v.Heater},
-		LastPollAge:  map[string]string{v.Name: v.LastPollAge},
-		SensorsAlert: map[string]bool{v.Name: v.Sensors.AlertActive},
+		Stale:                       map[string]bool{v.Name: v.Stale},
+		Power:                       map[string]bool{v.Name: v.Power},
+		SpeedMode:                   map[string]string{v.Name: v.SpeedMode},
+		AirflowMode:                 map[string]string{v.Name: v.AirflowMode},
+		SpecialMode:                 map[string]string{v.Name: v.SpecialMode},
+		SpecialModeRemainingSeconds: map[string]int{v.Name: v.SpecialModeRemainingSeconds},
+		NightDurationSeconds:        map[string]int{v.Name: v.NightDurationSeconds},
+		TurboDurationSeconds:        map[string]int{v.Name: v.TurboDurationSeconds},
+		Heater:                      map[string]bool{v.Name: v.Heater},
+		LastPollAge:                 map[string]string{v.Name: v.LastPollAge},
+		SensorsAlert:                map[string]bool{v.Name: v.Sensors.AlertActive},
 	}
 }
 

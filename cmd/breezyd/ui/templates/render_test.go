@@ -1048,11 +1048,13 @@ func TestRenderControlsBlock_ReactiveAriaPressed(t *testing.T) {
 	got := sb.String()
 	name := v.Name
 	wantContains := []string{
-		// SPEED row
-		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;preset1&#39; ? &#39;true&#39; : &#39;false&#39;"`,
-		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;preset2&#39; ? &#39;true&#39; : &#39;false&#39;"`,
-		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;preset3&#39; ? &#39;true&#39; : &#39;false&#39;"`,
-		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;manual&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		// SPEED row — gated on $specialMode === 'off' so a running timer
+		// de-highlights the previously-selected speed chip. templ escapes
+		// the && to &amp;&amp; in dynamic attribute values.
+		`data-attr:aria-pressed="$specialMode.` + name + ` === &#39;off&#39; &amp;&amp; $speedMode.` + name + ` === &#39;preset1&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$specialMode.` + name + ` === &#39;off&#39; &amp;&amp; $speedMode.` + name + ` === &#39;preset2&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$specialMode.` + name + ` === &#39;off&#39; &amp;&amp; $speedMode.` + name + ` === &#39;preset3&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$specialMode.` + name + ` === &#39;off&#39; &amp;&amp; $speedMode.` + name + ` === &#39;manual&#39; ? &#39;true&#39; : &#39;false&#39;"`,
 		// MODE row (rendered because snapshot_manual is SpeedMode=manual + SpecialMode=off)
 		`data-attr:aria-pressed="$airflowMode.` + name + ` === &#39;ventilation&#39; ? &#39;true&#39; : &#39;false&#39;"`,
 		`data-attr:aria-pressed="$airflowMode.` + name + ` === &#39;regeneration&#39; ? &#39;true&#39; : &#39;false&#39;"`,
@@ -1097,9 +1099,16 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 	got := sb.String()
 	name := v.Name
 	wantContains := []string{
-		// Timer toggle: reads $specialMode signal, posts "off" if already in this mode.
-		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: $specialMode.` + name + ` === &#39;night&#39; ? &#39;off&#39; : &#39;night&#39;}})`,
-		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: $specialMode.` + name + ` === &#39;turbo&#39; ? &#39;off&#39; : &#39;turbo&#39;}})`,
+		// Timer toggle: reads the active state from $specialMode, posts
+		// "off" if already in this mode. Also seeds $specialModeRemainingSeconds
+		// from the relevant per-mode duration signal so the countdown
+		// readout appears optimistically before the next poll.
+		`var active = $specialMode.` + name + ` === &#39;night&#39;`,
+		`$specialModeRemainingSeconds.` + name + ` = $nightDurationSeconds.` + name,
+		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;night&#39;}})`,
+		`var active = $specialMode.` + name + ` === &#39;turbo&#39;`,
+		`$specialModeRemainingSeconds.` + name + ` = $turboDurationSeconds.` + name,
+		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;turbo&#39;}})`,
 		// Heater toggle: posts inverse of $heater signal.
 		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: !$heater.` + name + `}})`,
 	}
