@@ -48,14 +48,14 @@ templ InfoDetails(v ui.DeviceView) {
 	>
 		<summary data-on:click="$detailsOpen.info = !$detailsOpen.info">
 			<h2>{ v.Name }</h2>
-			<button
-				type="button"
-				class="toggle toggle-inline"
-				data-on:click__stop={ powerButtonExpr(v) }
-				if v.Stale { disabled }
-				aria-pressed={ boolAttr(v.Power) }
-			>power</button>
 		</summary>
+		<button
+			type="button"
+			class="power-toggle"
+			data-on:click={ powerButtonExpr(v) }
+			if v.Stale { disabled }
+			aria-pressed={ boolAttr(v.Power) }
+		>power</button>
 		@kvRow("ip", v.IP)
 		@kvRow("serial", v.Serial)
 		@kvRow("firmware version", v.FirmwareVersion)
