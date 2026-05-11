@@ -97,7 +97,8 @@ test.describe("rendering", () => {
   test("details summary click toggles open state (round-trip)", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
-    const info = card.locator('details[data-block="info"]');
+    // data-block="info" sits on the wrap div (not the <details>) since #32.
+    const info = card.locator('.device-info-wrap > details.device-info');
     // Defaults closed (initialCardSignals seeds detailsOpen.info=false).
     await expect(info).not.toHaveAttribute("open", "");
 
