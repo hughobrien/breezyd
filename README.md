@@ -459,40 +459,25 @@ only if you want the daemon polling in the background.
 
 ### 4. (Optional) Run breezyd as a system service
 
-Create a system user, drop the daemon's config under `/etc/breezyd/`,
-and add a tiny `/etc/breezy/config.toml` so users get auto-detect:
+Two ready-to-customize files live in [`examples/`](examples/):
+
+- [`examples/breezyd.toml`](examples/breezyd.toml) — daemon config template with `[daemon]`, three device blocks, and a commented-out `[homekit]` section.
+- [`examples/breezyd.service`](examples/breezyd.service) — systemd unit mirroring the hardening the NixOS module applies.
+
+Drop the daemon's config under `/etc/breezyd/`, create the service user, and (optionally) add a CLI fallback config so anyone on the host gets auto-detect:
 
 ```sh
 # Create the daemon's user and config directory.
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin breezyd
 sudo install -d -m 0750 -o breezyd -g breezyd /etc/breezyd
 
-# Write the daemon's config (with passwords). Mode 0600.
-sudo tee /etc/breezyd/breezyd.toml <<'EOF' >/dev/null
-[daemon]
-listen        = "127.0.0.1:9876"
-poll_interval = "30s"
-discovery     = "on-start"
-password      = "huffpuff"
+# Copy the example config, edit for your devices, lock it down (mode 0600).
+sudo install -m 0600 -o breezyd -g breezyd examples/breezyd.toml /etc/breezyd/
+sudo $EDITOR /etc/breezyd/breezyd.toml         # set passwords + real device IDs
 
-[devices.bedroom]
-id = "BREEZY00000000A0"
-ip = "192.168.1.148"
-
-[devices.office]
-id = "BREEZY00000000A1"
-ip = "192.168.1.152"
-
-[devices.playroom]
-id = "BREEZY00000000A2"
-ip = "192.168.1.160"
-EOF
-sudo chown breezyd:breezyd /etc/breezyd/breezyd.toml
-sudo chmod 0600 /etc/breezyd/breezyd.toml
-
-# Write the CLI's system fallback (no passwords). Mode 0644 so any
-# user on the host can read it; the CLI tries this when there's no
-# ~/.config/breezy/config.toml.
+# Optional: CLI's system fallback (no passwords). Mode 0644 — any user
+# on the host can read it; the CLI uses this when ~/.config/breezy/config.toml
+# is absent.
 sudo install -d -m 0755 /etc/breezy
 sudo tee /etc/breezy/config.toml <<'EOF' >/dev/null
 [daemon]
@@ -500,49 +485,10 @@ listen = "127.0.0.1:9876"
 EOF
 ```
 
-Save the following as `/etc/systemd/system/breezyd.service` (the
-hardening mirrors what the NixOS module sets up):
+Install the systemd unit:
 
-```ini
-[Unit]
-Description=Vents Twinfresh Breezy / Elite 160 Pro daemon
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-ExecStart=/usr/local/bin/breezyd --config /etc/breezyd/breezyd.toml
-User=breezyd
-Group=breezyd
-Restart=on-failure
-RestartSec=5s
-
-# Hardening — breezyd only needs outbound UDP and an HTTP listener.
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-ProtectControlGroups=true
-ProtectClock=true
-ProtectHostname=true
-ProtectProc=invisible
-# AF_NETLINK is needed by Go's net.Interfaces() on Linux; without it
-# the HomeKit bridge runs but advertises on zero interfaces (mDNS-deaf).
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-LockPersonality=true
-MemoryDenyWriteExecute=true
-SystemCallArchitectures=native
-SystemCallFilter=@system-service
-SystemCallFilter=~@privileged
-
-[Install]
-WantedBy=multi-user.target
+```sh
+sudo install -m 0644 examples/breezyd.service /etc/systemd/system/breezyd.service
 ```
 
 Then enable and start:
