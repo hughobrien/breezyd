@@ -231,9 +231,9 @@ func presetBtn(v ui.DeviceView, n int) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("$speedMode === 'preset%d' ? 'true' : 'false'", n))
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("$speedMode.%s === 'preset%d' ? 'true' : 'false'", v.Name, n))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 68, Col: 89}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 68, Col: 100}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -872,9 +872,9 @@ func presetSliderExpr(name string, n int, side string) string {
 			`else if (sup >= 10 && ext >= 10) implied = 'regeneration'; `+
 			`else if (sup === 0 && ext >= 10) implied = 'extract'; `+
 			`else if (sup >= 10 && ext === 0) implied = 'supply'; `+
-			`if (implied && $speedMode === 'preset%d' && $airflowMode !== implied) `+
+			`if (implied && $speedMode.%s === 'preset%d' && $airflowMode.%s !== implied) `+
 			`@post('/ui/devices/%s/mode', {payload: {mode: implied}});`,
-		setSelf, setMatch, n, n, name, n, n, name,
+		setSelf, setMatch, n, n, name, n, name, n, name, name,
 	)
 }
 

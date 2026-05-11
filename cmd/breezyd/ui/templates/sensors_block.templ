@@ -13,7 +13,7 @@ templ SensorsBlock(name string, s ui.SensorsView) {
 		id={ "sensors-" + name }
 		class="block sensors"
 		data-block="sensors"
-		data-class:alert="$sensorsAlert"
+		data-class:alert={ "$sensorsAlert." + name }
 		data-attr:open={ detailsOpenBinding(name, "sensors") }
 	>
 		<summary data-on:click={ detailsOpenToggle(name, "sensors") }><h3>Sensors</h3></summary>
