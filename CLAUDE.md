@@ -118,6 +118,18 @@ Editing happens exclusively from the web UI via `GET`/`PUT /v1/devices/{name}/sc
 - Residual edge case: if the daemon starts during the missing hour (spring-forward), entries in that hour are silently skipped. Matches the no-catch-up rule.
 - Non-1h-DST zones (e.g. Lord Howe's 30-min): the firedness check uses calendar-day comparison, so any DST offset de-duplicates correctly.
 
+### Daily RTC sync (always on)
+
+Each configured device runs an `RTCSyncer` goroutine (in
+`cmd/breezyd/rtc_sync.go`) that writes the device's RTC (params
+`0x6F` + `0x70`) once shortly after daemon startup and then daily at
+04:00 local time. Closes the panel-display drift introduced by DST
+transitions, battery replacement (CR2032 at `0x24`), and long-term
+RTC oscillator drift. Per-device, no persisted state, no
+configuration knob — the cycle is fully derived from `time.Now()`
+and restarts cleanly on daemon restart. Failures (UDP timeout, auth)
+log a warning and continue; next 04:00 retries naturally.
+
 ### Cache vs. passthrough
 
 - `GET /v1/devices`, `GET /v1/devices/{name}`, `/metrics` → in-memory cache populated by the poller. Reads are cheap and never block on UDP.
