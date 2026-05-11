@@ -16,7 +16,7 @@
     perSystem = forEachSystem (system: let
       pkgs = import nixpkgs { inherit system; };
 
-      version = "1.8.1";
+      version = "2.0.0";
       commitOrDirty = if self ? rev then self.rev else "dirty";
 
       breezyd-pkg = pkgs.buildGoModule {
