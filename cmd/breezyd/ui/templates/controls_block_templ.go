@@ -671,14 +671,16 @@ func heaterClickExpr(name string) string {
 // manualSliderRow renders the manual fan-pct range input. Binds to a
 // per-card local signal $_manualPct.<name> (underscore prefix = client-only,
 // not sent in @post bodies) so the val display updates live during drag.
-// The debounced data-on:change still reads evt.target.valueAsNumber directly —
-// no change to wire behaviour. See #26 and #116.
+// See #26 and #116.
 //
 // The pct readout to the right of the slider is a number input rather
 // than a span: two-way data-bind to the same $_manualPct.<name> signal
 // keeps the slider thumb and the typed value in sync, so the user can
 // click & type a precise value when the slider's coarseness is the
-// wrong tool. data-on:change fires the same POST as the slider.
+// wrong tool. data-on:change fires the same handler as the slider —
+// manualChangeExpr clamps to [10, 100] before posting because HTML5
+// number inputs don't constrain free-typed values (the min/max attrs
+// only validate on form-submit, and there's no form here).
 func manualSliderRow(v ui.DeviceView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -707,7 +709,7 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("_manualPct.%s", v.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 217, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 219, Col: 51}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 		if templ_7745c5c3_Err != nil {
@@ -720,7 +722,7 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%d", v.ManualPct))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 218, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 220, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 		if templ_7745c5c3_Err != nil {
@@ -731,9 +733,9 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var30 string
-		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}"))
+		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(manualChangeExpr(v.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 219, Col: 120}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 221, Col: 60}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 		if templ_7745c5c3_Err != nil {
@@ -746,7 +748,7 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("_manualPct.%s", v.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 228, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 230, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 		if templ_7745c5c3_Err != nil {
@@ -759,7 +761,7 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 		var templ_7745c5c3_Var32 string
 		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%d", v.ManualPct))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 229, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 231, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 		if templ_7745c5c3_Err != nil {
@@ -770,9 +772,9 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var33 string
-		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue(postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}"))
+		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue(manualChangeExpr(v.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 230, Col: 121}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 232, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 		if templ_7745c5c3_Err != nil {
@@ -784,6 +786,29 @@ func manualSliderRow(v ui.DeviceView) templ.Component {
 		}
 		return nil
 	})
+}
+
+// manualChangeExpr clamps the input/slider value to [10, 100] before
+// posting and reflects the clamped value into the bound signal so the
+// slider thumb and number readout both snap visually to a legal value.
+// The slider's native min/max already constrain drag, so this is a
+// no-op there; it matters when the user types e.g. "5" or "150" into
+// the number-input variant where HTML5 min/max only fire on form
+// submit (and there's no form here).
+func manualChangeExpr(name string) string {
+	post := postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/speed", name),
+		"{manual: v}",
+	)
+	return fmt.Sprintf(
+		"var v = parseInt(evt.target.value, 10); "+
+			"if (isNaN(v)) v = 10; "+
+			"v = Math.max(10, Math.min(100, v)); "+
+			"evt.target.value = v; "+
+			"$_manualPct.%s = v; "+
+			"%s",
+		name, post,
+	)
 }
 
 // manualPaneInitialStyle returns the pre-datastar-paint style for the
@@ -881,7 +906,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var35 string
 		templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%d", n))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 307, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 332, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 		if templ_7745c5c3_Err != nil {
@@ -894,7 +919,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var36 string
 		templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("$editor.%s === %d", v.Name, n))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 308, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 333, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 		if templ_7745c5c3_Err != nil {
@@ -907,7 +932,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("automode.%s", v.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 311, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 336, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 		if templ_7745c5c3_Err != nil {
@@ -930,7 +955,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("matchSpeeds.%s", v.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 315, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 340, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 		if templ_7745c5c3_Err != nil {
@@ -953,7 +978,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderValue(p.Supply))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 326, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 351, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 		if templ_7745c5c3_Err != nil {
@@ -966,7 +991,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("preset.%s.%d.supply", v.Name, n))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 327, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 352, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 		if templ_7745c5c3_Err != nil {
@@ -979,7 +1004,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(matchSpeedsMirrorExpr(v.Name, n, "supply"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 328, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 353, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 		if templ_7745c5c3_Err != nil {
@@ -992,7 +1017,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderExpr(v.Name, n, "supply"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 329, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 354, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 		if templ_7745c5c3_Err != nil {
@@ -1015,7 +1040,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var43 string
 		templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderValue(p.Supply))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 339, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 364, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 		if templ_7745c5c3_Err != nil {
@@ -1028,7 +1053,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var44 string
 		templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("preset.%s.%d.supply", v.Name, n))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 340, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 365, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 		if templ_7745c5c3_Err != nil {
@@ -1041,7 +1066,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(matchSpeedsMirrorExpr(v.Name, n, "supply"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 341, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 366, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 		if templ_7745c5c3_Err != nil {
@@ -1054,7 +1079,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var46 string
 		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderExpr(v.Name, n, "supply"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 342, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 367, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 		if templ_7745c5c3_Err != nil {
@@ -1077,7 +1102,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var47 string
 		templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderValue(p.Extract))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 355, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 380, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var47)
 		if templ_7745c5c3_Err != nil {
@@ -1090,7 +1115,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var48 string
 		templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("preset.%s.%d.extract", v.Name, n))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 356, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 381, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 		if templ_7745c5c3_Err != nil {
@@ -1103,7 +1128,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(matchSpeedsMirrorExpr(v.Name, n, "extract"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 357, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 382, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 		if templ_7745c5c3_Err != nil {
@@ -1116,7 +1141,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var50 string
 		templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderExpr(v.Name, n, "extract"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 358, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 383, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 		if templ_7745c5c3_Err != nil {
@@ -1139,7 +1164,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var51 string
 		templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderValue(p.Extract))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 368, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 393, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 		if templ_7745c5c3_Err != nil {
@@ -1152,7 +1177,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var52 string
 		templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("preset.%s.%d.extract", v.Name, n))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 369, Col: 63}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 394, Col: 63}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 		if templ_7745c5c3_Err != nil {
@@ -1165,7 +1190,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var53 string
 		templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue(matchSpeedsMirrorExpr(v.Name, n, "extract"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 370, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 395, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 		if templ_7745c5c3_Err != nil {
@@ -1178,7 +1203,7 @@ func presetEditor(v ui.DeviceView, n int, p ui.PresetView) templ.Component {
 		var templ_7745c5c3_Var54 string
 		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue(presetSliderExpr(v.Name, n, "extract"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 371, Col: 76}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/controls_block.templ`, Line: 396, Col: 76}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 		if templ_7745c5c3_Err != nil {
@@ -1294,7 +1319,10 @@ func presetSliderExpr(name string, n int, side string) string {
 	)
 	return fmt.Sprintf(
 		`let raw = parseInt(evt.target.value, 10); `+
+			`if (isNaN(raw)) raw = 0; `+
+			`raw = Math.max(0, Math.min(100, raw)); `+
 			`let v = (raw > 0 && raw < 10) ? 0 : raw; `+
+			`evt.target.value = v; `+
 			`%s %s `+
 			`let sup = $preset.%s[%d].supply, ext = $preset.%s[%d].extract; `+
 			`if (sup >= 10 && ext >= 10) `+
