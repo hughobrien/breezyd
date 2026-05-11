@@ -73,9 +73,10 @@ templ InfoDetails(v ui.DeviceView) {
 		<button
 			type="button"
 			class="power-toggle"
+			data-class:attention={ "$_attention." + v.Name }
 			data-on:click={ powerButtonExpr(v) }
 			if v.Stale { disabled }
-			aria-pressed={ boolAttr(v.Power) }
+			data-attr:aria-pressed={ fmt.Sprintf("$power.%s ? 'true' : 'false'", v.Name) }
 		>power</button>
 	</div>
 }
@@ -148,11 +149,14 @@ func detailsOpenToggle(deviceName, section string) string {
 }
 
 // powerButtonExpr produces the data-on:click expression for the power
-// toggle. POSTs the inverse of the current power state.
+// toggle. POSTs the inverse of the current $power.<name> signal. Reads
+// the live signal rather than v.Power at template-render time so a
+// rapid double-click can't fire two same-direction toggles before the
+// info block patch refreshes.
 func powerButtonExpr(v ui.DeviceView) string {
-	return postActionExpr(
-		fmt.Sprintf("/ui/devices/%s/power", v.Name),
-		fmt.Sprintf("{on: %t}", !v.Power),
+	return fmt.Sprintf(
+		"@post('/ui/devices/%s/power', {payload: {on: !$power.%s}})",
+		v.Name, v.Name,
 	)
 }
 
@@ -189,7 +193,9 @@ func initialCardSignals(v ui.DeviceView) string {
 			v.Name: {"info": false, "sensors": true, "energy": false, "schedule": false},
 		},
 		"_manualPct":   map[string]int{v.Name: v.ManualPct},
+		"_attention":   map[string]bool{v.Name: false},
 		"stale":        map[string]bool{v.Name: v.Stale},
+		"power":        map[string]bool{v.Name: v.Power},
 		"speedMode":    map[string]string{v.Name: v.SpeedMode},
 		"airflowMode":  map[string]string{v.Name: v.AirflowMode},
 		"specialMode":  map[string]string{v.Name: v.SpecialMode},

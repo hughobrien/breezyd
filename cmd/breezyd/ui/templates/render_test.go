@@ -1128,6 +1128,7 @@ func TestCardSignalsFor_JSON(t *testing.T) {
 	v := ui.DeviceView{
 		Name:        "alpha",
 		Stale:       true,
+		Power:       true,
 		SpeedMode:   "manual",
 		AirflowMode: "regeneration",
 		SpecialMode: "night",
@@ -1173,6 +1174,9 @@ func TestCardSignalsFor_JSON(t *testing.T) {
 	}
 	if got := getBool("stale"); got != true {
 		t.Errorf("stale.%s: got %v, want true", v.Name, got)
+	}
+	if got := getBool("power"); got != true {
+		t.Errorf("power.%s: got %v, want true", v.Name, got)
 	}
 	if got := getStr("speedMode"); got != "manual" {
 		t.Errorf("speedMode.%s: got %q, want %q", v.Name, got, "manual")

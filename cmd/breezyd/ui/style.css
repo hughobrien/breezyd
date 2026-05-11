@@ -178,7 +178,12 @@ details.block.schedule > summary > h3 { margin: 0; }
    own line above the block-level <h1>, so the title visually takes two
    rows. Hide the marker entirely (this is a click-to-open dropdown, not
    a content disclosure) and shrink the summary to its content width so
-   it doesn't span the page. */
+   it doesn't span the page. Margin-bottom gives a breathing gap between
+   the breezyd title's descenders and the top edge of the first device
+   card (without it the y in "breezyd" sits flush against the card). */
+.theme-picker {
+  margin-bottom: 0.75rem;
+}
 .theme-picker > summary {
   cursor: pointer;
   list-style: none;
@@ -240,7 +245,14 @@ details.block.schedule > summary > h3 { margin: 0; }
 .ctrl { margin: 0.4rem 0; }
 .ctrl-label { color: var(--fg-weak); font-size: 0.75rem; margin-bottom: 0.15rem; display: block; }
 .seg { display: flex; gap: 0.25rem; flex-wrap: wrap; }
-.seg button, .toggle {
+/* .power-toggle is grouped with .seg button + .toggle so the on-state
+   accent (var(--accent), green/teal) reaches it. Pre-PR #215 the power
+   button was class="toggle toggle-inline" and matched
+   .toggle[aria-pressed="true"] directly; the a11y refactor that moved
+   it out of <summary> renamed it to .power-toggle and the styling
+   silently dropped, leaving it as a UA-default white button regardless
+   of v.Power. */
+.seg button, .toggle, .power-toggle {
   font-family: inherit; font-size: 0.85rem;
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--border-input); background: var(--bg-button);
@@ -261,25 +273,44 @@ details.block.schedule > summary > h3 { margin: 0; }
    split the .toggle:hover rule's background:#eee outranked the
    aria-pressed coloured background and active buttons went grey. */
 .seg button:hover:not(:disabled):not([aria-pressed="true"]),
-.toggle:hover:not(:disabled):not([aria-pressed="true"]) {
+.toggle:hover:not(:disabled):not([aria-pressed="true"]),
+.power-toggle:hover:not(:disabled):not([aria-pressed="true"]) {
   background: var(--bg-hover); border-color: var(--border-hover);
 }
 .seg button[aria-pressed="true"]:hover:not(:disabled),
-.toggle[aria-pressed="true"]:hover:not(:disabled) {
+.toggle[aria-pressed="true"]:hover:not(:disabled),
+.power-toggle[aria-pressed="true"]:hover:not(:disabled) {
   box-shadow: 0 1px 3px var(--shadow);
 }
 .seg button:focus-visible,
-.toggle:focus-visible        { outline: 2px solid var(--focus); outline-offset: 1px; }
+.toggle:focus-visible,
+.power-toggle:focus-visible  { outline: 2px solid var(--focus); outline-offset: 1px; }
 /* #276 (vs the lighter #4a7) clears WCAG AA contrast against white. */
 .seg button[aria-pressed="true"],
-.toggle[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent-border); }
+.toggle[aria-pressed="true"],
+.power-toggle[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent-border); }
 /* The Heater toggle reads as "active heat" — use red instead of the
-   default green so it's visually distinct from the Power toggle. */
+   default green so it's visually distinct from the Power toggle. The
+   data-action="heater" attribute is what selects this rule; the heater
+   button must carry it for the override to land. */
 .toggle[data-action="heater"][aria-pressed="true"] {
   background: var(--heater-active); border-color: var(--heater-border);
 }
 .seg button:disabled,
-.toggle:disabled             { opacity: 0.5; cursor: not-allowed; }
+.toggle:disabled,
+.power-toggle:disabled       { opacity: 0.5; cursor: not-allowed; }
+/* Attention glow: a fellow control was clicked while the device was off.
+   The click handler (attentionIfOff in controls_block.templ) flips
+   $_attention.<name> true for 1.5s and the power button's
+   data-class:attention picks that up. Pulses an accent-tinted ring
+   around the button until the signal flips back, then naturally stops. */
+.power-toggle.attention {
+  animation: power-attention 0.6s ease-in-out infinite alternate;
+}
+@keyframes power-attention {
+  from { box-shadow: 0 0 0 0 var(--accent); }
+  to   { box-shadow: 0 0 0 4px var(--accent); }
+}
 .slider-row { display: flex; gap: 0.5rem; align-items: center; }
 .slider-row input[type=range] { flex: 1; }
 /* Symmetric spacer on the left so the slider track sits centered in the
