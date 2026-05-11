@@ -36,6 +36,12 @@ var reservedNames = map[string]bool{
 // periodicRe matches the `periodic:<duration>` discovery form.
 var periodicRe = regexp.MustCompile(`^periodic:(.+)$`)
 
+// deviceNameRe enforces that device names are valid JS identifier segments.
+// Device names appear as datastar signal-path segments in the dashboard
+// (e.g. $detailsOpen.<name>.sensors). Names with hyphens/dots would silently
+// break datastar's path parsing. See docs/superpowers/specs/2026-05-11-dashboard-bugfixes-design.md.
+var deviceNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // Config is the top-level config structure.
 type Config struct {
 	Daemon  Daemon
@@ -227,6 +233,14 @@ func Load(path string) (*Config, error) {
 		if reservedNames[strings.ToLower(name)] {
 			return nil, fmt.Errorf("config: device name %q is reserved "+
 				"(collides with global CLI verb)", name)
+		}
+		// Device names appear as datastar signal-path segments in the dashboard
+		// (e.g. $detailsOpen.<name>.sensors). Restrict to a JS-identifier-safe
+		// shape so paths don't accidentally tokenise into arithmetic or nested
+		// access. See docs/superpowers/specs/2026-05-11-dashboard-bugfixes-design.md.
+		if !deviceNameRe.MatchString(name) {
+			return nil, fmt.Errorf("config: device name %q must be a valid identifier "+
+				"(letters/digits/underscore; starts non-digit)", name)
 		}
 		if len(rd.ID) != 16 {
 			return nil, fmt.Errorf("config: device %q: id must be exactly 16 "+

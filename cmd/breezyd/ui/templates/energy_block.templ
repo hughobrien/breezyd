@@ -15,9 +15,9 @@ templ EnergyBlock(name string, ev *ui.EnergyView) {
 			id={ "energy-" + name }
 			class="block energy"
 			data-block="energy"
-			data-attr:open="$detailsOpen.energy"
+			data-attr:open={ detailsOpenBinding(name, "energy") }
 		>
-			<summary data-on:click="$detailsOpen.energy = !$detailsOpen.energy"><h3>ENERGY</h3></summary>
+			<summary data-on:click={ detailsOpenToggle(name, "energy") }><h3>ENERGY</h3></summary>
 			if ev.Error != "" {
 				<div class="warn">{ ev.Error }</div>
 			} else {

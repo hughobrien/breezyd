@@ -16,9 +16,9 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 			id={ "schedule-" + name }
 			class={ "block", "schedule", templ.KV("alert", s.Alert) }
 			data-block="schedule"
-			data-attr:open="$detailsOpen.schedule"
+			data-attr:open={ detailsOpenBinding(name, "schedule") }
 		>
-			<summary data-on:click="$detailsOpen.schedule = !$detailsOpen.schedule"><h3>SCHEDULE</h3></summary>
+			<summary data-on:click={ detailsOpenToggle(name, "schedule") }><h3>SCHEDULE</h3></summary>
 			<div class="schedule-toolbar">
 				<label>
 					<input
