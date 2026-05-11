@@ -34,7 +34,7 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 			</summary>
 			<form>
 				<div class="schedule-toolbar">
-					<label>
+					<label data-on:click={ scheduleEnabledClickExpr(name) }>
 						<input
 							type="checkbox"
 							name="enabled"
@@ -58,7 +58,8 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 				<div class="schedule-addrow">
 					<button
 						type="button"
-						class="btn-inline"
+						class={ "btn-inline" }
+						data-class:attention={ fmt.Sprintf("$_addRowAttn.%s", name) }
 						data-on:click={ scheduleAddRowExpr(name) }
 						if stale { disabled }
 					>+ add row</button>
@@ -157,6 +158,27 @@ func scheduleActionChangeExpr(name string) string {
 		`if (evt.target.value === 'off') { pct.value = ''; pct.setAttribute('readonly', ''); } ` +
 		`else { pct.value = pct.dataset.origPct; pct.removeAttribute('readonly'); } ` +
 		scheduleSubmitExpr(name)
+}
+
+// scheduleEnabledClickExpr fires on every click of the "enabled"
+// label, including when the inner checkbox is disabled (browsers
+// don't dispatch click to a disabled input, but the wrapping label
+// still gets the click). When the checkbox is disabled — which today
+// means len(entries) == 0 per the forced-off invariant — flip
+// $_addRowAttn so the + add row button glows briefly, pointing the
+// user at the action they need to take before they can enable. When
+// the checkbox is enabled, the data-on:change handler on the input
+// takes over via the native label→input click forwarding.
+//
+// Mirrors the attentionIfOff pattern that glows the power button
+// when a non-power control is clicked while the device is off.
+func scheduleEnabledClickExpr(name string) string {
+	return fmt.Sprintf(
+		"if (evt.currentTarget.querySelector('input[type=checkbox]').disabled) { "+
+			"$_addRowAttn.%s = true; "+
+			"setTimeout(() => { $_addRowAttn.%s = false; }, 1200); }",
+		name, name,
+	)
 }
 
 // scheduleAddRowExpr re-enables the form's "enabled" checkbox (which
