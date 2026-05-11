@@ -351,6 +351,43 @@ test.describe("controls", () => {
     await expect(extractSlider).toHaveValue("70", { timeout: 1_000 });
   });
 
+  // Pins the fan-pct clamp: HTML5 number inputs don't enforce min/max
+  // on free-typed values (the attrs only fire on form-submit, and the
+  // pct input isn't in a form). Without the manualChangeExpr clamp
+  // a value of "5" reached the wire, the server 422'd, and the input
+  // displayed "5" until the next poll. The clamp now snaps the input
+  // and the signal up to min before posting.
+  test("manual input clamps below-min values to 10", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.asManualSpeed(DEVICE, 50);
+    await presets.withTimer(DEVICE, "off");
+    const card = await loadCard(page);
+
+    const manualInput = card.locator('.fan-slider-row input[type="number"]');
+    await expect(manualInput).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
+
+    const manualPosts: number[] = [];
+    page.on("request", (req) => {
+      if (req.method() === "POST" && req.url().endsWith(`/ui/devices/${DEVICE}/speed`)) {
+        try {
+          const body = JSON.parse(req.postData() || "{}");
+          if (typeof body.manual === "number") manualPosts.push(body.manual);
+        } catch {}
+      }
+    });
+
+    await manualInput.evaluate((el: HTMLInputElement) => {
+      el.value = "5";
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await expect
+      .poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT })
+      .toBeGreaterThanOrEqual(1);
+    expect(manualPosts[0]).toBe(10);
+    await expect(manualInput).toHaveValue("10");
+  });
+
   test("manual slider drag posts dragged value (closes #116)", async ({ page }) => {
     await reset(DEVICE);
     // Force the slider to render: speed_mode=manual + special-mode=off

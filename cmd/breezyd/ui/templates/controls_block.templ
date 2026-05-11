@@ -197,14 +197,16 @@ func heaterClickExpr(name string) string {
 // manualSliderRow renders the manual fan-pct range input. Binds to a
 // per-card local signal $_manualPct.<name> (underscore prefix = client-only,
 // not sent in @post bodies) so the val display updates live during drag.
-// The debounced data-on:change still reads evt.target.valueAsNumber directly —
-// no change to wire behaviour. See #26 and #116.
+// See #26 and #116.
 //
 // The pct readout to the right of the slider is a number input rather
 // than a span: two-way data-bind to the same $_manualPct.<name> signal
 // keeps the slider thumb and the typed value in sync, so the user can
 // click & type a precise value when the slider's coarseness is the
-// wrong tool. data-on:change fires the same POST as the slider.
+// wrong tool. data-on:change fires the same handler as the slider —
+// manualChangeExpr clamps to [10, 100] before posting because HTML5
+// number inputs don't constrain free-typed values (the min/max attrs
+// only validate on form-submit, and there's no form here).
 templ manualSliderRow(v ui.DeviceView) {
 	<div class="slider-row fan-slider-row">
 		<span class="fan-side"></span>
@@ -216,7 +218,7 @@ templ manualSliderRow(v ui.DeviceView) {
 			step="1"
 			data-bind={ fmt.Sprintf("_manualPct.%s", v.Name) }
 			value={ fmt.Sprintf("%d", v.ManualPct) }
-			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
+			data-on:change__debounce.200ms={ manualChangeExpr(v.Name) }
 		/>
 		<span class="val">
 			<input
@@ -227,10 +229,33 @@ templ manualSliderRow(v ui.DeviceView) {
 				step="1"
 				data-bind={ fmt.Sprintf("_manualPct.%s", v.Name) }
 				value={ fmt.Sprintf("%d", v.ManualPct) }
-				data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
+				data-on:change__debounce.200ms={ manualChangeExpr(v.Name) }
 			/><span class="val-suffix">%</span>
 		</span>
 	</div>
+}
+
+// manualChangeExpr clamps the input/slider value to [10, 100] before
+// posting and reflects the clamped value into the bound signal so the
+// slider thumb and number readout both snap visually to a legal value.
+// The slider's native min/max already constrain drag, so this is a
+// no-op there; it matters when the user types e.g. "5" or "150" into
+// the number-input variant where HTML5 min/max only fire on form
+// submit (and there's no form here).
+func manualChangeExpr(name string) string {
+	post := postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/speed", name),
+		"{manual: v}",
+	)
+	return fmt.Sprintf(
+		"var v = parseInt(evt.target.value, 10); "+
+			"if (isNaN(v)) v = 10; "+
+			"v = Math.max(10, Math.min(100, v)); "+
+			"evt.target.value = v; "+
+			"$_manualPct.%s = v; "+
+			"%s",
+		name, post,
+	)
 }
 
 // manualPaneInitialStyle returns the pre-datastar-paint style for the
@@ -468,7 +493,10 @@ func presetSliderExpr(name string, n int, side string) string {
 	)
 	return fmt.Sprintf(
 		`let raw = parseInt(evt.target.value, 10); `+
+			`if (isNaN(raw)) raw = 0; `+
+			`raw = Math.max(0, Math.min(100, raw)); `+
 			`let v = (raw > 0 && raw < 10) ? 0 : raw; `+
+			`evt.target.value = v; `+
 			`%s %s `+
 			`let sup = $preset.%s[%d].supply, ext = $preset.%s[%d].extract; `+
 			`if (sup >= 10 && ext >= 10) `+
