@@ -47,16 +47,14 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 						enabled
 					</label>
 				</div>
-				if len(s.Entries) > 0 {
-					<table class="schedule-table">
-						<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
-						<tbody class="schedule-edit-tbody">
-							for _, e := range s.Entries {
-								@ScheduleRow(name, e)
-							}
-						</tbody>
-					</table>
-				}
+				<table class={ "schedule-table", templ.KV("schedule-table-empty", len(s.Entries) == 0) }>
+					<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
+					<tbody class="schedule-edit-tbody">
+						for _, e := range s.Entries {
+							@ScheduleRow(name, e)
+						}
+					</tbody>
+				</table>
 				<div class="schedule-addrow">
 					<button
 						type="button"

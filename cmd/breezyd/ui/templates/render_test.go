@@ -258,7 +258,10 @@ func TestRenderScheduleBlock_AlwaysEditable(t *testing.T) {
 }
 
 // TestRenderScheduleBlock_Empty pins that an empty ScheduleBlock renders
-// the + add row button but no row inputs.
+// the + add row button and the empty <tbody class="schedule-edit-tbody">
+// anchor (needed so getUIScheduleNewRow's SSE patch can append to it),
+// but no row inputs. The .schedule-table-empty class on the table
+// hides the thead via CSS so the visual is still "+ add row only."
 func TestRenderScheduleBlock_Empty(t *testing.T) {
 	var sb strings.Builder
 	sv := ui.ScheduleView{Present: true}
@@ -268,6 +271,12 @@ func TestRenderScheduleBlock_Empty(t *testing.T) {
 	got := sb.String()
 	if !strings.Contains(got, `+ add row`) {
 		t.Errorf("empty ScheduleBlock missing + add row button\n%s", got)
+	}
+	if !strings.Contains(got, `tbody class="schedule-edit-tbody"`) {
+		t.Errorf("empty ScheduleBlock must still render the tbody anchor so new-row SSE append targets it\n%s", got)
+	}
+	if !strings.Contains(got, `schedule-table-empty`) {
+		t.Errorf("empty ScheduleBlock must carry the .schedule-table-empty class so CSS hides the thead\n%s", got)
 	}
 	if strings.Contains(got, `name="at"`) {
 		t.Errorf("empty ScheduleBlock must not render at inputs\n%s", got)

@@ -502,51 +502,64 @@ test.describe("controls", () => {
 });
 
 test.describe("schedule editor", () => {
-  // Pins #5 (regression): the schedule editor's submit must PUT the form
-  // as application/x-www-form-urlencoded so putUISchedule.r.ParseForm()
-  // picks up at/action/pct. Without contentType:'form' on the @put,
-  // datastar sends a JSON body (empty signals store), every row parses
-  // as absent, and the schedule clears on save.
-  test("edit → modify pct → save persists the entry", async ({ page }) => {
+  // Pins the inline-edit autosave path. Focus a pct cell, type a new
+  // value, blur — exactly one PUT goes out and the daemon's schedule
+  // snapshot reflects the new value.
+  test("edit pct field → autosave PUT persists the value", async ({ page }) => {
     await reset(DEVICE);
     await presets.withSchedule(DEVICE, {
       enabled: true,
       entries: [{ at: "08:00", action: "regeneration", pct: 60 }],
     });
     const card = await loadCard(page);
-
     await card.locator('details[data-block="schedule"] > summary').click();
-    await card.getByRole("button", { name: "edit schedule" }).click();
-    const editDetails = card.locator('details.schedule[data-edit="true"]');
-    await expect(editDetails).toBeVisible({ timeout: 2_000 });
-    const pctInput = editDetails.locator('input[name="pct"]');
-    await expect(pctInput).toBeVisible();
+    const details = card.locator('details[data-block="schedule"]');
+    await expect(details).toHaveAttribute("data-edit", "true", { timeout: 2_000 });
+
+    const pctInput = details.locator('input[name="pct"]');
+    await expect(pctInput).toHaveCount(1);
+
+    const putRequests: string[] = [];
+    page.on("request", (req) => {
+      if (req.method() === "PUT" && req.url().endsWith(`/ui/devices/${DEVICE}/schedule`)) {
+        putRequests.push(req.postData() || "");
+      }
+    });
+
     await pctInput.fill("77");
+    await pctInput.blur();
 
-    await editDetails.getByRole("button", { name: "save" }).click();
-
-    // Back to the read variant — the row must still be present with the
-    // edited pct value. The read variant has no data-edit attribute.
-    const readDetails = card.locator('details.schedule:not([data-edit])');
-    await expect(readDetails).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
-    await expect(readDetails).toContainText("77%");
-    await expect(readDetails).toContainText("08:00");
+    await expect.poll(() => putRequests.length, { timeout: POLL_PUSH_TIMEOUT })
+      .toBeGreaterThanOrEqual(1);
+    expect(putRequests[0]).toContain("pct=77");
   });
 
-  // Pins #6: opening edit on an empty schedule should auto-seed one row
-  // rather than show "no entries" — the user came here to add entries,
-  // requiring an explicit "+ add row" click first is an extra step.
-  test("edit on empty schedule auto-seeds a row", async ({ page }) => {
+  // Pins #6 (the previous auto-seed) replacement: clicking + adds a
+  // client-side row, but no PUT fires until the user edits a field.
+  // Avoids creating phantom 08:00 entries on misclicks.
+  test("+ add row adds a tr but no PUT until field commit", async ({ page }) => {
     await reset(DEVICE);
-    await presets.withSchedule(DEVICE, { enabled: true, entries: [] });
+    await presets.withSchedule(DEVICE, { enabled: false, entries: [] });
     const card = await loadCard(page);
-
     await card.locator('details[data-block="schedule"] > summary').click();
-    await card.getByRole("button", { name: "edit schedule" }).click();
-    const editDetails = card.locator('details.schedule[data-edit="true"]');
-    await expect(editDetails).toBeVisible({ timeout: 2_000 });
-    await expect(editDetails.locator('input[name="at"]')).toHaveCount(1);
-    await expect(editDetails.locator('select[name="action"]')).toHaveCount(1);
+    const details = card.locator('details[data-block="schedule"]');
+
+    const putRequests: string[] = [];
+    page.on("request", (req) => {
+      if (req.method() === "PUT" && req.url().endsWith(`/ui/devices/${DEVICE}/schedule`)) {
+        putRequests.push(req.url());
+      }
+    });
+
+    await card.getByRole("button", { name: "+ add row" }).click();
+    // After the SSE patch lands, exactly one row exists in the table body.
+    await expect(details.locator('tbody.schedule-edit-tbody tr')).toHaveCount(1, {
+      timeout: POLL_PUSH_TIMEOUT,
+    });
+
+    // Give a generous window for an unwanted autosave to fire. None should.
+    await page.waitForTimeout(500);
+    expect(putRequests).toHaveLength(0);
   });
 });
 
@@ -661,37 +674,19 @@ test.describe("editor preservation across polls (#65)", () => {
     });
     const card = await loadCard(page);
 
-    // Open the schedule <details> via a real summary click — the
-    // data-on:toggle handler writes the new open state back into
-    // $detailsOpen.schedule, keeping the binding consistent (see #118).
     await card.locator('details[data-block="schedule"] > summary').click();
+    const details = card.locator('details[data-block="schedule"]');
+    await expect(details).toHaveAttribute("data-edit", "true", { timeout: 2_000 });
 
-    // Click "edit schedule" to enter edit mode.
-    const editBtn = card.getByRole("button", { name: "edit schedule" });
-    await expect(editBtn).toBeVisible({ timeout: 2_000 });
-    await editBtn.click();
-
-    // The edit variant replaces the block with data-edit="true".
-    const editDetails = card.locator('details.schedule[data-edit="true"]');
-    await expect(editDetails).toBeVisible({ timeout: 2_000 });
-
-    // The test pre-loaded exactly one schedule entry — assert the locator
-    // resolves to one row instead of using .first() (which would hide a
-    // row-count regression). See #83.
-    const pctInput = editDetails.locator('input[name="pct"]');
+    const pctInput = details.locator('input[name="pct"]');
     await expect(pctInput).toHaveCount(1);
-    await expect(pctInput).toBeVisible();
     await pctInput.fill("77");
+    // Don't blur yet — we want to assert the typed value survives polls
+    // while the input still has focus (the autosave hasn't fired yet,
+    // and data-edit="true" filters incoming patches).
 
-    // Sample the invariant across a 3+ second window. Each iteration
-    // asserts the editor + typed value are still present; a regression
-    // (block clobbered by a poll-driven patch) fails inside ~200ms
-    // rather than going unnoticed for the whole wait. The 500ms between
-    // samples is bounded by the in-loop assertion above. See #81 for why
-    // a strict event-counted alternative isn't tractable (per-poll signals
-    // aren't visible to Playwright at event granularity).
     await assertStableAcrossPolls(page, async () => {
-      await expect(editDetails).toBeVisible({ timeout: 200 });
+      await expect(details).toBeVisible({ timeout: 200 });
       await expect(pctInput).toHaveValue("77", { timeout: 200 });
     });
   });
