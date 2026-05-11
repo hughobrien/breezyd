@@ -61,12 +61,20 @@ templ ControlsBlock(v ui.DeviceView) {
 	</div>
 }
 
+// presetBtn renders one of the three SPEED preset chips. The label
+// reads from the per-device $preset.<name>[n] signal so dragging the
+// supply/extract sliders in the open editor updates the chip's "x/y"
+// readout live — without this, the chip stays at the last-rendered
+// server value because the controls-block HTML patch is filtered out
+// while the editor is open (data-edit="true"). The server-rendered
+// children act as a pre-datastar-paint fallback.
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
 		type="button"
 		data-on:click={ attentionIfOff(v.Name, presetChipExpr(v.Name, n)) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$speedMode.%s === 'preset%d' ? 'true' : 'false'", v.Name, n) }
+		data-text={ presetChipDataText(v.Name, n) }
 	>{ presetLabel(v, n) }</button>
 }
 
@@ -162,7 +170,11 @@ func manualBtnPct(v ui.DeviceView) int {
 	return 50
 }
 
-// presetLabel returns "supply/extract" for a preset, matching the JS label.
+// presetLabel returns the chip label for a preset: "x/y" when supply
+// and extract differ, "x" when they match (visual shorthand for symmetric
+// presets — the common regeneration-mode setup), and "—/—" pre-poll
+// when either side is the -1 sentinel. The pre-datastar-paint fallback;
+// once datastar attaches data-text, presetChipDataText takes over.
 func presetLabel(v ui.DeviceView, n int) string {
 	var p ui.PresetView
 	switch n {
@@ -176,7 +188,21 @@ func presetLabel(v ui.DeviceView, n int) string {
 	if p.Supply < 0 || p.Extract < 0 {
 		return "—/—"
 	}
+	if p.Supply == p.Extract {
+		return fmt.Sprintf("%d", p.Supply)
+	}
 	return fmt.Sprintf("%d/%d", p.Supply, p.Extract)
+}
+
+// presetChipDataText returns the data-text JS expression for one preset
+// chip. Reads the per-device $preset.<name>[n] signal and condenses to
+// a single value when supply === extract (matches the server-side
+// presetLabel logic).
+func presetChipDataText(name string, n int) string {
+	return fmt.Sprintf(
+		"$preset.%s[%d].supply === $preset.%s[%d].extract ? $preset.%s[%d].supply : $preset.%s[%d].supply + '/' + $preset.%s[%d].extract",
+		name, n, name, n, name, n, name, n, name, n,
+	)
 }
 
 // presetEditor renders one of the three SPEED preset edit panels. The
