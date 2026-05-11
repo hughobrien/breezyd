@@ -61,12 +61,20 @@ templ ControlsBlock(v ui.DeviceView) {
 	</div>
 }
 
+// presetBtn renders one of the three SPEED preset chips. The label
+// reads from the per-device $preset.<name>[n] signal so dragging the
+// supply/extract sliders in the open editor updates the chip's "x/y"
+// readout live — without this, the chip stays at the last-rendered
+// server value because the controls-block HTML patch is filtered out
+// while the editor is open (data-edit="true"). The server-rendered
+// children act as a pre-datastar-paint fallback.
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
 		type="button"
 		data-on:click={ attentionIfOff(v.Name, presetChipExpr(v.Name, n)) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$speedMode.%s === 'preset%d' ? 'true' : 'false'", v.Name, n) }
+		data-text={ fmt.Sprintf("$preset.%s[%d].supply + '/' + $preset.%s[%d].extract", v.Name, n, v.Name, n) }
 	>{ presetLabel(v, n) }</button>
 }
 
