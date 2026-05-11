@@ -163,13 +163,17 @@ func powerButtonExpr(v ui.DeviceView) string {
 // SSE arrives; subsequent pushes update only the runtime fields via
 // datastar-patch-signals.
 //
-// preset.<n>.{supply,extract} is also seeded so the preset-editor sliders'
-// data-bind targets find numeric (not string) signals at first render —
-// datastar's type-preservation then keeps the bound values numeric across
-// user drags. The preset map is reseeded on every card render — the cost
-// is a thumb that jumps to the server's value if a poll lands mid-drag,
-// the gain is that an external change to the preset on the device panel
-// is reflected in the dashboard without refresh.
+// Every signal is nested under the device name so each card patches its
+// own sub-key without overwriting siblings — same pattern as
+// $detailsOpen (PR #215) and $stale/$speedMode/... (PR #216).
+//
+// preset.<name>.<n>.{supply,extract} is also seeded so the preset-editor
+// sliders' data-bind targets find numeric (not string) signals at first
+// render — datastar's type-preservation then keeps the bound values
+// numeric across user drags. The preset map is reseeded on every card
+// render — the cost is a thumb that jumps to the server's value if a
+// poll lands mid-drag, the gain is that an external change to the preset
+// on the device panel is reflected in the dashboard without refresh.
 //
 // _manualPct is seeded per-device so the manual slider's data-text shows
 // the current pct live during drag without waiting for the next SSE push.
@@ -177,10 +181,10 @@ func powerButtonExpr(v ui.DeviceView) string {
 // See #26 (live display) and #116 (no colon-form bind).
 func initialCardSignals(v ui.DeviceView) string {
 	s := map[string]any{
-		"automode":    false,
-		"matchSpeeds": true,
-		"editor":      0,
-		"preset":      presetSeed(v),
+		"automode":    map[string]bool{v.Name: false},
+		"matchSpeeds": map[string]bool{v.Name: true},
+		"editor":      map[string]int{v.Name: 0},
+		"preset":      map[string]map[string]map[string]int{v.Name: presetSeed(v)},
 		"detailsOpen": map[string]map[string]bool{
 			v.Name: {"info": false, "sensors": true, "energy": false, "schedule": false},
 		},
@@ -195,10 +199,11 @@ func initialCardSignals(v ui.DeviceView) string {
 	return string(b)
 }
 
-// presetSeed returns the per-preset signal seed shape. Pre-poll values
-// (-1 sentinel) map to 50 so the slider thumb has a neutral landing spot
-// — same logic as presetSliderValue, kept here in a separate helper so
-// the seed and the value= attribute stay aligned.
+// presetSeed returns the inner per-preset signal seed shape (keyed by
+// preset number "1"/"2"/"3"). The caller wraps it in a {device-name: ...}
+// map. Pre-poll values (-1 sentinel) map to 50 so the slider thumb has
+// a neutral landing spot — same logic as presetSliderValue, kept here in
+// a separate helper so the seed and the value= attribute stay aligned.
 func presetSeed(v ui.DeviceView) map[string]map[string]int {
 	atLeastZero := func(p ui.PresetView) map[string]int {
 		seed := func(pct int) int {
