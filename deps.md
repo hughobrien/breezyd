@@ -14,7 +14,7 @@ Tone: skeptical. Each entry includes a critical view if there's a plausible argu
   - **Why this one**: original Go TOML implementation, well-maintained, zero transitive deps. `pelletier/go-toml/v2` is the only serious alternative; no compelling reason to swap.
   - **Critical view**: surface is one call site against a ~10-field schema. A hand-rolled parser is plausible but loses free validation diagnostics. Keep.
 
-- **a-h/templ** v0.3.1001 — HTML templating DSL that compiles `.templ` files into Go. Used throughout `cmd/breezyd/ui/templates/`.
+- **a-h/templ** v0.3.1020 — HTML templating DSL that compiles `.templ` files into Go. Used throughout `cmd/breezyd/ui/templates/`.
   - **Why this one**: type-checked at compile time, no runtime template engine, no template-cache invalidation. SSE patches consume `templ.Component` directly via `datastar.PatchElementTempl`.
   - **Critical view**: `html/template` would mean abandoning every `.templ` file for `*.tmpl` text templates — losing Go-syntax-in-markup and the component model. Not a trade we'd make. Required at build time (`just build` runs `templ generate` first).
 
@@ -44,15 +44,15 @@ Tone: skeptical. Each entry includes a critical view if there's a plausible argu
 
 All three are `devDependencies`; nothing ships to users.
 
-- **@playwright/test** ^1.49.0 — E2E test runner that drives a real Chromium against the running daemon. Used by every spec in `tests/ui/*.spec.ts`.
+- **@playwright/test** ^1.59.1 — E2E test runner that drives a real Chromium against the running daemon. Used by every spec in `tests/ui/*.spec.ts`.
   - **Why this one**: the SSE / morph round-trip tests need a real browser; Playwright is the only option that's tractable for that.
   - **Critical view**: non-negotiable for the test suite we have. Keep.
 
-- **typescript** ^5.6.0 — Type compiler. Pulled in because the test files are `.ts`.
+- **typescript** ^6.0.3 — Type compiler. Pulled in because the test files are `.ts`.
   - **Why this one**: editor inference for Playwright's `Page` / `Locator` / `Response` types is materially better with TypeScript than with JSDoc.
   - **Evaluation outcome (#205)**: JSDoc-on-JS migration evaluated and **rejected**. The 1270 lines across 7 `.ts` files lean heavily on literal type unions (`mode: "ventilation"|"regeneration"|"supply"|"extract"`, `n: 1|2|3`, `level: "none"|"alarm"|"warning"`) and inline object shapes — JSDoc handles all of it but the prose form is noticeably noisier than the inline TS annotation, and the migration would force `/** @typedef {import('@playwright/test').Page} Page */` boilerplate at the top of every file. The cost is felt every time the suite is touched; the benefit is dropping 2 devDeps that never ship to users. Keep.
 
-- **tsx** ^4.19.0 — TypeScript runner for non-Playwright scripts (`screenshot.ts`).
+- **tsx** ^4.21.0 — TypeScript runner for non-Playwright scripts (`screenshot.ts`).
   - **Why this one**: lets `just screenshot` run a `.ts` file directly without a separate build step.
   - **Coupled to typescript above**: kept by the same evaluation.
 
