@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
@@ -454,11 +455,22 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 // The template implements the toggle: if the requested mode matches the
 // currently-active special_mode, the button sends mode=off instead.
 // This handler does not need to inspect current state.
+//
+// Activating a timer (mode != off) also writes power=on first, so the
+// cache reflects the on-state immediately and the dashboard's power
+// button flips with the timer click. The firmware runs the fans on
+// timer regardless of 0x0001, but our view-derived Power needs the
+// param-side to be consistent for the cache-driven render path.
 func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 	type req struct {
 		Mode string `json:"mode"`
 	}
 	postUIWriteJSON(h, w, r, nil, func(ctx context.Context, rc *recordingClient, q *req) error {
+		if strings.ToLower(q.Mode) != "off" {
+			if err := breezy.Power(ctx, rc, true); err != nil {
+				return err
+			}
+		}
 		return breezy.SetTimer(ctx, rc, q.Mode)
 	})
 }
@@ -480,6 +492,14 @@ func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
 // postUIPower toggles a device on/off.
 //
 // JSON: {"on": bool}
+//
+// Powering off also explicitly clears any active timer (0x0007 → 0).
+// The firmware normally clears 0x0007 on a 1→0 power transition, but
+// when the timer was set externally (IR remote / panel buttons) on a
+// device whose 0x0001 was already 0, the user's power-off click would
+// otherwise no-op at the firmware level and the cache would stay
+// stale. The explicit SetTimer(off) keeps the cache and the device
+// in sync regardless of how the timer was activated.
 func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 	type req struct {
 		On *bool `json:"on"`
@@ -492,7 +512,13 @@ func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 	postUIWriteJSON(h, w, r, shape, func(ctx context.Context, rc *recordingClient, q *req) error {
-		return breezy.Power(ctx, rc, *q.On)
+		if err := breezy.Power(ctx, rc, *q.On); err != nil {
+			return err
+		}
+		if !*q.On {
+			return breezy.SetTimer(ctx, rc, "off")
+		}
+		return nil
 	})
 }
 
