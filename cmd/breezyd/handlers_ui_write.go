@@ -40,44 +40,20 @@ func scheduleSelector(name string) string {
 	return fmt.Sprintf(`.card[data-device=%q] details.block.schedule`, name)
 }
 
-// scheduleReadFrag emits a datastar-patch-elements event with the
-// read-variant schedule block, replacing the device's schedule details
-// element.
-func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name string) {
-	view, ok := h.viewFor(name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlock(name, view.Schedule, view.Stale))
-}
-
-// scheduleEditFrag emits a datastar-patch-elements event with the
-// edit-variant schedule block. A non-empty errMsg signals a validation
-// failure; the body must still be 200 because datastar's @get/@put/@post
-// helpers discard non-2xx response bodies (see #70). The semantic 422
-// surfaces as a custom Datastar-Status header — same convention as
-// errorBannerSSE — for observability and tooling.
+// scheduleAcknowledgeSSE writes a 200 OK SSE response with no
+// datastar-patch-elements events — the autosave handler's success
+// path. The form's DOM state is already correct on the client (the
+// user just typed it); sending back a re-rendered fragment would
+// clobber whatever input still has focus. The next regular poll
+// cycle refreshes the block once the user collapses or moves on.
 //
-// When the schedule has no entries and there's no validation error,
-// seed a single empty row so the user lands in an editable state
-// rather than an empty wall that needs an explicit "+ add row" click
-// before any data entry is possible. Same defaults as
-// getUIScheduleNewRow. The errMsg path is excluded so validation
-// failures don't manufacture rows that weren't submitted.
-func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
-	view, ok := h.viewFor(name)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	if errMsg == "" && len(view.Schedule.Entries) == 0 {
-		view.Schedule.Entries = []ui.ScheduleEntryView{emptyScheduleEntry()}
-	}
-	if errMsg != "" {
-		w.Header().Set("Datastar-Status", strconv.Itoa(http.StatusUnprocessableEntity))
-	}
-	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg))
+// Mirrors errorBannerSSE's shape but emits no events. The SSE
+// content-type + 200 status is still required so datastar's @put
+// fetch action processes the response cleanly rather than treating
+// it as an error.
+func scheduleAcknowledgeSSE(w http.ResponseWriter, r *http.Request) {
+	sse := newSSE(w, r)
+	_ = sse // keep the import dependency; emitting no events.
 }
 
 // emptyScheduleEntry returns the seed values for a freshly-added edit
@@ -88,28 +64,17 @@ func emptyScheduleEntry() ui.ScheduleEntryView {
 	return ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
 }
 
-// getUIScheduleRead serves the read variant of the schedule block.
+// getUIScheduleRead serves the always-editable schedule block.
 //
 // GET /ui/devices/{name}/schedule
 func (h *Handler) getUIScheduleRead(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if _, ok := h.viewFor(name); !ok {
+	view, ok := h.viewFor(name)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	h.scheduleReadFrag(w, r, name)
-}
-
-// getUIScheduleEdit serves the edit variant of the schedule block.
-//
-// GET /ui/devices/{name}/schedule/edit
-func (h *Handler) getUIScheduleEdit(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, ok := h.viewFor(name); !ok {
-		http.NotFound(w, r)
-		return
-	}
-	h.scheduleEditFrag(w, r, name, "")
+	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlock(name, view.Schedule, view.Stale))
 }
 
 // getUIScheduleNewRow appends an empty edit row to the schedule editor
@@ -124,7 +89,7 @@ func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := newSSE(w, r)
 	if err := sse.PatchElementTempl(
-		templates.ScheduleEditRow(emptyScheduleEntry()),
+		templates.ScheduleRow(name, emptyScheduleEntry()),
 		datastar.WithSelectorf(`.card[data-device=%q] tbody.schedule-edit-tbody`, name),
 		// Inner-mode + append-style not needed; we instead append by
 		// targeting tbody and using mode=append.
@@ -146,7 +111,7 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		h.scheduleEditFrag(w, r, name, "bad form encoding")
+		errorBannerSSE(w, r, http.StatusUnprocessableEntity, "bad form encoding")
 		return
 	}
 
@@ -160,7 +125,7 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 	// All three slices must be the same length (form rows are parallel arrays).
 	n := len(ats)
 	if len(actions) != n || len(pcts) != n {
-		h.scheduleEditFrag(w, r, name, "malformed form: row fields mismatched")
+		errorBannerSSE(w, r, http.StatusUnprocessableEntity, "malformed form: row fields mismatched")
 		return
 	}
 
@@ -168,7 +133,7 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 	for i := range ats {
 		at, err := ParseScheduleTime(ats[i])
 		if err != nil {
-			h.scheduleEditFrag(w, r, name, fmt.Sprintf("row %d: invalid time %q", i+1, ats[i]))
+			errorBannerSSE(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("row %d: invalid time %q", i+1, ats[i]))
 			return
 		}
 		action := actions[i]
@@ -176,13 +141,13 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 		case "ventilation", "regeneration", "supply", "extract", "off":
 			// valid
 		default:
-			h.scheduleEditFrag(w, r, name, fmt.Sprintf("row %d: invalid action %q", i+1, action))
+			errorBannerSSE(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("row %d: invalid action %q", i+1, action))
 			return
 		}
 		pct := 0
 		if _, err := fmt.Sscanf(pcts[i], "%d", &pct); err != nil || pct < 10 || pct > 100 {
 			if action != "off" {
-				h.scheduleEditFrag(w, r, name, fmt.Sprintf("row %d: pct must be 10–100, got %q", i+1, pcts[i]))
+				errorBannerSSE(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("row %d: pct must be 10–100, got %q", i+1, pcts[i]))
 				return
 			}
 			pct = 0 // off rows: pct is the in-band "no value" sentinel
@@ -192,18 +157,18 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 
 	sch, ok := h.Schedulers[name]
 	if !ok || sch == nil {
-		h.scheduleEditFrag(w, r, name, fmt.Sprintf("device %q has no scheduler wired", name))
+		errorBannerSSE(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("device %q has no scheduler wired", name))
 		return
 	}
 	if err := sch.Replace(enabled, entries); err != nil {
 		if errors.Is(err, breezy.ErrInvalidArg) {
-			h.scheduleEditFrag(w, r, name, err.Error())
+			errorBannerSSE(w, r, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
 		h.uiWriteError(w, r, err)
 		return
 	}
-	h.scheduleReadFrag(w, r, name)
+	scheduleAcknowledgeSSE(w, r)
 }
 
 // postUISchedEnabled toggles the enabled bit on a device's schedule

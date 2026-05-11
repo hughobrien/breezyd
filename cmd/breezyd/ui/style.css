@@ -224,6 +224,11 @@ details.block.schedule > summary > h3 { margin: 0; }
 }
 .schedule-toolbar .grow { flex: 1 1 auto; }
 .schedule-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+/* Empty-entries state: the <table>/<thead>/<tbody> are still rendered
+   so the new-row SSE patch's tbody selector finds an anchor, but the
+   header is hidden so the empty schedule shows just the + add row
+   button (visually equivalent to omitting the table entirely). */
+.schedule-table.schedule-table-empty thead { display: none; }
 .schedule-table th, .schedule-table td {
   padding: 0.2rem 0.3rem; text-align: left; border-bottom: 1px solid var(--border);
 }
@@ -364,6 +369,32 @@ details.block.schedule > summary > h3 { margin: 0; }
 }
 .val-input:disabled { opacity: 0.5; cursor: not-allowed; }
 .val-suffix { color: inherit; }
+/* Inline-editable schedule row inputs. Borderless against the row
+   background so each field reads as text; dotted underline on hover
+   signals click-and-type; thin border on focus shows which field is
+   active. Mirrors the .val-input pattern from v2.0.2 but applied to
+   time / select / number inputs in the schedule table. */
+.sched-input {
+  font: inherit; color: inherit;
+  background: transparent;
+  border: 1px solid transparent; border-radius: 3px;
+  padding: 0 0.2rem; margin: 0;
+}
+.sched-input:hover:not(:disabled):not(:focus):not([readonly]) {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.sched-input:focus {
+  outline: none;
+  border-color: var(--border-input);
+}
+.sched-input:disabled,
+.sched-input[readonly] { opacity: 0.5; cursor: not-allowed; }
+
+/* Right-side + button sits on its own row below the table. */
+.schedule-addrow { margin-top: 0.4rem; }
 /* Left-side label used by the preset editor's two sliders so users can
    tell supply from exhaust at a glance, and by the fan-slider-row for
    the live rpm readout. 4.5rem fits "5340rpm" without clipping. */
