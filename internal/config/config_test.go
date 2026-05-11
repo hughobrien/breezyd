@@ -132,6 +132,36 @@ discovery     = "off"
 	is.Equal(len(cfg.Devices), 0)
 }
 
+// TestLoad_InvalidIdentifierNamesRejected pins that device names with hyphens
+// or leading digits are rejected. They appear as datastar signal-path segments
+// ($detailsOpen.<name>.sensors) and would silently break signal parsing. The
+// restriction is enforced post-TOML-parse so it applies to any syntactically
+// valid TOML key that fails the JS-identifier regex.
+func TestLoad_InvalidIdentifierNamesRejected(t *testing.T) {
+	// Use TOML quoted keys so the TOML parser accepts the names; the new
+	// validation fires on the parsed name string.
+	cases := []struct {
+		name    string
+		tomlKey string
+	}{
+		{"hyphen", `"my-device"`},
+		{"leading digit", `"1start"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
+			path := writeConfig(t, `
+[devices.`+tc.tomlKey+`]
+id       = "BREEZY00000000A0"
+password = "testpwd"
+`)
+			_, err := Load(path)
+			is.True(err != nil)                                        // error returned for invalid identifier
+			is.True(strings.Contains(err.Error(), "valid identifier")) // mentions identifier requirement
+		})
+	}
+}
+
 func TestLoad_ReservedNamesRejected(t *testing.T) {
 	for _, name := range []string{"ls", "discover", "daemon-url", "param", "LS", "Discover", "Daemon-URL", "Param"} {
 		t.Run(name, func(t *testing.T) {

@@ -39,32 +39,39 @@ templ DeviceCard(v ui.DeviceView) {
 
 // InfoDetails renders the device info <details> block. Exported so
 // Task 4's push pipeline can render it independently.
+//
+// The power button sits outside <details> (but inside the wrapper div)
+// so it remains visible and clickable even when the info panel is
+// collapsed. Wrapping both in a position:relative div lets .power-toggle
+// stay absolutely positioned relative to the header region. See #24.
 templ InfoDetails(v ui.DeviceView) {
-	<details
-		id={ "info-" + v.Name }
-		class={ "device-info", templ.KV("alert", v.NeedsAttention) }
-		data-block="info"
-		data-attr:open="$detailsOpen.info"
-	>
-		<summary data-on:click="$detailsOpen.info = !$detailsOpen.info">
-			<h2>{ v.Name }</h2>
-			<button
-				type="button"
-				class="toggle toggle-inline"
-				data-on:click__stop={ powerButtonExpr(v) }
-				if v.Stale { disabled }
-				aria-pressed={ boolAttr(v.Power) }
-			>power</button>
-		</summary>
-		@kvRow("ip", v.IP)
-		@kvRow("serial", v.Serial)
-		@kvRow("firmware version", v.FirmwareVersion)
-		@kvRow("firmware date", v.FirmwareDate)
-		@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
-		@kvRow("motor", v.MotorLifetime)
-		@kvRow("RTC", v.RTCBattery)
-		@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
-	</details>
+	<div class="device-info-wrap">
+		<details
+			id={ "info-" + v.Name }
+			class={ "device-info", templ.KV("alert", v.NeedsAttention) }
+			data-block="info"
+			data-attr:open={ detailsOpenBinding(v.Name, "info") }
+		>
+			<summary data-on:click={ detailsOpenToggle(v.Name, "info") }>
+				<h2>{ v.Name }</h2>
+			</summary>
+			@kvRow("ip", v.IP)
+			@kvRow("serial", v.Serial)
+			@kvRow("firmware version", v.FirmwareVersion)
+			@kvRow("firmware date", v.FirmwareDate)
+			@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
+			@kvRow("motor", v.MotorLifetime)
+			@kvRow("RTC", v.RTCBattery)
+			@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
+		</details>
+		<button
+			type="button"
+			class="power-toggle"
+			data-on:click={ powerButtonExpr(v) }
+			if v.Stale { disabled }
+			aria-pressed={ boolAttr(v.Power) }
+		>power</button>
+	</div>
 }
 
 // unreachableCard renders a placeholder card for a configured device that
@@ -119,6 +126,21 @@ func filterStatusStr(v ui.DeviceView) string {
 	return v.FilterStatus
 }
 
+// detailsOpenBinding returns the datastar expression that reads the
+// open-state signal for the given device's section. Per-card scoped
+// so toggling one card's section doesn't flip the same section on
+// sibling cards. See #25.
+func detailsOpenBinding(deviceName, section string) string {
+	return fmt.Sprintf("$detailsOpen.%s.%s", deviceName, section)
+}
+
+// detailsOpenToggle returns the datastar expression that flips the
+// open-state signal for the given device's section.
+func detailsOpenToggle(deviceName, section string) string {
+	return fmt.Sprintf("$detailsOpen.%s.%s = !$detailsOpen.%s.%s",
+		deviceName, section, deviceName, section)
+}
+
 // powerButtonExpr produces the data-on:click expression for the power
 // toggle. POSTs the inverse of the current power state.
 func powerButtonExpr(v ui.DeviceView) string {
@@ -143,21 +165,20 @@ func powerButtonExpr(v ui.DeviceView) string {
 // the gain is that an external change to the preset on the device panel
 // is reflected in the dashboard without refresh.
 //
-// The manual slider does NOT seed a $manualPct signal; the input's value
-// attribute is the source of truth, and the @post expression reads
-// evt.target.valueAsNumber directly. See #116.
+// _manualPct is seeded per-device so the manual slider's data-text shows
+// the current pct live during drag without waiting for the next SSE push.
+// The underscore prefix marks it as client-only (not sent in @post bodies).
+// See #26 (live display) and #116 (no colon-form bind).
 func initialCardSignals(v ui.DeviceView) string {
 	s := map[string]any{
 		"automode":    false,
 		"matchSpeeds": true,
 		"editor":      0,
 		"preset":      presetSeed(v),
-		"detailsOpen": map[string]bool{
-			"info":     false,
-			"sensors":  true,
-			"energy":   false,
-			"schedule": false,
+		"detailsOpen": map[string]map[string]bool{
+			v.Name: {"info": false, "sensors": true, "energy": false, "schedule": false},
 		},
+		"_manualPct":   map[string]int{v.Name: v.ManualPct},
 		"stale":        v.Stale,
 		"speedMode":    v.SpeedMode,
 		"airflowMode":  v.AirflowMode,

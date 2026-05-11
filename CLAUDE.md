@@ -163,7 +163,7 @@ The vendor protocol manual (`docs/superpowers/specs/breezy-manual-vendor.pdf`) i
 
 Subject-before-verb: `breezy <device-name> <verb> [args]`. Per-device verbs (`status`, `on`/`off`, `speed`, `mode`, `heater`, `reset-filter`, `reset-faults`, `faults`, `firmware`, `efficiency`, `rtc [set]`, `get <param>`, `set <param> <val>`) and globals (`ls`, `discover`, `daemon-url`, `param`).
 
-Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config`.
+Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config`. Device names must also be valid JS identifiers (letters/digits/underscore, starting with a non-digit) because they appear as datastar signal-path segments (e.g. `$detailsOpen.<name>.sensors`); names with hyphens or dots would silently break the dashboard's signal parsing.
 
 CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error.
 

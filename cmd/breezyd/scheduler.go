@@ -260,6 +260,19 @@ func (s *Scheduler) save() error {
 	return nil
 }
 
+// SetEnabled flips the schedule's enabled bit and persists. Does NOT
+// touch entries, firedAt, retry, or lastApply — the toggle is
+// conceptually independent of the schedule's content. See #27.
+func (s *Scheduler) SetEnabled(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.enabled = enabled
+	if err := s.save(); err != nil {
+		return fmt.Errorf("schedule: persist: %w", err)
+	}
+	return nil
+}
+
 // Replace swaps the schedule wholesale. Validates, sorts entries, clears
 // retry and lastApply (a fresh schedule starts fresh — no stale alert
 // banner), and persists. Returns errors wrapping ErrInvalidArg on bad
