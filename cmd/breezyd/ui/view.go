@@ -151,6 +151,7 @@ type LastApplyView struct {
 // bare $<signal>.
 type CardSignals struct {
 	Stale        map[string]bool   `json:"stale"`
+	Power        map[string]bool   `json:"power"`
 	SpeedMode    map[string]string `json:"speedMode"`
 	AirflowMode  map[string]string `json:"airflowMode"`
 	SpecialMode  map[string]string `json:"specialMode"`
@@ -163,6 +164,7 @@ type CardSignals struct {
 func CardSignalsFor(v DeviceView) CardSignals {
 	return CardSignals{
 		Stale:        map[string]bool{v.Name: v.Stale},
+		Power:        map[string]bool{v.Name: v.Power},
 		SpeedMode:    map[string]string{v.Name: v.SpeedMode},
 		AirflowMode:  map[string]string{v.Name: v.AirflowMode},
 		SpecialMode:  map[string]string{v.Name: v.SpecialMode},

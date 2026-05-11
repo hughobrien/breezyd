@@ -50,7 +50,8 @@ templ ControlsBlock(v ui.DeviceView) {
 					<button
 						type="button"
 						class="toggle"
-						data-on:click={ heaterClickExpr(v.Name) }
+						data-action="heater"
+						data-on:click={ attentionIfOff(v.Name, heaterClickExpr(v.Name)) }
 						if v.Stale { disabled }
 						data-attr:aria-pressed={ fmt.Sprintf("$heater.%s ? 'true' : 'false'", v.Name) }
 					>heater</button>
@@ -63,7 +64,7 @@ templ ControlsBlock(v ui.DeviceView) {
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
 		type="button"
-		data-on:click={ presetChipExpr(v.Name, n) }
+		data-on:click={ attentionIfOff(v.Name, presetChipExpr(v.Name, n)) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$speedMode.%s === 'preset%d' ? 'true' : 'false'", v.Name, n) }
 	>{ presetLabel(v, n) }</button>
@@ -77,7 +78,7 @@ templ presetBtn(v ui.DeviceView, n int) {
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
-		data-on:click={ closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v)))) }
+		data-on:click={ attentionIfOff(v.Name, closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v))))) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$speedMode.%s === 'manual' ? 'true' : 'false'", v.Name) }
 	>manual</button>
@@ -89,7 +90,7 @@ templ manualBtn(v ui.DeviceView) {
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on:click={ closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value))) }
+		data-on:click={ attentionIfOff(v.Name, closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value)))) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$airflowMode.%s === '%s' ? 'true' : 'false'", v.Name, value) }
 	>{ label }</button>
@@ -104,7 +105,7 @@ templ modeBtn(v ui.DeviceView, label, value string) {
 templ timerBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on:click={ timerClickExpr(v.Name, value) }
+		data-on:click={ attentionIfOff(v.Name, timerClickExpr(v.Name, value)) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$specialMode.%s === '%s' ? 'true' : 'false'", v.Name, value) }
 	>{ label }</button>
@@ -217,7 +218,7 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "supply") }
 				if v.Stale { disabled }
 			/>
-			<span class="val">{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Supply)) }</span>
+			<span class="val" data-text={ fmt.Sprintf("$preset.%s[%d].supply + '%%'", v.Name, n) }>{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Supply)) }</span>
 		</div>
 		<div class="slider-row">
 			<span class="val-label">exhaust</span>
@@ -232,7 +233,7 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "extract") }
 				if v.Stale { disabled }
 			/>
-			<span class="val">{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Extract)) }</span>
+			<span class="val" data-text={ fmt.Sprintf("$preset.%s[%d].extract + '%%'", v.Name, n) }>{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Extract)) }</span>
 		</div>
 	</div>
 }
@@ -262,6 +263,19 @@ func postActionExpr(url, payload string) string {
 // other card. See #29-class bugs.
 func controlsEditAttr(name string) string {
 	return fmt.Sprintf("$editor.%s !== 0 ? 'true' : null", name)
+}
+
+// attentionIfOff wraps a click expression with an "if device is off,
+// glow the power button for 1.5s" prefix. Flips the per-device transient
+// $_attention.<name> signal, which the power button's data-class binding
+// consumes. The wrapped expression always runs after — sending the @post
+// against an off device is harmless and matches the prior behaviour
+// (buttons were never click-disabled when off).
+func attentionIfOff(name, expr string) string {
+	return fmt.Sprintf(
+		"if (!$power.%s) { $_attention.%s = true; setTimeout(() => { $_attention.%s = false; }, 1500); } %s",
+		name, name, name, expr,
+	)
 }
 
 // presetChipExpr toggles the per-device $editor.<name> signal for chip
