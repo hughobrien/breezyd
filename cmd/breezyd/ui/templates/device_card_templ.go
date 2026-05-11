@@ -662,6 +662,8 @@ func initialCardSignals(v ui.DeviceView) string {
 		"stale":        map[string]bool{v.Name: v.Stale},
 		"speedMode":    map[string]string{v.Name: v.SpeedMode},
 		"airflowMode":  map[string]string{v.Name: v.AirflowMode},
+		"specialMode":  map[string]string{v.Name: v.SpecialMode},
+		"heater":       map[string]bool{v.Name: v.Heater},
 		"lastPollAge":  map[string]string{v.Name: v.LastPollAge},
 		"sensorsAlert": map[string]bool{v.Name: v.Sensors.AlertActive},
 	}

@@ -1028,12 +1028,110 @@ func TestInitialCardSignals_PresetSeedTypedAsNumber(t *testing.T) {
 	}
 }
 
+// TestRenderControlsBlock_ReactiveAriaPressed pins that every interactive
+// button in the controls block reads its aria-pressed from a per-device
+// signal rather than rendering a static "true"/"false" attribute. The
+// push pipeline filters controls-block HTML patches with :not([data-edit])
+// in push_render.go, so while a preset editor is open the controls
+// markup is frozen — only signal-bound bindings update in response to
+// server-side state changes.
+//
+// Regressed once: clicking "manual" then a preset chip left the manual
+// button highlighted because its static aria-pressed never refreshed.
+// Pinning the data-attr form here keeps it caught at unit-test speed.
+func TestRenderControlsBlock_ReactiveAriaPressed(t *testing.T) {
+	v := loadView(t, "snapshot_manual")
+	var sb strings.Builder
+	if err := ControlsBlock(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	name := v.Name
+	wantContains := []string{
+		// SPEED row
+		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;preset1&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;preset2&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;preset3&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$speedMode.` + name + ` === &#39;manual&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		// MODE row (rendered because snapshot_manual is SpeedMode=manual + SpecialMode=off)
+		`data-attr:aria-pressed="$airflowMode.` + name + ` === &#39;ventilation&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$airflowMode.` + name + ` === &#39;regeneration&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$airflowMode.` + name + ` === &#39;supply&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$airflowMode.` + name + ` === &#39;extract&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		// TIMER row
+		`data-attr:aria-pressed="$specialMode.` + name + ` === &#39;night&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		`data-attr:aria-pressed="$specialMode.` + name + ` === &#39;turbo&#39; ? &#39;true&#39; : &#39;false&#39;"`,
+		// HEATER
+		`data-attr:aria-pressed="$heater.` + name + ` ? &#39;true&#39; : &#39;false&#39;"`,
+	}
+	wantAbsent := []string{
+		// Static aria-pressed on any chip would be a regression — once
+		// the controls-block patch is filtered out by an open editor,
+		// the static value gets stuck.
+		`aria-pressed="true"`,
+		`aria-pressed="false"`,
+	}
+	for _, s := range wantContains {
+		if !strings.Contains(got, s) {
+			t.Errorf("controls missing reactive aria binding: %s", s)
+		}
+	}
+	for _, s := range wantAbsent {
+		if strings.Contains(got, s) {
+			t.Errorf("controls has forbidden static aria binding: %s", s)
+		}
+	}
+}
+
+// TestRenderControlsBlock_ReactiveClickHandlers pins that the timer and
+// heater click handlers read the live signal rather than baking in the
+// server-render snapshot value. Necessary so toggling these while a
+// preset editor is open (controls-block patch filtered out) produces
+// the right POST body.
+func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
+	v := loadView(t, "snapshot_manual")
+	var sb strings.Builder
+	if err := ControlsBlock(v).Render(context.Background(), &sb); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.String()
+	name := v.Name
+	wantContains := []string{
+		// Timer toggle: reads $specialMode signal, posts "off" if already in this mode.
+		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: $specialMode.` + name + ` === &#39;night&#39; ? &#39;off&#39; : &#39;night&#39;}})`,
+		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: $specialMode.` + name + ` === &#39;turbo&#39; ? &#39;off&#39; : &#39;turbo&#39;}})`,
+		// Heater toggle: posts inverse of $heater signal.
+		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: !$heater.` + name + `}})`,
+	}
+	wantAbsent := []string{
+		// Static {on: true} / {on: false} for heater would be stale once
+		// the controls-block HTML patch gets filtered out.
+		`{on: true}`,
+		`{on: false}`,
+		// Static {mode: 'off'} / {mode: 'night'} as the entire payload
+		// (with no ternary) would mean the click handler can't toggle.
+		`{mode: &#39;off&#39;}`,
+	}
+	for _, s := range wantContains {
+		if !strings.Contains(got, s) {
+			t.Errorf("controls missing reactive click handler: %s", s)
+		}
+	}
+	for _, s := range wantAbsent {
+		if strings.Contains(got, s) {
+			t.Errorf("controls has forbidden static click handler: %s", s)
+		}
+	}
+}
+
 func TestCardSignalsFor_JSON(t *testing.T) {
 	v := ui.DeviceView{
 		Name:        "alpha",
 		Stale:       true,
 		SpeedMode:   "manual",
 		AirflowMode: "regeneration",
+		SpecialMode: "night",
+		Heater:      true,
 		LastPollAge: "12s",
 		Sensors:     ui.SensorsView{AlertActive: true},
 	}
@@ -1081,6 +1179,12 @@ func TestCardSignalsFor_JSON(t *testing.T) {
 	}
 	if got := getStr("airflowMode"); got != "regeneration" {
 		t.Errorf("airflowMode.%s: got %q, want %q", v.Name, got, "regeneration")
+	}
+	if got := getStr("specialMode"); got != "night" {
+		t.Errorf("specialMode.%s: got %q, want %q", v.Name, got, "night")
+	}
+	if got := getBool("heater"); got != true {
+		t.Errorf("heater.%s: got %v, want true", v.Name, got)
 	}
 	if got := getStr("lastPollAge"); got != "12s" {
 		t.Errorf("lastPollAge.%s: got %q, want %q", v.Name, got, "12s")
