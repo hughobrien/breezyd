@@ -541,6 +541,140 @@ func TestScheduler_ReplaceClearsInflightRetry(t *testing.T) {
 	is.True(snap.LastApply == nil) // Replace must clear lastApply (start fresh)
 }
 
+// atUTC builds a UTC moment for DST tests. Construct in UTC, then
+// .In(ptLocation) at the call site — that gets unambiguous semantics
+// for both the fall-back repeated hour and the spring-forward missing
+// hour, where time.Date in a DST-affected location is ambiguous.
+func atUTC(year, month, day, hour, minute int) time.Time {
+	return time.Date(year, time.Month(month), day, hour, minute, 0, 0, time.UTC)
+}
+
+// TestScheduler_FallBackDeDup verifies an entry whose At-time falls in
+// the repeated hour fires exactly once (the first occurrence). Closes
+// the documented v1 limitation.
+func TestScheduler_FallBackDeDup(t *testing.T) {
+	is := is.New(t)
+	pt, err := time.LoadLocation("America/Los_Angeles")
+	is.NoErr(err)
+
+	s, fc := newSchedTest(t)
+	err = s.Replace(true, []ScheduleEntry{
+		{At: 90, Action: "regeneration", Pct: 50}, // 01:30
+	})
+	is.NoErr(err)
+
+	// Pre-fall-back tick: prime lastTick at 00:59 PDT.
+	s.tick(context.Background(), atUTC(2026, 11, 1, 7, 59).In(pt))
+
+	// First 01:30 PDT: should fire.
+	s.tick(context.Background(), atUTC(2026, 11, 1, 8, 30).In(pt))
+	firstCount := len(fc.flatWrites())
+	is.True(firstCount >= 3) // Power(true) + SetMode + SetSpeedManual (2 writes)
+
+	// Walk through 01:59 PDT.
+	s.tick(context.Background(), atUTC(2026, 11, 1, 8, 59).In(pt))
+
+	// Fall-back moment: 01:00 PST (UTC 09:00). No entry in window.
+	s.tick(context.Background(), atUTC(2026, 11, 1, 9, 0).In(pt))
+
+	// Second 01:30 (now PST). MUST NOT fire.
+	s.tick(context.Background(), atUTC(2026, 11, 1, 9, 30).In(pt))
+	is.Equal(len(fc.flatWrites()), firstCount) // count unchanged — no double-fire
+
+	// And 02:00 PST for good measure.
+	s.tick(context.Background(), atUTC(2026, 11, 1, 10, 0).In(pt))
+	is.Equal(len(fc.flatWrites()), firstCount)
+}
+
+// TestScheduler_SpringForwardRunningDaemon verifies the running-daemon
+// case for spring-forward: an entry in the missing hour fires once at
+// the first tick after the skipped hour. The existing window-detection
+// already handles this, but the test pins it explicitly.
+func TestScheduler_SpringForwardRunningDaemon(t *testing.T) {
+	is := is.New(t)
+	pt, err := time.LoadLocation("America/Los_Angeles")
+	is.NoErr(err)
+
+	s, fc := newSchedTest(t)
+	err = s.Replace(true, []ScheduleEntry{
+		{At: 150, Action: "regeneration", Pct: 60}, // 02:30 (in the missing hour)
+	})
+	is.NoErr(err)
+
+	// Pre-jump tick at 01:59 PST. lastTick becomes 119.
+	s.tick(context.Background(), atUTC(2026, 3, 8, 9, 59).In(pt))
+
+	// Next tick: 03:00 PDT (one wall-clock minute later by the user,
+	// but 01:01 elapsed UTC). Window = (119, 180] includes 150.
+	s.tick(context.Background(), atUTC(2026, 3, 8, 10, 0).In(pt))
+	firedCount := len(fc.flatWrites())
+	is.True(firedCount >= 3) // Power(true) + SetMode + SetSpeedManual (2 writes)
+
+	// 03:01 PDT: no fire.
+	s.tick(context.Background(), atUTC(2026, 3, 8, 10, 1).In(pt))
+	is.Equal(len(fc.flatWrites()), firedCount)
+}
+
+// TestScheduler_ReplaceClearsFiredAt verifies that Replace() resets the
+// firedAt map so a re-added entry can fire again the same day.
+func TestScheduler_ReplaceClearsFiredAt(t *testing.T) {
+	is := is.New(t)
+	pt, err := time.LoadLocation("America/Los_Angeles")
+	is.NoErr(err)
+
+	s, fc := newSchedTest(t)
+	err = s.Replace(true, []ScheduleEntry{
+		{At: 480, Action: "regeneration", Pct: 60}, // 08:00
+	})
+	is.NoErr(err)
+
+	// Fire the 08:00 entry.
+	s.tick(context.Background(), atUTC(2026, 5, 6, 14, 59).In(pt)) // 07:59 PDT
+	s.tick(context.Background(), atUTC(2026, 5, 6, 15, 0).In(pt))  // 08:00 PDT
+	is.True(len(fc.flatWrites()) >= 3)                             // Power(true) + SetMode + SetSpeedManual (2 writes)
+
+	// firedAt now has 480 → 08:00.
+	s.mu.Lock()
+	is.True(s.firedAt != nil)
+	is.True(!s.firedAt[480].IsZero())
+	s.mu.Unlock()
+
+	// Replace with the same schedule. firedAt clears.
+	err = s.Replace(true, []ScheduleEntry{
+		{At: 480, Action: "regeneration", Pct: 60},
+	})
+	is.NoErr(err)
+	s.mu.Lock()
+	is.Equal(s.firedAt, map[ScheduleTime]time.Time(nil))
+	s.mu.Unlock()
+}
+
+// TestScheduler_FiredAt_PersistsAcrossLoad verifies the firedAt map
+// round-trips through the JSON state file. Without persistence, a
+// daemon restart after a same-day fire would re-fire the entry on the
+// fall-back occurrence — defeating the de-dup.
+func TestScheduler_FiredAt_PersistsAcrossLoad(t *testing.T) {
+	is := is.New(t)
+	dir := t.TempDir()
+
+	// Build a Scheduler, populate firedAt, save.
+	src := &Scheduler{Device: "playroom", StateDir: dir}
+	src.enabled = true
+	src.entries = []ScheduleEntry{
+		{At: 90, Action: "regeneration", Pct: 50},
+	}
+	fired := time.Date(2026, 11, 1, 8, 30, 0, 0, time.UTC) // 01:30 PDT
+	src.firedAt = map[ScheduleTime]time.Time{90: fired}
+	is.NoErr(src.save())
+
+	// Build a fresh Scheduler and Load.
+	dst := &Scheduler{Device: "playroom", StateDir: dir}
+	dst.Load()
+
+	is.True(dst.firedAt != nil)
+	is.True(dst.firedAt[90].Equal(fired)) // round-trips the exact instant
+}
+
 // TestScheduler_IntegrationFiresWritesToFakedevice exercises the full
 // Scheduler → recordingClient → ops → breezy.Client → fakedevice path.
 // Unit tests cover the state machine with a fake DeviceClient; this test
