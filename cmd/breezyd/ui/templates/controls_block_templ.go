@@ -568,11 +568,11 @@ func timerClickExpr(name, value string) string {
 	return fmt.Sprintf(
 		"var active = $specialMode.%s === '%s'; "+
 			"if (active) { $specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0; } "+
-			"else { $specialMode.%s = '%s'; $specialModeRemainingSeconds.%s = $%sDurationSeconds.%s; } "+
+			"else { $specialMode.%s = '%s'; $specialModeRemainingSeconds.%s = $%sDurationSeconds.%s; $power.%s = true; } "+
 			"%s;",
 		name, value,
 		name, name,
-		name, value, name, value, name,
+		name, value, name, value, name, name,
 		post,
 	)
 }
