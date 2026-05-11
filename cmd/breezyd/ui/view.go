@@ -140,22 +140,28 @@ type LastApplyView struct {
 // card-outer reactive state (stale class, speed-mode and airflow-mode
 // data-attrs, "X ago" stale-row, sensors-block alert class). The card's
 // HTML is never patched after initial render; signals are.
+//
+// Each field is a map keyed by device name so that a single
+// datastar-patch-signals event scopes updates to exactly one card without
+// overwriting sibling cards' values (same pattern as $detailsOpen from
+// PR #215). Bindings reference $<signal>.<deviceName> rather than the
+// bare $<signal>.
 type CardSignals struct {
-	Stale        bool   `json:"stale"`
-	SpeedMode    string `json:"speedMode"`
-	AirflowMode  string `json:"airflowMode"`
-	LastPollAge  string `json:"lastPollAge"`
-	SensorsAlert bool   `json:"sensorsAlert"`
+	Stale        map[string]bool   `json:"stale"`
+	SpeedMode    map[string]string `json:"speedMode"`
+	AirflowMode  map[string]string `json:"airflowMode"`
+	LastPollAge  map[string]string `json:"lastPollAge"`
+	SensorsAlert map[string]bool   `json:"sensorsAlert"`
 }
 
 // CardSignalsFor extracts CardSignals from a DeviceView.
 func CardSignalsFor(v DeviceView) CardSignals {
 	return CardSignals{
-		Stale:        v.Stale,
-		SpeedMode:    v.SpeedMode,
-		AirflowMode:  v.AirflowMode,
-		LastPollAge:  v.LastPollAge,
-		SensorsAlert: v.Sensors.AlertActive,
+		Stale:        map[string]bool{v.Name: v.Stale},
+		SpeedMode:    map[string]string{v.Name: v.SpeedMode},
+		AirflowMode:  map[string]string{v.Name: v.AirflowMode},
+		LastPollAge:  map[string]string{v.Name: v.LastPollAge},
+		SensorsAlert: map[string]bool{v.Name: v.Sensors.AlertActive},
 	}
 }
 
