@@ -298,6 +298,18 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 		return
 	}
 
+	// Power-state gate. Without this, a unit left in regeneration mode but
+	// powered off via param 0x0001 still accumulates W (the gate above
+	// passes; temperatures still report; the calculator runs against
+	// non-zero fan-pct calibration even though fans aren't moving air).
+	// See #31.
+	power, okPow := breezy.Uint8At(values, 0x0001)
+	if !okPow || power != 1 {
+		e.InstantW = 0
+		e.ConsumedW = 0
+		return
+	}
+
 	supplyPct, ok1 := breezy.CommandedFanPct(values, true)
 	extractPct, ok2 := breezy.CommandedFanPct(values, false)
 	supplyC, ok3 := readTempC(values, 0x0020)
