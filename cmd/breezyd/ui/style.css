@@ -336,7 +336,12 @@ details.block.schedule > summary > h3 { margin: 0; }
   background: transparent;
   border: 1px solid transparent; border-radius: 3px;
   padding: 0 0.1rem; margin: 0;
+  /* Width is the content box (3 character widths, tabular-nums means
+     each digit equals one ch) — the global box-sizing:border-box would
+     otherwise eat 0.2rem + 2px out of the 3ch budget and clip the
+     last digit of "100". */
   width: 3ch;
+  box-sizing: content-box;
   text-align: right;
   font-variant-numeric: tabular-nums;
   appearance: textfield;
