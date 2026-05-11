@@ -395,6 +395,15 @@ details.block.schedule > summary > h3 { margin: 0; }
 
 /* Right-side + button sits on its own row below the table. */
 .schedule-addrow { margin-top: 0.4rem; }
+/* Attention glow on the + add row button — fires when the user
+   clicks the disabled "enabled" checkbox while there are no rows.
+   Mirrors the power-toggle.attention pattern: one out-and-back
+   pulse, 2 iterations × 0.6s with alternate. The
+   scheduleEnabledClickExpr setTimeout matches at 1200ms so class
+   removal lands at the animation's natural endpoint. */
+.schedule-addrow button.attention {
+  animation: power-attention 0.6s ease-in-out 2 alternate;
+}
 /* Left-side label used by the preset editor's two sliders so users can
    tell supply from exhaust at a glance, and by the fan-slider-row for
    the live rpm readout. 4.5rem fits "5340rpm" without clipping. */
@@ -423,7 +432,7 @@ details.block.schedule > summary > h3 { margin: 0; }
 }
 /* Breathing room above the manual slider so it doesn't crowd the
    Mode segmented control directly above it. */
-.fan-slider-row { margin-top: 0.5rem; }
+.fan-slider-row { margin-top: 1rem; }
 /* Same idea for the timer countdown line — it sits directly under the
    night/turbo seg, and without a gap the two visually fuse. */
 .timer-remaining { margin-top: 0.4rem; }

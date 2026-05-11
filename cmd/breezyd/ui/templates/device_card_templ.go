@@ -688,6 +688,7 @@ func initialCardSignals(v ui.DeviceView) string {
 		},
 		"_manualPct":                  map[string]int{v.Name: v.ManualPct},
 		"_attention":                  map[string]bool{v.Name: false},
+		"_addRowAttn":                 map[string]bool{v.Name: false},
 		"stale":                       map[string]bool{v.Name: v.Stale},
 		"power":                       map[string]bool{v.Name: v.Power},
 		"speedMode":                   map[string]string{v.Name: v.SpeedMode},
