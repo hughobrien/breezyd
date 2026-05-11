@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-11
+
+Major milestone covering six days of dashboard, scheduling, energy, and substrate work. `/v1/*` JSON API and CLI surface are unchanged from `1.8.x`; the bump is driven by the dashboard substrate replacement (htmx → datastar + SSE + templ), the new always-on subsystems (schedule, energy tracking, daily RTC sync), and the DST handling fix.
+
 ### Added
 
 - Datastar replaces htmx and the cookie-based UI-state machinery. Single library for client reactivity and server interaction; per-card UI state lives in `data-signals`; visibility flips via `data-attr-open` and `data-show`. Roughly 600 lines of dashboard code go away (the `internal/uistate` package, the `breezy-ui` cookie protocol, four `DeviceView` UI fields, `computeDetailsOpen`, and ~210 lines of inline JS).
@@ -15,25 +19,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server-rendered dashboard via `templ`. Two HTTP namespaces: `/v1/...` (JSON, unchanged — CLI uses this) and `/ui/...` (now SSE event streams, the dashboard uses this).
 - Dark mode: auto via `prefers-color-scheme`, manual override via theme picker on the title. Choice persists to localStorage.
 - CSS extracted from `index.html` to a content-hashed `/ui/style-<hash>.css` for proper caching. CSS custom properties used for theming throughout.
-- Build-tagged `fakedevice_admin` admin control surface: an HTTP plane attached to `pkg/breezy/fakedevice` that lets tests mutate the fake device's state without real hardware.
-- New helper binary `cmd/fakedevice` (built with `-tags fakedevice_admin`): standalone fakedevice process used by Playwright tests.
-- Restored inline SPEED preset editor (#53). Clicking a preset chip toggles a panel with supply + exhaust sliders, an `automode` checkbox, and a `match speeds` checkbox; slider drags POST to `/ui/devices/{name}/preset` via the new `dashboard.js` helper, which centralises the snap-1..9-to-0 + match-speeds-mirror + implied-mode logic.
+- Build-tagged `breezyd_test_admin` admin control surface on the daemon: an HTTP plane under `/test/...` that lets Playwright mutate the in-process `MemClient` without real hardware.
+- In-process `pkg/breezy.MemClient` backend selectable via `breezyd --backend=memory --seed <path>`. Lets the dashboard run against a canned `pkg/breezy/fakedevice/snapshot_*.json` for UI development with no UDP, no fakedevice process, no real device.
+- Restored inline SPEED preset editor (#53). Clicking a preset chip toggles a panel with supply + exhaust sliders, an `automode` checkbox, and a `match speeds` checkbox; slider drags POST to `/ui/devices/{name}/preset`, with snap-1..9-to-0 + match-speeds-mirror + implied-mode logic running through datastar signals.
 - NixOS module's optional nginx integration sets the SSE-friendly directives (`proxy_buffering off`, `proxy_cache off`, `proxy_http_version 1.1`, `proxy_set_header Connection ""`, `proxy_read_timeout 1d`) so SSE streams flush immediately and survive past nginx's default 60s read timeout.
+- DST-aware scheduler (#200). An entry whose At-time falls in the spring-forward missing hour fires once at the first tick after the skipped hour; fall-back entries fire exactly once (the first occurrence). Per-entry `firedAt` tracking persists across daemon restart. Replaces the documented "v1 limitation" with deterministic behaviour.
+- Daily RTC sync per device (#212). `RTCSyncer` goroutine writes the device's RTC (params `0x6F` + `0x70`) once ~30s after daemon startup and then daily at 04:00 local time. Closes the panel-display drift introduced by DST transitions, CR2032 battery replacement, and long-term oscillator drift. Always-on, no configuration.
+- SSE debug rows in the theme-picker popout (#191). Three live rows ("last update", "events", "stream") wired entirely client-side off the existing SSE stream — diagnoses panel-grey symptoms (stream alive vs. one device's poll cycle).
+- `deps.md` at the repo root: every direct dep across Go / JS / Nix with one-line justification and critical-assessment notes. Adopted as the canonical reference for "why is this dep here?"
 
 ### Fixed
 
 - Inline editors (schedule, threshold, preset slider) no longer get clobbered by poll-driven SSE pushes (#65). Each open editor is preserved across polls until the user saves or cancels. The fix also closes a latent bug where the threshold edit form's submit silently failed (datastar's default JSON `contentType` vs. the handler's `r.ParseForm()` form-encoded expectation), which was previously masked by the whole-card poll refresh overwriting the form immediately.
 - Preset chip's `aria-pressed` state now updates while the preset editor is open (#65). The pressed state was previously frozen during edit mode because the controls-block patch was suppressed (correct, to preserve the editor); the fix makes `aria-pressed` signal-driven via the existing `$speedMode` signal so it updates via `datastar-patch-signals` even when the HTML patch misses.
-- `automode` checkbox in the preset editor now defaults **unchecked** (was checked in the legacy SPA). Toggling automode from checked → unchecked while the active preset's fans are both ≥ 10 % now fires a `regeneration` mode write immediately (#46), via the new `dashboard.js` slider helper.
+- `automode` checkbox in the preset editor now defaults **unchecked** (was checked in the legacy SPA). Toggling automode from checked → unchecked while the active preset's fans are both ≥ 10 % now fires a `regeneration` mode write immediately (#46).
+- Schedule editor validation errors now reach the client (#70). Closes the latent `contentType` mismatch where the threshold/schedule form's submit silently failed against the JSON-default handler.
+- Schedule editor pct restores the user's last-edited value when toggling action away from "off" and back (#66).
+- Schedule editor's "enabled" checkbox now reflects the current state (#78).
+- PushHub subscribes BEFORE the SSE initial-state pass (#75). Closes a race where a state change occurring during the per-device initial-state writes could be lost.
+- Brand title and theme-picker header now read "breezyd" instead of "breezy" (#190).
+- HAP weak / malformed PIN regeneration on startup (#132) — security hardening.
+- Snapshot.LastPoll preserved across failed poll ticks (#178). Dashboard now renders "stale with last-known data" instead of dropping to the unreachable placeholder when the in-process backend returns ErrTimeout instantly.
+- Energy tracker re-primes LastTick on local date rollover (#164) — fixes a calculation gap at midnight.
+- Manual slider posts the dragged value, not a stale signal seed (#116). Drag responsiveness restored.
+- `<details>` summary clicks correctly toggle open state across the datastar reactive cycle (#118). The `data-attr:open` enforcement no longer reverts the user's click.
+- UDP timeout errors translated to a human-readable banner string in the dashboard (#61).
+- CLI exit codes for help and missing-device usage paths aligned with spec (#133/#134/#135).
+- `data-show` elements include `style="display:none"` so they don't flash in before datastar binds (#71).
 
 ### Changed
 
 - The dashboard's SSE push pipeline now emits one `datastar-patch-signals` event plus per-block `datastar-patch-elements` events instead of one full-card outer patch (#65). Card-outer reactive state (`stale` class, speed/airflow `data-*` attributes, "X ago" stale row, sensors-block alert class) flows through datastar signals; the card outer is never HTML-patched after initial render. SSE reconnects use the `Last-Event-ID` header to detect cold load vs. reconnect and avoid duplicating cards.
 - Each block carries `data-block="<key>"`; sensor cells carry `data-sensor-cell="<key>"`. Edit variants (schedule, threshold) carry `data-edit="true"` statically; the controls block carries it reactively via `data-attr:data-edit` so the preset editor's slider value is preserved during a poll. Poll-driven patch selectors target `:not([data-edit])` and silently drop when an editor is open. The browser console will show one `PatchElementsNoTargetsFound` warning per poll per open editor — this is by design (the mechanism by which patches are dropped to preserve open editors), not a flood.
-
-### Known Issues
-
-- The schedule edit form's submit handler has the same latent `contentType` mismatch as the threshold form had (datastar's default JSON body vs. `r.ParseForm()` reading form-encoded). It is not exercised by the current test suite (the editor preservation test asserts on the still-open form, not on submit success); a follow-up issue will track the fix. (Discovered during #65.)
 
 - The dashboard substrate is now datastar + SSE. `/ui/devices/{name}/...` action endpoints return 200 + empty body on success (subscribers see the new card via the SSE push channel) or a status-coded `datastar-patch-elements` event into `#global-error-banner` on failure. Threshold and schedule fragment endpoints emit SSE patch events targeting their cells. The `/v1/*` JSON API is unchanged.
 - The `GET /ui/devices` and `GET /ui/devices/{name}/card` routes are removed — the SSE push channel replaces them.
@@ -51,6 +68,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The editor-open render-golden variant (`golden_editor_open_preset2.html`) — under `data-show`, the card HTML is editor-state-independent.
 - `cmd/breezyd/ui/legacy.js` (the JS-rendered SPA's event handlers; replaced by the `dashboard.js` helper plus a small inline FOUC-prevention + theme-picker block in the page shell).
 - Live-drag slider feedback (`.val` text update during drag). Slider value is updated after the SSE patch lands.
+- `cmd/fakedevice` (the standalone fakedevice admin binary). Mid-test state mutation now happens via `breezyd`'s build-tagged `/test/...` surface against the in-process `MemClient`.
+- The htmx vendor bundle (`htmx-2.0.4.min.js`, `htmx-response-targets-2.0.4.min.js`).
+- `internal/uistate/` package and the `breezy-ui` cookie protocol.
+- `pkg/breezy.BuildStatusWithEnergy` (single-caller YAGNI wrapper; the energy attachment is now two inline lines at the call site).
+- `State.RecordPoll` (cosmetic alias for `State.Set`).
+- Direct `prometheus/client_model` dep (replaced by `prometheus/testutil.CollectAndCompare` in the one test that used it).
+- The `flake-utils` flake input (helper inlined via `nixpkgs.lib.genAttrs`).
 
 - Daemon-driven per-device 24-hour cyclic schedule. Each device's card has a new collapsible SCHEDULE block with an `At | Action | Pct` table editor; entries fire writes (Power → SetMode → SetSpeedManual, or Power(false) for "off") at each At-time. State persists to `<state_dir>/schedule_<device>.json`. On transient write failure the daemon retries every 30 s for up to 10 min (abandoned earlier when superseded by the next entry); `breezy.ErrAuth` is treated as a config error and not retried. The dashboard auto-expands the SCHEDULE block with a `⚠` line when the most recent fire failed.
 - New `GET`/`PUT /v1/devices/{name}/schedule` endpoints. PUT replaces the schedule wholesale (≤24 entries, action ∈ off/regeneration/ventilation/supply/extract, pct 10–100, no duplicate At-times); validation failures return 400 `bad_request`. Edits clear any in-flight retry and the previous fire's alert banner.
@@ -65,6 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The NixOS module's `StateDirectory = "breezyd"` is now unconditional (was previously gated on `cfg.homekit.enable`). Energy state and HomeKit pairing files share the same directory under `/var/lib/breezyd/`.
 - `pkg/breezy.commandedFanPct` (unexported) renamed to `pkg/breezy.CommandedFanPct` (exported) so daemon-side code can reuse the speed-mode-aware fan-pct resolution.
+- `/v1` write handlers share a generic `postV1WriteJSON` helper mirroring the existing `postUIWriteJSON` on the `/ui` side; behaviour and response envelope unchanged.
+- CLI ack-pattern commands share a `runOp(op, successMsg, stdout, stderr)` helper. Exit codes (0/1/2) and stdout/stderr strings unchanged.
+- Dashboard daemon picks a free port dynamically in Playwright fixtures (`launchBackend`); previously hardcoded ports occasionally collided.
+- Schedule retry on transient write failure abandoned at 10 minutes (was implicit; now explicit constant `retryDeadline`) and gated correctly when superseded by the next entry's At-time.
+- `cmd/breezyd/handler_test_helpers_test.go`: shared `newTestHandler` / `newTestState` / `setRunFlags` test fixtures introduced; 9 high-duplication test files migrated.
 
 ## [1.8.1] - 2026-05-05
 
