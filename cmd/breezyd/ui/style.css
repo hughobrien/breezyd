@@ -244,6 +244,13 @@ details.block.schedule > summary > h3 { margin: 0; }
   font-family: inherit; font-size: 0.85rem;
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--border-input); background: var(--bg-button);
+  /* Explicit foreground: native <button> defaults to the user-agent's
+     ButtonText system colour, which renders as near-black in some dark-
+     mode setups (Chrome on Linux without a color-scheme hint). That
+     left inactive chips with near-invisible labels on the dark theme.
+     Anchoring to var(--fg) keeps contrast correct on both themes; the
+     active aria-pressed branch below overrides with --accent-text. */
+  color: var(--fg);
   border-radius: 4px; cursor: pointer;
 }
 .seg button { flex: 1 1 auto; }

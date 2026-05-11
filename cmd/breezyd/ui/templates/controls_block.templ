@@ -50,9 +50,9 @@ templ ControlsBlock(v ui.DeviceView) {
 					<button
 						type="button"
 						class="toggle"
-						data-on:click={ postActionExpr(fmt.Sprintf("/ui/devices/%s/heater", v.Name), fmt.Sprintf("{on: %t}", !v.Heater)) }
+						data-on:click={ heaterClickExpr(v.Name) }
 						if v.Stale { disabled }
-						aria-pressed={ boolAttr(v.Heater) }
+						data-attr:aria-pressed={ fmt.Sprintf("$heater.%s ? 'true' : 'false'", v.Name) }
 					>heater</button>
 				</div>
 			</div>
@@ -69,41 +69,65 @@ templ presetBtn(v ui.DeviceView, n int) {
 	>{ presetLabel(v, n) }</button>
 }
 
+// manualBtn renders the SPEED-row "manual" chip. aria-pressed reads the
+// per-device $speedMode.<name> signal so the chip de-highlights as soon
+// as the signal patch arrives — necessary because clicking a preset
+// chip opens the preset editor, which filters out the next controls-
+// block HTML patch via [:not([data-edit])] in push_render.go.
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
 		data-on:click={ closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v)))) }
 		if v.Stale { disabled }
-		aria-pressed={ boolAttr(v.SpeedMode == "manual") }
+		data-attr:aria-pressed={ fmt.Sprintf("$speedMode.%s === 'manual' ? 'true' : 'false'", v.Name) }
 	>manual</button>
 }
 
+// modeBtn renders one of the four MODE chips. aria-pressed reads the
+// per-device $airflowMode.<name> signal for the same reason as
+// manualBtn — the controls-block HTML patch can be filtered out.
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
 		data-on:click={ closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value))) }
 		if v.Stale { disabled }
-		aria-pressed={ boolAttr(v.AirflowMode == value) }
+		data-attr:aria-pressed={ fmt.Sprintf("$airflowMode.%s === '%s' ? 'true' : 'false'", v.Name, value) }
 	>{ label }</button>
 }
 
+// timerBtn renders one of the two SPECIAL-mode chips (night / turbo).
+// aria-pressed AND the click handler's toggle decision both read the
+// live $specialMode.<name> signal: the aria binding so the chip
+// reflects the current state even with the controls-block HTML patch
+// filtered out, and the click so re-clicking the active chip posts
+// "off" without depending on the server-render snapshot being fresh.
 templ timerBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on:click={ postActionExpr("/ui/devices/"+v.Name+"/timer", fmt.Sprintf("{mode: '%s'}", timerMode(v.SpecialMode, value))) }
+		data-on:click={ timerClickExpr(v.Name, value) }
 		if v.Stale { disabled }
-		aria-pressed={ boolAttr(v.SpecialMode == value) }
+		data-attr:aria-pressed={ fmt.Sprintf("$specialMode.%s === '%s' ? 'true' : 'false'", v.Name, value) }
 	>{ label }</button>
 }
 
-// timerMode returns the mode to POST when a timer button is clicked.
-// If the device is already in the requested mode, clicking again posts "off"
-// (toggle off). Otherwise posts the requested mode.
-func timerMode(currentMode, requestedMode string) string {
-	if currentMode == requestedMode {
-		return "off"
-	}
-	return requestedMode
+// timerClickExpr posts "off" when the chip already matches the current
+// $specialMode.<name>, otherwise posts the chip's value.
+func timerClickExpr(name, value string) string {
+	return fmt.Sprintf(
+		"@post('/ui/devices/%s/timer', {payload: {mode: $specialMode.%s === '%s' ? 'off' : '%s'}})",
+		name, name, value, value,
+	)
+}
+
+// heaterClickExpr posts the inverse of the current $heater.<name>
+// signal. Reading the signal (rather than the server-render snapshot)
+// means the toggle works correctly even when the controls-block HTML
+// patch is filtered out by an open preset editor.
+func heaterClickExpr(name string) string {
+	return fmt.Sprintf(
+		"@post('/ui/devices/%s/heater', {payload: {on: !$heater.%s}})",
+		name, name,
+	)
 }
 
 // manualSliderRow renders the manual fan-pct range input. Binds to a
