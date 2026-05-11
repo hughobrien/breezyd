@@ -9,7 +9,7 @@ import (
 // ControlsBlock renders the device controls section. Exported for use
 // from the push render pipeline in package main.
 templ ControlsBlock(v ui.DeviceView) {
-	<div class="controls" data-block="controls" data-attr:data-edit="$editor !== 0 ? 'true' : null">
+	<div class="controls" data-block="controls" data-attr:data-edit={ controlsEditAttr(v.Name) }>
 		<h3>Controls</h3>
 		<div class="ctrl">
 			<span class="ctrl-label">SPEED</span>
@@ -72,7 +72,7 @@ templ presetBtn(v ui.DeviceView, n int) {
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
-		data-on:click={ closeEditorThen(postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v)))) }
+		data-on:click={ closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v)))) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.SpeedMode == "manual") }
 	>manual</button>
@@ -81,7 +81,7 @@ templ manualBtn(v ui.DeviceView) {
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on:click={ closeEditorThen(postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value))) }
+		data-on:click={ closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value))) }
 		if v.Stale { disabled }
 		aria-pressed={ boolAttr(v.AirflowMode == value) }
 	>{ label }</button>
@@ -155,24 +155,29 @@ func presetLabel(v ui.DeviceView, n int) string {
 }
 
 // presetEditor renders one of the three SPEED preset edit panels. The
-// panel is shown when the card-level $editor signal equals n; closed
-// otherwise. Sliders are two-way-bound to the per-card $preset.<n>.<side>
-// signals; data-on:change runs the snap / match-speeds / implied-mode
-// logic and posts via @post (so failures land in #global-error-banner via
-// the SSE error envelope).
+// panel is shown when the per-device $editor.<name> signal equals n;
+// closed otherwise. Sliders are two-way-bound to the per-card
+// $preset.<name>.<n>.<side> signals; data-on:change runs the snap /
+// match-speeds / implied-mode logic and posts via @post (so failures
+// land in #global-error-banner via the SSE error envelope).
+//
+// All four editor signals ($editor, $preset, $automode, $matchSpeeds)
+// are nested under the device name so opening or dragging on one card
+// does not leak to siblings. Same per-device pattern as
+// $detailsOpen (PR #215) and $stale/$speedMode/... (PR #216).
 templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 	<div
 		class="preset-editor"
 		style="display:none"
 		data-preset-editor={ fmt.Sprintf("%d", n) }
-		data-show={ fmt.Sprintf("$editor === %d", n) }
+		data-show={ fmt.Sprintf("$editor.%s === %d", v.Name, n) }
 	>
 		<label class="match-speeds">
-			<input type="checkbox" data-bind="automode" if v.Stale { disabled }/>
+			<input type="checkbox" data-bind={ fmt.Sprintf("automode.%s", v.Name) } if v.Stale { disabled }/>
 			automode
 		</label>
 		<label class="match-speeds">
-			<input type="checkbox" data-bind="matchSpeeds" if v.Stale { disabled }/>
+			<input type="checkbox" data-bind={ fmt.Sprintf("matchSpeeds.%s", v.Name) } if v.Stale { disabled }/>
 			match speeds
 		</label>
 		<div class="slider-row">
@@ -184,7 +189,7 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				max="100"
 				step="1"
 				value={ presetSliderValue(p.Supply) }
-				data-bind={ fmt.Sprintf("preset.%d.supply", n) }
+				data-bind={ fmt.Sprintf("preset.%s.%d.supply", v.Name, n) }
 				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "supply") }
 				if v.Stale { disabled }
 			/>
@@ -199,7 +204,7 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				max="100"
 				step="1"
 				value={ presetSliderValue(p.Extract) }
-				data-bind={ fmt.Sprintf("preset.%d.extract", n) }
+				data-bind={ fmt.Sprintf("preset.%s.%d.extract", v.Name, n) }
 				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "extract") }
 				if v.Stale { disabled }
 			/>
@@ -227,54 +232,66 @@ func postActionExpr(url, payload string) string {
 	return fmt.Sprintf("@post('%s', {payload: %s})", url, payload)
 }
 
-// presetChipExpr toggles the per-card $editor signal for chip n and
-// fires the speed-preset POST. Re-clicking the same chip closes the
-// editor.
-func presetChipExpr(name string, n int) string {
-	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
-	return fmt.Sprintf("$editor = $editor === %d ? 0 : %d; %s", n, n, post)
+// controlsEditAttr returns the data-attr:data-edit expression for the
+// controls panel. Reads the per-device $editor.<name> signal so opening
+// the preset editor on one card doesn't flip data-edit="true" on every
+// other card. See #29-class bugs.
+func controlsEditAttr(name string) string {
+	return fmt.Sprintf("$editor.%s !== 0 ? 'true' : null", name)
 }
 
-// closeEditorThen prefixes a JS expression with $editor = 0 so any open
-// preset-editor closes before the wrapped expression runs. Used by the
-// manual and mode buttons (which select a non-preset speed): the
-// presetChipExpr toggle handles its own $editor state, so only these
-// non-preset paths need the explicit reset.
-func closeEditorThen(expr string) string {
-	return "$editor = 0; " + expr
+// presetChipExpr toggles the per-device $editor.<name> signal for chip
+// n and fires the speed-preset POST. Re-clicking the same chip closes
+// the editor.
+func presetChipExpr(name string, n int) string {
+	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
+	return fmt.Sprintf("$editor.%s = $editor.%s === %d ? 0 : %d; %s", name, name, n, n, post)
+}
+
+// closeEditorThen prefixes a JS expression with $editor.<name> = 0 so
+// any open preset-editor on this card closes before the wrapped
+// expression runs. Used by the manual and mode buttons (which select a
+// non-preset speed): the presetChipExpr toggle handles its own $editor
+// state, so only these non-preset paths need the explicit reset.
+func closeEditorThen(name, expr string) string {
+	return fmt.Sprintf("$editor.%s = 0; ", name) + expr
 }
 
 // presetSliderExpr builds the data-on:change expression for a preset
 // editor slider. Reads the per-side signal (data-bind two-way binding
 // keeps it current with the input value), applies snap-to-zero (1..9 →
-// 0), mirrors to the other side when $matchSpeeds, then posts /preset
-// when both sides are ≥10 and /mode when the implied airflow mode
-// differs from the device's current mode. Errors from either POST flow
-// through datastar's SSE error envelope into #global-error-banner.
+// 0), mirrors to the other side when $matchSpeeds.<name>, then posts
+// /preset when both sides are ≥10 and /mode when the implied airflow
+// mode differs from the device's current mode. Errors from either POST
+// flow through datastar's SSE error envelope into #global-error-banner.
+//
+// All four editor signals ($editor, $preset, $automode, $matchSpeeds)
+// are scoped per-device under <name> so dragging on one card does not
+// move another card's slider in lockstep.
 func presetSliderExpr(name string, n int, side string) string {
 	var setSelf, setMatch string
 	if side == "supply" {
-		setSelf = fmt.Sprintf("$preset[%d].supply = v;", n)
-		setMatch = fmt.Sprintf("if ($matchSpeeds) $preset[%d].extract = v;", n)
+		setSelf = fmt.Sprintf("$preset.%s[%d].supply = v;", name, n)
+		setMatch = fmt.Sprintf("if ($matchSpeeds.%s) $preset.%s[%d].extract = v;", name, name, n)
 	} else {
-		setSelf = fmt.Sprintf("$preset[%d].extract = v;", n)
-		setMatch = fmt.Sprintf("if ($matchSpeeds) $preset[%d].supply = v;", n)
+		setSelf = fmt.Sprintf("$preset.%s[%d].extract = v;", name, n)
+		setMatch = fmt.Sprintf("if ($matchSpeeds.%s) $preset.%s[%d].supply = v;", name, name, n)
 	}
 	return fmt.Sprintf(
 		`let raw = parseInt(evt.target.value, 10); `+
 			`let v = (raw > 0 && raw < 10) ? 0 : raw; `+
 			`%s %s `+
-			`let sup = $preset[%d].supply, ext = $preset[%d].extract; `+
+			`let sup = $preset.%s[%d].supply, ext = $preset.%s[%d].extract; `+
 			`if (sup >= 10 && ext >= 10) `+
 			`@post('/ui/devices/%s/preset', {payload: {preset: %d, supply: sup, extract: ext}}); `+
 			`let implied = null; `+
-			`if ($automode) implied = 'ventilation'; `+
+			`if ($automode.%s) implied = 'ventilation'; `+
 			`else if (sup >= 10 && ext >= 10) implied = 'regeneration'; `+
 			`else if (sup === 0 && ext >= 10) implied = 'extract'; `+
 			`else if (sup >= 10 && ext === 0) implied = 'supply'; `+
 			`if (implied && $speedMode.%s === 'preset%d' && $airflowMode.%s !== implied) `+
 			`@post('/ui/devices/%s/mode', {payload: {mode: implied}});`,
-		setSelf, setMatch, n, n, name, n, name, n, name, name,
+		setSelf, setMatch, name, n, name, n, name, n, name, name, n, name, name,
 	)
 }
 
