@@ -8,7 +8,11 @@ package templates
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/hughobrien/breezyd/cmd/breezyd/ui"
+import (
+	"strings"
+
+	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
+)
 
 // SpeedLabel renders the user-facing label for a speed percentage.
 func SpeedLabel(pct int) templ.Component {
@@ -39,7 +43,7 @@ func SpeedLabel(pct int) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(ui.HumanPct(pct))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/helpers.templ`, Line: 7, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/helpers.templ`, Line: 11, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -51,6 +55,15 @@ func SpeedLabel(pct int) templ.Component {
 		}
 		return nil
 	})
+}
+
+// withDatastarOpts injects an options object literal into a datastar
+// action expression produced by datastar.PostSSE / GetSSE / PutSSE /
+// etc. (e.g. wraps `@put('/x')` → `@put('/x', {contentType: 'form'})`).
+// Keeps the SDK helper as the canonical URL formatter / escaper while
+// supporting per-action options that the SDK doesn't model.
+func withDatastarOpts(expr, opts string) string {
+	return strings.TrimSuffix(expr, ")") + ", " + opts + ")"
 }
 
 var _ = templruntime.GeneratedTemplate

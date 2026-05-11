@@ -302,6 +302,55 @@ test.describe("controls", () => {
   // initial-render seed. The fix drops the bind entirely and reads
   // `evt.target.valueAsNumber` in the @post — the input's own value is
   // the source of truth.
+  // Pins #1 (regression): clicking a preset chip while in manual mode
+  // must close the MODE / manual-slider pane. The pane visibility used
+  // to be server-rendered, so when the preset click opened the editor
+  // (setting data-edit="true") the controls-block HTML patch was
+  // filtered and the manual pane stayed in the DOM. Fix is a client-
+  // side data-show keyed on the live $speedMode / $specialMode signals.
+  test("preset chip click hides manual pane via data-show", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.asManualSpeed(DEVICE, 50);
+    await presets.withTimer(DEVICE, "off");
+    const card = await loadCard(page);
+
+    const manualPane = card.locator(".manual-pane");
+    await expect(manualPane).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
+
+    // Click any preset chip — it opens the editor (data-edit="true")
+    // which filters the controls-block patch. The data-show should
+    // hide the pane based on the speedMode signal flipping to preset.
+    await card.getByRole("button", { name: "48/49" }).click();
+    await expect(manualPane).toBeHidden({ timeout: POLL_PUSH_TIMEOUT });
+  });
+
+  // Pins #3 (regression): with match-speeds enabled, dragging the
+  // supply slider must mirror to the extract slider live (on the
+  // `input` event), not only on release via the debounced `change`
+  // handler. Pre-fix the mirror ran inside presetSliderExpr (the
+  // change handler), so the extract slider visually lagged a full
+  // release behind the supply slider during the drag.
+  test("match-speeds mirrors live during slider input (not just on change)", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.asPresetSpeed(DEVICE, 1);
+    const card = await loadCard(page);
+
+    await card.getByRole("button", { name: "48/49" }).click();
+    const editor2 = card.locator('[data-preset-editor="2"]');
+    await expect(editor2).toBeVisible({ timeout: 2_000 });
+    const supplySlider = editor2.locator('input[name="supply"]');
+    const extractSlider = editor2.locator('input[name="extract"]');
+
+    // matchSpeeds defaults true. Dispatch ONLY an input event (no
+    // change) and assert the mirror happened. If the implementation
+    // mirrored only on change, this assertion fails.
+    await supplySlider.evaluate((el: HTMLInputElement) => {
+      el.value = "70";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await expect(extractSlider).toHaveValue("70", { timeout: 1_000 });
+  });
+
   test("manual slider drag posts dragged value (closes #116)", async ({ page }) => {
     await reset(DEVICE);
     // Force the slider to render: speed_mode=manual + special-mode=off
@@ -342,6 +391,55 @@ test.describe("controls", () => {
       .poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT })
       .toBeGreaterThanOrEqual(1);
     expect(manualPosts[0]).toBe(75);
+  });
+});
+
+test.describe("schedule editor", () => {
+  // Pins #5 (regression): the schedule editor's submit must PUT the form
+  // as application/x-www-form-urlencoded so putUISchedule.r.ParseForm()
+  // picks up at/action/pct. Without contentType:'form' on the @put,
+  // datastar sends a JSON body (empty signals store), every row parses
+  // as absent, and the schedule clears on save.
+  test("edit → modify pct → save persists the entry", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.withSchedule(DEVICE, {
+      enabled: true,
+      entries: [{ at: "08:00", action: "regeneration", pct: 60 }],
+    });
+    const card = await loadCard(page);
+
+    await card.locator('details[data-block="schedule"] > summary').click();
+    await card.getByRole("button", { name: "edit schedule" }).click();
+    const editDetails = card.locator('details.schedule[data-edit="true"]');
+    await expect(editDetails).toBeVisible({ timeout: 2_000 });
+    const pctInput = editDetails.locator('input[name="pct"]');
+    await expect(pctInput).toBeVisible();
+    await pctInput.fill("77");
+
+    await editDetails.getByRole("button", { name: "save" }).click();
+
+    // Back to the read variant — the row must still be present with the
+    // edited pct value. The read variant has no data-edit attribute.
+    const readDetails = card.locator('details.schedule:not([data-edit])');
+    await expect(readDetails).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
+    await expect(readDetails).toContainText("77%");
+    await expect(readDetails).toContainText("08:00");
+  });
+
+  // Pins #6: opening edit on an empty schedule should auto-seed one row
+  // rather than show "no entries" — the user came here to add entries,
+  // requiring an explicit "+ add row" click first is an extra step.
+  test("edit on empty schedule auto-seeds a row", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.withSchedule(DEVICE, { enabled: true, entries: [] });
+    const card = await loadCard(page);
+
+    await card.locator('details[data-block="schedule"] > summary').click();
+    await card.getByRole("button", { name: "edit schedule" }).click();
+    const editDetails = card.locator('details.schedule[data-edit="true"]');
+    await expect(editDetails).toBeVisible({ timeout: 2_000 });
+    await expect(editDetails.locator('input[name="at"]')).toHaveCount(1);
+    await expect(editDetails.locator('select[name="action"]')).toHaveCount(1);
   });
 });
 

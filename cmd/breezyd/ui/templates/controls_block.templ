@@ -22,7 +22,11 @@ templ ControlsBlock(v ui.DeviceView) {
 			@presetEditor(v, 1, v.Preset1)
 			@presetEditor(v, 2, v.Preset2)
 			@presetEditor(v, 3, v.Preset3)
-			if v.SpeedMode == "manual" && v.SpecialMode == "off" {
+			<div
+				class="manual-pane"
+				style={ manualPaneInitialStyle(v) }
+				data-show={ fmt.Sprintf("$speedMode.%s === 'manual' && $specialMode.%s === 'off'", v.Name, v.Name) }
+			>
 				<span class="ctrl-label">MODE</span>
 				<div class="seg">
 					@modeBtn(v, "auto", "ventilation")
@@ -31,7 +35,7 @@ templ ControlsBlock(v ui.DeviceView) {
 					@modeBtn(v, "exhaust", "extract")
 				</div>
 				@manualSliderRow(v)
-			}
+			</div>
 		</div>
 		<div class="ctrl ctrl-pair">
 			<div class="ctrl-group ctrl-group-timer">
@@ -135,15 +139,19 @@ templ timerBtn(v ui.DeviceView, label, value string) {
 // initial countdown reflects the device's configured value. Server
 // poll overwrites both signals once it catches up.
 func timerClickExpr(name, value string) string {
+	post := postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/timer", name),
+		fmt.Sprintf("{mode: active ? 'off' : '%s'}", value),
+	)
 	return fmt.Sprintf(
 		"var active = $specialMode.%s === '%s'; "+
 			"if (active) { $specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0; } "+
 			"else { $specialMode.%s = '%s'; $specialModeRemainingSeconds.%s = $%sDurationSeconds.%s; } "+
-			"@post('/ui/devices/%s/timer', {payload: {mode: active ? 'off' : '%s'}});",
+			"%s;",
 		name, value,
 		name, name,
 		name, value, name, value, name,
-		name, value,
+		post,
 	)
 }
 
@@ -168,9 +176,9 @@ templ timerRemaining(v ui.DeviceView) {
 // means the toggle works correctly even when the controls-block HTML
 // patch is filtered out by an open preset editor.
 func heaterClickExpr(name string) string {
-	return fmt.Sprintf(
-		"@post('/ui/devices/%s/heater', {payload: {on: !$heater.%s}})",
-		name, name,
+	return postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/heater", name),
+		fmt.Sprintf("{on: !$heater.%s}", name),
 	)
 }
 
@@ -179,6 +187,12 @@ func heaterClickExpr(name string) string {
 // not sent in @post bodies) so the val display updates live during drag.
 // The debounced data-on:change still reads evt.target.valueAsNumber directly —
 // no change to wire behaviour. See #26 and #116.
+//
+// The pct readout to the right of the slider is a number input rather
+// than a span: two-way data-bind to the same $_manualPct.<name> signal
+// keeps the slider thumb and the typed value in sync, so the user can
+// click & type a precise value when the slider's coarseness is the
+// wrong tool. data-on:change fires the same POST as the slider.
 templ manualSliderRow(v ui.DeviceView) {
 	<div class="slider-row fan-slider-row">
 		<span class="fan-side"></span>
@@ -192,8 +206,31 @@ templ manualSliderRow(v ui.DeviceView) {
 			value={ fmt.Sprintf("%d", v.ManualPct) }
 			data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
 		/>
-		<span class="val" data-text={ fmt.Sprintf("$_manualPct.%s + '%%'", v.Name) }></span>
+		<span class="val">
+			<input
+				type="number"
+				class="val-input"
+				min="10"
+				max="100"
+				step="1"
+				data-bind={ fmt.Sprintf("_manualPct.%s", v.Name) }
+				value={ fmt.Sprintf("%d", v.ManualPct) }
+				data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
+			/><span class="val-suffix">%</span>
+		</span>
 	</div>
+}
+
+// manualPaneInitialStyle returns the pre-datastar-paint style for the
+// manual pane wrapper. data-show toggles display reactively once
+// datastar attaches; this avoids a visible flash for both directions
+// (no flash-on for cards that aren't in manual mode, no flash-off for
+// cards that are) by matching the server-known state at render time.
+func manualPaneInitialStyle(v ui.DeviceView) string {
+	if v.SpeedMode == "manual" && v.SpecialMode == "off" {
+		return ""
+	}
+	return "display:none"
 }
 
 // manualBtnPct returns the pct to send when the manual button is clicked.
@@ -276,10 +313,24 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				step="1"
 				value={ presetSliderValue(p.Supply) }
 				data-bind={ fmt.Sprintf("preset.%s.%d.supply", v.Name, n) }
+				data-on:input={ matchSpeedsMirrorExpr(v.Name, n, "supply") }
 				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "supply") }
 				if v.Stale { disabled }
 			/>
-			<span class="val" data-text={ fmt.Sprintf("$preset.%s[%d].supply + '%%'", v.Name, n) }>{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Supply)) }</span>
+			<span class="val">
+				<input
+					type="number"
+					class="val-input"
+					min="0"
+					max="100"
+					step="1"
+					value={ presetSliderValue(p.Supply) }
+					data-bind={ fmt.Sprintf("preset.%s.%d.supply", v.Name, n) }
+					data-on:input={ matchSpeedsMirrorExpr(v.Name, n, "supply") }
+					data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "supply") }
+					if v.Stale { disabled }
+				/><span class="val-suffix">%</span>
+			</span>
 		</div>
 		<div class="slider-row">
 			<span class="val-label">exhaust</span>
@@ -291,10 +342,24 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 				step="1"
 				value={ presetSliderValue(p.Extract) }
 				data-bind={ fmt.Sprintf("preset.%s.%d.extract", v.Name, n) }
+				data-on:input={ matchSpeedsMirrorExpr(v.Name, n, "extract") }
 				data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "extract") }
 				if v.Stale { disabled }
 			/>
-			<span class="val" data-text={ fmt.Sprintf("$preset.%s[%d].extract + '%%'", v.Name, n) }>{ fmt.Sprintf("%d%%", clampPresetDisplay(p.Extract)) }</span>
+			<span class="val">
+				<input
+					type="number"
+					class="val-input"
+					min="0"
+					max="100"
+					step="1"
+					value={ presetSliderValue(p.Extract) }
+					data-bind={ fmt.Sprintf("preset.%s.%d.extract", v.Name, n) }
+					data-on:input={ matchSpeedsMirrorExpr(v.Name, n, "extract") }
+					data-on:change__debounce.200ms={ presetSliderExpr(v.Name, n, "extract") }
+					if v.Stale { disabled }
+				/><span class="val-suffix">%</span>
+			</span>
 		</div>
 	</div>
 }
@@ -308,14 +373,15 @@ templ presetEditor(v ui.DeviceView, n int, p ui.PresetView) {
 // stream the handler returns on error, which is how
 // #global-error-banner gets populated for auth/UDP failures.
 //
-// Empty-payload defers to datastar.PostSSE; the with-payload form has
-// no SDK helper because the payload is a JS expression, not a Go value
-// — see issue #192.
+// Both branches go through datastar.PostSSE for URL formatting /
+// escaping; the with-payload form wraps the result with
+// withDatastarOpts because the SDK helper doesn't model action options.
 func postActionExpr(url, payload string) string {
+	base := datastar.PostSSE("%s", url)
 	if payload == "" {
-		return datastar.PostSSE("%s", url)
+		return base
 	}
-	return fmt.Sprintf("@post('%s', {payload: %s})", url, payload)
+	return withDatastarOpts(base, fmt.Sprintf("{payload: %s}", payload))
 }
 
 // controlsEditAttr returns the data-attr:data-edit expression for the
@@ -380,21 +446,48 @@ func presetSliderExpr(name string, n int, side string) string {
 		setSelf = fmt.Sprintf("$preset.%s[%d].extract = v;", name, n)
 		setMatch = fmt.Sprintf("if ($matchSpeeds.%s) $preset.%s[%d].supply = v;", name, name, n)
 	}
+	postPreset := postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/preset", name),
+		fmt.Sprintf("{preset: %d, supply: sup, extract: ext}", n),
+	)
+	postMode := postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/mode", name),
+		"{mode: implied}",
+	)
 	return fmt.Sprintf(
 		`let raw = parseInt(evt.target.value, 10); `+
 			`let v = (raw > 0 && raw < 10) ? 0 : raw; `+
 			`%s %s `+
 			`let sup = $preset.%s[%d].supply, ext = $preset.%s[%d].extract; `+
 			`if (sup >= 10 && ext >= 10) `+
-			`@post('/ui/devices/%s/preset', {payload: {preset: %d, supply: sup, extract: ext}}); `+
+			`%s; `+
 			`let implied = null; `+
 			`if ($automode.%s) implied = 'ventilation'; `+
 			`else if (sup >= 10 && ext >= 10) implied = 'regeneration'; `+
 			`else if (sup === 0 && ext >= 10) implied = 'extract'; `+
 			`else if (sup >= 10 && ext === 0) implied = 'supply'; `+
 			`if (implied && $speedMode.%s === 'preset%d' && $airflowMode.%s !== implied) `+
-			`@post('/ui/devices/%s/mode', {payload: {mode: implied}});`,
-		setSelf, setMatch, name, n, name, n, name, n, name, name, n, name, name,
+			`%s;`,
+		setSelf, setMatch, name, n, name, n, postPreset, name, name, n, name, postMode,
+	)
+}
+
+// matchSpeedsMirrorExpr returns the data-on:input handler that mirrors
+// the dragged/typed side to its counterpart when $matchSpeeds.<name> is
+// true. Fires on every input event (slider drag, number-input keystroke)
+// so the other side tracks live rather than jumping at release. Reads
+// evt.target.value directly to avoid depending on data-bind's
+// signal-write ordering. The change handler (presetSliderExpr) still
+// runs on release/blur for snap-to-zero, mirror with snapped value, and
+// the actual POST — this handler is purely visual feedback during drag.
+func matchSpeedsMirrorExpr(name string, n int, side string) string {
+	other := "extract"
+	if side == "extract" {
+		other = "supply"
+	}
+	return fmt.Sprintf(
+		"if ($matchSpeeds.%s) $preset.%s[%d].%s = parseInt(evt.target.value, 10);",
+		name, name, n, other,
 	)
 }
 
@@ -406,17 +499,4 @@ func presetSliderValue(pct int) string {
 		return "50"
 	}
 	return fmt.Sprintf("%d", pct)
-}
-
-// clampPresetDisplay returns the user-visible % readout. The unknown
-// sentinel (-1, pre-poll) renders as 0 here while presetSliderValue
-// returns 50 for the thumb position — the asymmetry is deliberate: the
-// thumb needs a neutral landing spot so dragging feels natural, but the
-// readout must not lie about a known value, and the sliders are
-// disabled when v.Stale anyway so the user can't actually drag yet.
-func clampPresetDisplay(pct int) int {
-	if pct < 0 {
-		return 0
-	}
-	return pct
 }

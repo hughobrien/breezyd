@@ -58,16 +58,34 @@ func (h *Handler) scheduleReadFrag(w http.ResponseWriter, r *http.Request, name 
 // helpers discard non-2xx response bodies (see #70). The semantic 422
 // surfaces as a custom Datastar-Status header — same convention as
 // errorBannerSSE — for observability and tooling.
+//
+// When the schedule has no entries and there's no validation error,
+// seed a single empty row so the user lands in an editable state
+// rather than an empty wall that needs an explicit "+ add row" click
+// before any data entry is possible. Same defaults as
+// getUIScheduleNewRow. The errMsg path is excluded so validation
+// failures don't manufacture rows that weren't submitted.
 func (h *Handler) scheduleEditFrag(w http.ResponseWriter, r *http.Request, name, errMsg string) {
 	view, ok := h.viewFor(name)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
+	if errMsg == "" && len(view.Schedule.Entries) == 0 {
+		view.Schedule.Entries = []ui.ScheduleEntryView{emptyScheduleEntry()}
+	}
 	if errMsg != "" {
 		w.Header().Set("Datastar-Status", strconv.Itoa(http.StatusUnprocessableEntity))
 	}
 	patchFragmentSSE(w, r, scheduleSelector(name), templates.ScheduleBlockEdit(name, view.Schedule, view.Stale, errMsg))
+}
+
+// emptyScheduleEntry returns the seed values for a freshly-added edit
+// row. Used by both getUIScheduleNewRow (when the user clicks
+// "+ add row") and scheduleEditFrag (when entering edit mode with no
+// existing entries).
+func emptyScheduleEntry() ui.ScheduleEntryView {
+	return ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
 }
 
 // getUIScheduleRead serves the read variant of the schedule block.
@@ -105,9 +123,8 @@ func (h *Handler) getUIScheduleNewRow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := newSSE(w, r)
-	empty := ui.ScheduleEntryView{At: "08:00", Action: "regeneration", Pct: 60}
 	if err := sse.PatchElementTempl(
-		templates.ScheduleEditRow(empty),
+		templates.ScheduleEditRow(emptyScheduleEntry()),
 		datastar.WithSelectorf(`.card[data-device=%q] tbody.schedule-edit-tbody`, name),
 		// Inner-mode + append-style not needed; we instead append by
 		// targeting tbody and using mode=append.
