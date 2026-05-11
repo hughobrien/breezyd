@@ -958,7 +958,9 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 // ---------- postUISchedEnabled tests ----------
 
 // TestPostUISchedEnabled_Happy verifies the enabled-toggle endpoint flips
-// the scheduler's enabled bit and notifies the PushHub.
+// the scheduler's enabled bit and notifies the PushHub. Pre-loads one
+// entry because the forced-off invariant pins enabled=false on a
+// schedule with no entries; the test isn't about that invariant.
 func TestPostUISchedEnabled_Happy(t *testing.T) {
 	is := is.New(t)
 	h := newUIScheduleTestHandler(t)
@@ -966,8 +968,9 @@ func TestPostUISchedEnabled_Happy(t *testing.T) {
 	srv := httptest.NewServer(h.mux())
 	defer srv.Close()
 
-	// Start enabled=false; flip to true.
 	sch := h.Schedulers["alpha"]
+	at, _ := ParseScheduleTime("08:00")
+	_ = sch.Replace(false, []ScheduleEntry{{At: at, Action: "regeneration", Pct: 60}})
 	snap := sch.Snapshot()
 	is.Equal(snap.Enabled, false) // scheduler starts disabled
 

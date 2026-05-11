@@ -263,9 +263,17 @@ func (s *Scheduler) save() error {
 // SetEnabled flips the schedule's enabled bit and persists. Does NOT
 // touch entries, firedAt, retry, or lastApply — the toggle is
 // conceptually independent of the schedule's content. See #27.
+//
+// Forced-off invariant: a schedule with no entries can't be enabled —
+// "enabled with nothing to fire" is a UI state that misleads users
+// into thinking something will happen. SetEnabled(true) on an empty
+// schedule silently keeps enabled=false.
 func (s *Scheduler) SetEnabled(enabled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if enabled && len(s.entries) == 0 {
+		enabled = false
+	}
 	s.enabled = enabled
 	if err := s.save(); err != nil {
 		return fmt.Errorf("schedule: persist: %w", err)
@@ -277,12 +285,18 @@ func (s *Scheduler) SetEnabled(enabled bool) error {
 // retry and lastApply (a fresh schedule starts fresh — no stale alert
 // banner), and persists. Returns errors wrapping ErrInvalidArg on bad
 // input.
+//
+// Forced-off invariant: a schedule with no entries can't be enabled —
+// see SetEnabled.
 func (s *Scheduler) Replace(enabled bool, entries []ScheduleEntry) error {
 	if err := s.validate(entries); err != nil {
 		return err
 	}
 	cp := append([]ScheduleEntry(nil), entries...)
 	sortEntries(cp)
+	if enabled && len(cp) == 0 {
+		enabled = false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.enabled = enabled

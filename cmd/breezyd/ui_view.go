@@ -281,9 +281,10 @@ func energyViewFrom(ev breezy.EnergyValues) *ui.EnergyView {
 // scheduleViewFrom converts a ScheduleSnapshot into a ScheduleView.
 func scheduleViewFrom(ss ScheduleSnapshot) ui.ScheduleView {
 	sv := ui.ScheduleView{
-		Present: true,
-		Enabled: ss.Enabled,
-		Alert:   ss.LastApply != nil && !ss.LastApply.OK,
+		Present:   true,
+		Enabled:   ss.Enabled,
+		Alert:     ss.LastApply != nil && !ss.LastApply.OK,
+		NextEvent: nextScheduleEvent(ss.Entries, time.Now()),
 	}
 	for _, e := range ss.Entries {
 		sv.Entries = append(sv.Entries, ui.ScheduleEntryView{
@@ -300,6 +301,37 @@ func scheduleViewFrom(ss ScheduleSnapshot) ui.ScheduleView {
 		}
 	}
 	return sv
+}
+
+// nextScheduleEvent returns the "HH:MM" of the next entry whose At-time
+// is strictly after the local-wall-clock minute of `now`. Wraps to the
+// earliest entry when all of today's have already fired (the next
+// event is then tomorrow morning's first entry). Empty when there are
+// no entries — the caller's read template suppresses the summary
+// indicator in that case.
+//
+// The cutoff is `>` (not `>=`) so that at the exact minute an entry
+// fires (e.g. 03:00:00 for an At=03:00 entry), the indicator advances
+// to the next scheduled event rather than showing the just-fired one.
+func nextScheduleEvent(entries []ScheduleEntry, now time.Time) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	nowMin := ScheduleTime(now.Hour()*60 + now.Minute())
+	var nextAfter ScheduleTime = -1
+	var earliest ScheduleTime = 1440
+	for _, e := range entries {
+		if e.At > nowMin && (nextAfter == -1 || e.At < nextAfter) {
+			nextAfter = e.At
+		}
+		if e.At < earliest {
+			earliest = e.At
+		}
+	}
+	if nextAfter != -1 {
+		return nextAfter.String()
+	}
+	return earliest.String()
 }
 
 // formatAge returns a human-readable duration string similar to the old JS humanAgo.

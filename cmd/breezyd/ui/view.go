@@ -124,6 +124,12 @@ type ScheduleView struct {
 	Enabled bool
 	Entries []ScheduleEntryView
 	Alert   bool // last fire failed
+	// NextEvent is the "HH:MM" of the next entry's At-time after the
+	// current local-wall-clock minute (wrapping to the earliest entry
+	// when all of today's are past). Empty when there are no entries.
+	// Surfaces in the collapsed schedule summary so the user can see
+	// when the schedule will next act without expanding the block.
+	NextEvent string
 	// LastApply is non-nil when there was a recent fire attempt with an error.
 	LastApply *LastApplyView
 }
