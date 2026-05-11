@@ -123,6 +123,11 @@ h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .device-info > summary {
     padding-right: 5rem;
 }
+/* When the info panel is open, give the expanded rows breathing room
+   below the summary so the right-aligned value on the first row (e.g.
+   the long IP string) doesn't crowd the absolutely-positioned power
+   button sitting at the top-right of the wrap. */
+.device-info[open] > summary { margin-bottom: 0.75rem; }
 .power-toggle {
     position: absolute;
     top: 0;
@@ -320,6 +325,39 @@ details.block.schedule > summary > h3 { margin: 0; }
 .slider-row .val-spacer,
 .slider-row .val { min-width: 3rem; }
 .slider-row .val { text-align: right; font-variant-numeric: tabular-nums; }
+/* Inline editable pct readout that lives next to the manual and preset
+   sliders. Borderless and styled to read as plain text (right-aligned,
+   tabular-nums); dotted underline on hover signals click-and-type. Pair
+   with the literal "%" in .val-suffix so the input itself shows just
+   the number. Spinner buttons are hidden — type or use the slider. */
+.val-input {
+  font: inherit; color: inherit;
+  background: transparent;
+  border: 1px solid transparent; border-radius: 3px;
+  padding: 0 0.1rem; margin: 0;
+  width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.val-input::-webkit-inner-spin-button,
+.val-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.val-input:hover:not(:disabled):not(:focus) {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+.val-input:focus {
+  outline: none;
+  border-color: var(--border-input);
+}
+.val-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.val-suffix { color: inherit; }
 /* Left-side label used by the preset editor's two sliders so users can
    tell supply from exhaust at a glance, and by the fan-slider-row for
    the live rpm readout. 4.5rem fits "5340rpm" without clipping. */

@@ -2,6 +2,7 @@ package templates
 
 import (
 	"fmt"
+
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -170,12 +171,15 @@ templ scheduleActionOption(value, label, current string) {
 }
 
 // scheduleSubmitExpr builds the data-on:submit expression for the
-// schedule editor form: PUT the form, then GET the read variant. The
-// PUT response is itself a patch (read or edit-with-error), so the
-// follow-up GET is only needed when the PUT 422s — but datastar
-// processes both events in order, and the read patch is idempotent.
+// schedule editor form. Wraps datastar.PutSSE (URL formatting +
+// escaping) and injects {contentType: 'form'} so datastar scrapes the
+// enclosing <form>'s field values and PUTs them as
+// application/x-www-form-urlencoded — the handler (putUISchedule)
+// reads r.Form, so without this option the body would be JSON of the
+// (empty) signal store and every row would silently parse as absent,
+// clearing the schedule on save.
 func scheduleSubmitExpr(name string) string {
-	return datastar.PutSSE("/ui/devices/%s/schedule", name)
+	return withDatastarOpts(datastar.PutSSE("/ui/devices/%s/schedule", name), "{contentType: 'form'}")
 }
 
 // schedulePctValue returns the value attribute for the pct input.

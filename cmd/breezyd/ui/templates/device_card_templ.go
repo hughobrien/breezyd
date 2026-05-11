@@ -636,9 +636,9 @@ func detailsOpenToggle(deviceName, section string) string {
 // rapid double-click can't fire two same-direction toggles before the
 // info block patch refreshes.
 func powerButtonExpr(v ui.DeviceView) string {
-	return fmt.Sprintf(
-		"@post('/ui/devices/%s/power', {payload: {on: !$power.%s}})",
-		v.Name, v.Name,
+	return postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/power", v.Name),
+		fmt.Sprintf("{on: !$power.%s}", v.Name),
 	)
 }
 
