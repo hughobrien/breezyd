@@ -364,10 +364,10 @@ func TestRenderDeviceCard_ReactiveOuter(t *testing.T) {
 	}
 	got := sb.String()
 	wantContains := []string{
-		`data-class:stale="$stale"`,
-		`data-attr:data-speed-mode="$speedMode"`,
-		`data-attr:data-airflow-mode="$airflowMode"`,
-		`data-show="$stale"`,
+		`data-class:stale="$stale.` + v.Name + `"`,
+		`data-attr:data-speed-mode="$speedMode.` + v.Name + `"`,
+		`data-attr:data-airflow-mode="$airflowMode.` + v.Name + `"`,
+		`data-show="$stale.` + v.Name + `"`,
 		`&#34;sensorsAlert&#34;`,
 		`&#34;speedMode&#34;`,
 		`data-block="info"`,
@@ -402,7 +402,7 @@ func TestRenderBlocks_DataBlockMarkers(t *testing.T) {
 		`data-block="sensors"`,
 		`data-block="schedule"`,
 		`data-block="controls"`,
-		`data-class:alert="$sensorsAlert"`,
+		`data-class:alert="$sensorsAlert.` + v.Name + `"`,
 	} {
 		if !strings.Contains(got, s) {
 			t.Errorf("missing %q in card render", s)
@@ -874,7 +874,7 @@ func TestPresetSliderExpr_SupplyN2(t *testing.T) {
 		"else if (sup >= 10 && ext >= 10) implied = 'regeneration'; " +
 		"else if (sup === 0 && ext >= 10) implied = 'extract'; " +
 		"else if (sup >= 10 && ext === 0) implied = 'supply'; " +
-		"if (implied && $speedMode === 'preset2' && $airflowMode !== implied) " +
+		"if (implied && $speedMode.alpha === 'preset2' && $airflowMode.alpha !== implied) " +
 		"@post('/ui/devices/alpha/mode', {payload: {mode: implied}});"
 	if got != want {
 		t.Errorf("presetSliderExpr(alpha, 2, supply):\n  got: %s\n want: %s", got, want)
@@ -993,6 +993,7 @@ func TestInitialCardSignals_PresetSeedTypedAsNumber(t *testing.T) {
 
 func TestCardSignalsFor_JSON(t *testing.T) {
 	v := ui.DeviceView{
+		Name:        "alpha",
 		Stale:       true,
 		SpeedMode:   "manual",
 		AirflowMode: "regeneration",
@@ -1007,16 +1008,47 @@ func TestCardSignalsFor_JSON(t *testing.T) {
 	if err := json.Unmarshal(got, &back); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{
-		"stale":        true,
-		"speedMode":    "manual",
-		"airflowMode":  "regeneration",
-		"lastPollAge":  "12s",
-		"sensorsAlert": true,
-	}
-	for k, w := range want {
-		if back[k] != w {
-			t.Errorf("field %q: got %v, want %v", k, back[k], w)
+	// Each field is now a map keyed by device name (per-device namespacing,
+	// same pattern as $detailsOpen from PR #215). The patch-signals event
+	// carries only this device's sub-key; datastar deep-merges it so sibling
+	// cards' values are preserved.
+	getStr := func(key string) string {
+		m, ok := back[key].(map[string]any)
+		if !ok {
+			t.Errorf("%q: want map[string]any, got %T (%v)", key, back[key], back[key])
+			return ""
 		}
+		s, ok := m[v.Name].(string)
+		if !ok {
+			t.Errorf("%q.%s: want string, got %T (%v)", key, v.Name, m[v.Name], m[v.Name])
+		}
+		return s
+	}
+	getBool := func(key string) bool {
+		m, ok := back[key].(map[string]any)
+		if !ok {
+			t.Errorf("%q: want map[string]any, got %T (%v)", key, back[key], back[key])
+			return false
+		}
+		b, ok := m[v.Name].(bool)
+		if !ok {
+			t.Errorf("%q.%s: want bool, got %T (%v)", key, v.Name, m[v.Name], m[v.Name])
+		}
+		return b
+	}
+	if got := getBool("stale"); got != true {
+		t.Errorf("stale.%s: got %v, want true", v.Name, got)
+	}
+	if got := getStr("speedMode"); got != "manual" {
+		t.Errorf("speedMode.%s: got %q, want %q", v.Name, got, "manual")
+	}
+	if got := getStr("airflowMode"); got != "regeneration" {
+		t.Errorf("airflowMode.%s: got %q, want %q", v.Name, got, "regeneration")
+	}
+	if got := getStr("lastPollAge"); got != "12s" {
+		t.Errorf("lastPollAge.%s: got %q, want %q", v.Name, got, "12s")
+	}
+	if got := getBool("sensorsAlert"); got != true {
+		t.Errorf("sensorsAlert.%s: got %v, want true", v.Name, got)
 	}
 }

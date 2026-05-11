@@ -20,14 +20,14 @@ templ DeviceCard(v ui.DeviceView) {
 			class="card"
 			data-device={ v.Name }
 			data-testid={ "card-" + v.Name }
-			data-class:stale="$stale"
-			data-attr:data-speed-mode="$speedMode"
-			data-attr:data-airflow-mode="$airflowMode"
+			data-class:stale={ "$stale." + v.Name }
+			data-attr:data-speed-mode={ "$speedMode." + v.Name }
+			data-attr:data-airflow-mode={ "$airflowMode." + v.Name }
 			data-signals={ initialCardSignals(v) }
 		>
 			@InfoDetails(v)
-			<div class="row" style="display:none" data-show="$stale">
-				<span class="ts red"><span data-text="$lastPollAge ? $lastPollAge + ' ago' : 'no poll'"></span></span>
+			<div class="row" style="display:none" data-show={ "$stale." + v.Name }>
+				<span class="ts red"><span data-text={ "$lastPollAge." + v.Name + " ? $lastPollAge." + v.Name + " + ' ago' : 'no poll'" }></span></span>
 			</div>
 			@EnergyBlock(v.Name, v.Energy)
 			@SensorsBlock(v.Name, v.Sensors)
@@ -179,11 +179,11 @@ func initialCardSignals(v ui.DeviceView) string {
 			v.Name: {"info": false, "sensors": true, "energy": false, "schedule": false},
 		},
 		"_manualPct":   map[string]int{v.Name: v.ManualPct},
-		"stale":        v.Stale,
-		"speedMode":    v.SpeedMode,
-		"airflowMode":  v.AirflowMode,
-		"lastPollAge":  v.LastPollAge,
-		"sensorsAlert": v.Sensors.AlertActive,
+		"stale":        map[string]bool{v.Name: v.Stale},
+		"speedMode":    map[string]string{v.Name: v.SpeedMode},
+		"airflowMode":  map[string]string{v.Name: v.AirflowMode},
+		"lastPollAge":  map[string]string{v.Name: v.LastPollAge},
+		"sensorsAlert": map[string]bool{v.Name: v.Sensors.AlertActive},
 	}
 	b, _ := json.Marshal(s)
 	return string(b)
