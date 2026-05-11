@@ -158,9 +158,10 @@ func powerButtonExpr(v ui.DeviceView) string {
 // the gain is that an external change to the preset on the device panel
 // is reflected in the dashboard without refresh.
 //
-// The manual slider does NOT seed a $manualPct signal; the input's value
-// attribute is the source of truth, and the @post expression reads
-// evt.target.valueAsNumber directly. See #116.
+// _manualPct is seeded per-device so the manual slider's data-text shows
+// the current pct live during drag without waiting for the next SSE push.
+// The underscore prefix marks it as client-only (not sent in @post bodies).
+// See #26 (live display) and #116 (no colon-form bind).
 func initialCardSignals(v ui.DeviceView) string {
 	s := map[string]any{
 		"automode":    false,
@@ -170,6 +171,7 @@ func initialCardSignals(v ui.DeviceView) string {
 		"detailsOpen": map[string]map[string]bool{
 			v.Name: {"info": false, "sensors": true, "energy": false, "schedule": false},
 		},
+		"_manualPct":   map[string]int{v.Name: v.ManualPct},
 		"stale":        v.Stale,
 		"speedMode":    v.SpeedMode,
 		"airflowMode":  v.AirflowMode,

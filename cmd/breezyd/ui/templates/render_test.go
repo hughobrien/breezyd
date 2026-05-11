@@ -657,10 +657,10 @@ func TestRenderSensorsBlock_FormattedValues(t *testing.T) {
 //
 // The boolean checkboxes (automode, matchSpeeds) use value-form
 // `data-bind="<key>"`, which preserves casing in the value position.
-// The manual slider doesn't bind to a signal at all — its @post reads
-// evt.target.valueAsNumber directly, sidestepping the value-form
-// "signal-wins overrides server-rendered value" issue when a poll
-// re-renders the card with a fresh value attribute.
+// The manual slider binds to the per-card local signal `_manualPct.<name>`
+// via value-form data-bind (no colon) so the val display updates live
+// during drag. The @post still reads evt.target.valueAsNumber directly
+// — no change to wire behaviour. See #26.
 func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 	v := loadView(t, "snapshot_manual")
 	var sb strings.Builder
@@ -672,16 +672,17 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 		// Booleans use value-form data-bind.
 		`data-bind="automode"`,
 		`data-bind="matchSpeeds"`,
-		// Manual slider reads input value directly via evt.target — no bind.
+		// Manual slider still reads evt.target.valueAsNumber in the @post.
 		`{manual: evt.target.valueAsNumber}`,
+		// Manual slider binds to per-card local signal via value-form (no colon).
+		`data-bind="_manualPct.` + v.Name + `"`,
 	}
 	wantAbsent := []string{
 		// Colon-form for any camelCase signal silently lowercases the key.
 		`data-bind:manualPct`,
 		`data-bind:matchSpeeds`,
 		`data-bind:automode`,
-		// Manual slider must not bind to $manualPct — that would re-introduce
-		// the signal-wins clobber on outer re-renders.
+		// Must not bind to the plain $manualPct (unscoped) signal.
 		`data-bind="manualPct"`,
 		`{manual: $manualPct}`,
 	}
