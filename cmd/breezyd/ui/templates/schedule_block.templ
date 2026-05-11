@@ -24,7 +24,8 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 					<input
 						type="checkbox"
 						if s.Enabled { checked }
-						disabled
+						data-on:change={ postActionExpr(fmt.Sprintf("/ui/devices/%s/schedule/enabled", name), "{enabled: evt.target.checked}") }
+						if stale { disabled }
 					/>
 					enabled
 				</label>

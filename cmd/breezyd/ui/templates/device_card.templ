@@ -39,16 +39,31 @@ templ DeviceCard(v ui.DeviceView) {
 
 // InfoDetails renders the device info <details> block. Exported so
 // Task 4's push pipeline can render it independently.
+//
+// The power button sits outside <details> (but inside the wrapper div)
+// so it remains visible and clickable even when the info panel is
+// collapsed. Wrapping both in a position:relative div lets .power-toggle
+// stay absolutely positioned relative to the header region. See #24.
 templ InfoDetails(v ui.DeviceView) {
-	<details
-		id={ "info-" + v.Name }
-		class={ "device-info", templ.KV("alert", v.NeedsAttention) }
-		data-block="info"
-		data-attr:open={ detailsOpenBinding(v.Name, "info") }
-	>
-		<summary data-on:click={ detailsOpenToggle(v.Name, "info") }>
-			<h2>{ v.Name }</h2>
-		</summary>
+	<div class="device-info-wrap">
+		<details
+			id={ "info-" + v.Name }
+			class={ "device-info", templ.KV("alert", v.NeedsAttention) }
+			data-block="info"
+			data-attr:open={ detailsOpenBinding(v.Name, "info") }
+		>
+			<summary data-on:click={ detailsOpenToggle(v.Name, "info") }>
+				<h2>{ v.Name }</h2>
+			</summary>
+			@kvRow("ip", v.IP)
+			@kvRow("serial", v.Serial)
+			@kvRow("firmware version", v.FirmwareVersion)
+			@kvRow("firmware date", v.FirmwareDate)
+			@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
+			@kvRow("motor", v.MotorLifetime)
+			@kvRow("RTC", v.RTCBattery)
+			@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
+		</details>
 		<button
 			type="button"
 			class="power-toggle"
@@ -56,15 +71,7 @@ templ InfoDetails(v ui.DeviceView) {
 			if v.Stale { disabled }
 			aria-pressed={ boolAttr(v.Power) }
 		>power</button>
-		@kvRow("ip", v.IP)
-		@kvRow("serial", v.Serial)
-		@kvRow("firmware version", v.FirmwareVersion)
-		@kvRow("firmware date", v.FirmwareDate)
-		@kvRowWithAction("filter", filterStatusStr(v), "reset filter", "/ui/devices/"+v.Name+"/reset-filter")
-		@kvRow("motor", v.MotorLifetime)
-		@kvRow("RTC", v.RTCBattery)
-		@kvRowWithAction("faults", v.FaultLevel, "reset faults", "/ui/devices/"+v.Name+"/reset-faults")
-	</details>
+	</div>
 }
 
 // unreachableCard renders a placeholder card for a configured device that

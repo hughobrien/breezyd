@@ -189,6 +189,43 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 	h.scheduleReadFrag(w, r, name)
 }
 
+// postUISchedEnabled toggles the enabled bit on a device's schedule
+// without touching its entries. Lets the dashboard's inline checkbox
+// flip the schedule on/off without entering edit mode. See #27.
+//
+// POST /ui/devices/{name}/schedule/enabled
+func (h *Handler) postUISchedEnabled(w http.ResponseWriter, r *http.Request) {
+	type req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	name := r.PathValue("name")
+	if _, ok := h.Devices.Get(name); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var body req
+	if err := datastar.ReadSignals(r, &body); err != nil {
+		h.uiValidationError(w, r, name, "bad JSON body")
+		return
+	}
+	if body.Enabled == nil {
+		h.uiValidationError(w, r, name, "missing 'enabled' field (true/false)")
+		return
+	}
+	sch, ok := h.Schedulers[name]
+	if !ok || sch == nil {
+		h.uiValidationError(w, r, name, "schedule not configured for this device")
+		return
+	}
+	if err := sch.SetEnabled(*body.Enabled); err != nil {
+		slog.Error("schedule: SetEnabled failed", "device", name, "err", err)
+		h.uiWriteError(w, r, err)
+		return
+	}
+	h.notifyAfterWrite(name)
+	w.WriteHeader(http.StatusOK)
+}
+
 // uiWriteError emits a datastar-patch-elements event into
 // #global-error-banner with the matching HTTP status. ErrInvalidArg from
 // pkg/breezy/ops surfaces as 422 with the op's own message — that's the

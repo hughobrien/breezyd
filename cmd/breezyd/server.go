@@ -262,6 +262,7 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("GET /ui/devices/{name}/schedule/edit", h.getUIScheduleEdit)
 	mux.HandleFunc("GET /ui/devices/{name}/schedule/new-row", h.getUIScheduleNewRow)
 	mux.HandleFunc("PUT /ui/devices/{name}/schedule", h.putUISchedule)
+	mux.HandleFunc("POST /ui/devices/{name}/schedule/enabled", h.postUISchedEnabled)
 	mux.HandleFunc("GET /ui/style-"+styleHash+".css", h.getStyle)
 	mux.HandleFunc("GET /ui/vendor/{file}", h.getVendor)
 	mux.HandleFunc("GET /favicon.svg", h.getFavicon)
