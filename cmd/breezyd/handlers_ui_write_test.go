@@ -768,6 +768,30 @@ func TestUIScheduleGet_Edit(t *testing.T) {
 	is.True(strings.Contains(bs, `name="action"`))                  // body has action select
 }
 
+// TestUIScheduleGet_Edit_EmptySchedule pins the auto-seed behavior: a
+// device with no schedule entries should land in edit mode with one
+// seeded row already rendered, so the user can fill it in directly
+// rather than having to click "+ add row" before any data entry is
+// possible.
+func TestUIScheduleGet_Edit_EmptySchedule(t *testing.T) {
+	is := is.New(t)
+	h := newUIScheduleTestHandler(t)
+	// Do NOT pre-load any entry — exercise the empty-schedule path.
+
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/edit")
+	is.NoErr(err)
+	defer func() { _ = resp.Body.Close() }()
+	is.Equal(resp.StatusCode, 200)
+	body, _ := io.ReadAll(resp.Body)
+	bs := string(body)
+	is.True(strings.Contains(bs, `name="at"`))     // body has an at input — auto-seed
+	is.True(strings.Contains(bs, `name="action"`)) // body has an action select — auto-seed
+	is.True(strings.Contains(bs, `name="pct"`))    // body has a pct input — auto-seed
+}
+
 func TestUIScheduleGet_Edit_NotFound(t *testing.T) {
 	is := is.New(t)
 	h := newUIScheduleTestHandler(t)

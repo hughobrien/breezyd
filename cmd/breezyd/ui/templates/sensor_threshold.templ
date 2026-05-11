@@ -2,6 +2,7 @@ package templates
 
 import (
 	"fmt"
+
 	"github.com/hughobrien/breezyd/cmd/breezyd/ui"
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -27,7 +28,7 @@ templ SensorThresholdEdit(name, kind, label string, min, max, step, threshold in
 		<div class="sensor-label">{ label }</div>
 		<form
 			class="thresh-edit-inline"
-			data-on:submit__prevent={ fmt.Sprintf("@put('/ui/devices/%s/threshold', {contentType: 'form'})", name) }
+			data-on:submit__prevent={ thresholdSubmitExpr(name) }
 		>
 			<input type="hidden" name="kind" value={ kind }/>
 			<input
@@ -75,5 +76,14 @@ templ VOCCell(name string, s ui.SensorsView) {
 // HumidityCell renders the RH threshold cell (read-only view for templates).
 templ HumidityCell(name string, s ui.SensorsView) {
 	@SensorThresholdRead(name, "humidity", "RH", "%", "", s.HumidityPct, s.HumidityAlert)
+}
+
+// thresholdSubmitExpr builds the data-on:submit expression for the
+// threshold editor form. Wraps datastar.PutSSE and injects
+// {contentType: 'form'} so the enclosing <form>'s field values are
+// PUT as application/x-www-form-urlencoded — the handler reads r.Form.
+// Mirrors scheduleSubmitExpr.
+func thresholdSubmitExpr(name string) string {
+	return withDatastarOpts(datastar.PutSSE("/ui/devices/%s/threshold", name), "{contentType: 'form'}")
 }
 
