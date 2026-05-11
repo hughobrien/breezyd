@@ -40,9 +40,7 @@ templ ControlsBlock(v ui.DeviceView) {
 					@timerBtn(v, "night", "night")
 					@timerBtn(v, "turbo", "turbo")
 				</div>
-				if v.SpecialMode != "off" && v.SpecialModeRemaining != "" {
-					<div class="ctrl-label timer-remaining">{ v.SpecialModeRemaining } remaining</div>
-				}
+				@timerRemaining(v)
 			</div>
 			<div class="ctrl-group ctrl-group-heater">
 				<span class="ctrl-label">HEATER</span>
@@ -68,12 +66,17 @@ templ ControlsBlock(v ui.DeviceView) {
 // server value because the controls-block HTML patch is filtered out
 // while the editor is open (data-edit="true"). The server-rendered
 // children act as a pre-datastar-paint fallback.
+//
+// aria-pressed is gated on $specialMode === 'off' as well: when night
+// or turbo is active, that mode owns the fan and the speed selection
+// is suspended — de-highlighting the preset chip makes it clear that
+// the configured speed isn't currently driving the device.
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
 		type="button"
 		data-on:click={ attentionIfOff(v.Name, presetChipExpr(v.Name, n)) }
 		if v.Stale { disabled }
-		data-attr:aria-pressed={ fmt.Sprintf("$speedMode.%s === 'preset%d' ? 'true' : 'false'", v.Name, n) }
+		data-attr:aria-pressed={ fmt.Sprintf("$specialMode.%s === 'off' && $speedMode.%s === 'preset%d' ? 'true' : 'false'", v.Name, v.Name, n) }
 		data-text={ presetChipDataText(v.Name, n) }
 	>{ presetLabel(v, n) }</button>
 }
@@ -83,12 +86,16 @@ templ presetBtn(v ui.DeviceView, n int) {
 // as the signal patch arrives — necessary because clicking a preset
 // chip opens the preset editor, which filters out the next controls-
 // block HTML patch via [:not([data-edit])] in push_render.go.
+//
+// Same special-mode gate as presetBtn: when a timer is active, the
+// manual chip de-highlights so the active driver (night/turbo) is
+// visually unambiguous.
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
 		data-on:click={ attentionIfOff(v.Name, closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v))))) }
 		if v.Stale { disabled }
-		data-attr:aria-pressed={ fmt.Sprintf("$speedMode.%s === 'manual' ? 'true' : 'false'", v.Name) }
+		data-attr:aria-pressed={ fmt.Sprintf("$specialMode.%s === 'off' && $speedMode.%s === 'manual' ? 'true' : 'false'", v.Name, v.Name) }
 	>manual</button>
 }
 
@@ -120,12 +127,40 @@ templ timerBtn(v ui.DeviceView, label, value string) {
 }
 
 // timerClickExpr posts "off" when the chip already matches the current
-// $specialMode.<name>, otherwise posts the chip's value.
+// $specialMode.<name>, otherwise posts the chip's value. Also flips
+// $specialMode and seeds $specialModeRemainingSeconds locally so the
+// "X remaining" line appears instantly rather than waiting for the
+// next poll to report the new state — the per-mode duration (night vs
+// turbo) is read from the seeded $<mode>DurationSeconds signal so the
+// initial countdown reflects the device's configured value. Server
+// poll overwrites both signals once it catches up.
 func timerClickExpr(name, value string) string {
 	return fmt.Sprintf(
-		"@post('/ui/devices/%s/timer', {payload: {mode: $specialMode.%s === '%s' ? 'off' : '%s'}})",
-		name, name, value, value,
+		"var active = $specialMode.%s === '%s'; "+
+			"if (active) { $specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0; } "+
+			"else { $specialMode.%s = '%s'; $specialModeRemainingSeconds.%s = $%sDurationSeconds.%s; } "+
+			"@post('/ui/devices/%s/timer', {payload: {mode: active ? 'off' : '%s'}});",
+		name, value,
+		name, name,
+		name, value, name, value, name,
+		name, value,
 	)
+}
+
+// timerRemaining renders the timer-countdown line under the night/turbo
+// chips. Hidden when $specialMode === 'off'; otherwise displays the
+// remaining seconds formatted as "Xh Ym remaining" / "Xm remaining"
+// via the page-level fmtRemaining helper (see layout.templ). A 1-second
+// data-on-interval tick decrements the local countdown signal so the
+// display ticks smoothly; the server's poll then corrects any drift.
+templ timerRemaining(v ui.DeviceView) {
+	<div
+		class="ctrl-label timer-remaining"
+		style="display:none"
+		data-show={ fmt.Sprintf("$specialMode.%s !== 'off'", v.Name) }
+		data-on-interval__duration.1s={ fmt.Sprintf("if ($specialMode.%s !== 'off' && $specialModeRemainingSeconds.%s > 0) $specialModeRemainingSeconds.%s--", v.Name, v.Name, v.Name) }
+		data-text={ fmt.Sprintf("fmtRemaining($specialModeRemainingSeconds.%s)", v.Name) }
+	></div>
 }
 
 // heaterClickExpr posts the inverse of the current $heater.<name>

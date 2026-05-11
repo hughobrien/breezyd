@@ -55,6 +55,19 @@ templ Layout(d LayoutData) {
 			<div id="global-error-banner" aria-live="polite"></div>
 			<div id="device-list" class="grid"></div>
 			<script>
+// fmtRemaining: page-level helper used by timer-remaining bindings in
+// controls_block.templ (data-text="fmtRemaining($specialModeRemainingSeconds.X)").
+// Matches the server-side formatSeconds in cmd/breezyd/ui_view.go so
+// the readout looks identical whether it came from a poll or from the
+// client-side countdown decrement. Empty string when off or negative
+// so data-text leaves the element blank (data-show keeps it hidden in
+// that case anyway).
+window.fmtRemaining = function(secs) {
+  if (!secs || secs <= 0) return '';
+  var h = Math.floor(secs / 3600);
+  var m = Math.floor((secs % 3600) / 60);
+  return (h > 0 ? h + 'h ' + m + 'm' : m + 'm') + ' remaining';
+};
 (function() {
   var picker = document.querySelector('.theme-picker');
   if (!picker) return;
