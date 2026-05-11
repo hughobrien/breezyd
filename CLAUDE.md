@@ -111,7 +111,12 @@ Failed fires retry every 30 s for up to 10 min, abandoning early when the next e
 
 Editing happens exclusively from the web UI via `GET`/`PUT /v1/devices/{name}/schedule`. There are no CLI verbs and no HomeKit exposure for the schedule itself.
 
-**DST behaviour (known v1 limitation):** times are local wall-clock, so spring-forward skips an entry that lands in the missing hour and fall-back fires an entry in the repeated hour twice. Acceptable for residential ERV control; revisit if scheduling grows day-of-week support.
+**DST handling.** Times are local wall-clock. The daemon honours basic DST transitions:
+
+- Spring-forward: an entry whose At-time falls in the missing hour fires once at the first tick after the skipped hour. Handled by the existing window-detection for a running daemon.
+- Fall-back: an entry whose At-time falls in the repeated hour fires exactly once, at the first occurrence. The per-entry `firedAt` map on `Scheduler` suppresses the second appearance.
+- Residual edge case: if the daemon starts during the missing hour (spring-forward), entries in that hour are silently skipped. Matches the no-catch-up rule.
+- Non-1h-DST zones (e.g. Lord Howe's 30-min): the firedness check uses calendar-day comparison, so any DST offset de-duplicates correctly.
 
 ### Cache vs. passthrough
 

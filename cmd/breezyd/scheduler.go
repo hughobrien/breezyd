@@ -113,11 +113,18 @@ type Scheduler struct {
 
 	Now func() time.Time
 
-	mu           sync.Mutex
-	enabled      bool
-	entries      []ScheduleEntry
-	lastApply    *LastApply
-	retry        *retryState
+	mu      sync.Mutex
+	enabled bool
+	entries []ScheduleEntry
+
+	lastApply *LastApply
+	retry     *retryState
+	// firedAt records the timestamp of the most recent successful fire
+	// for each entry's At-time. Used to suppress re-fires of the same
+	// entry within the same local calendar day — the case that matters
+	// is the fall-back DST transition, where an entry's At-time appears
+	// twice on the wall clock.
+	firedAt      map[ScheduleTime]time.Time
 	lastTick     ScheduleTime
 	haveLastTick bool
 }
@@ -173,10 +180,11 @@ type ScheduleSnapshot struct {
 
 // persistedSchedule is the on-disk JSON shape.
 type persistedSchedule struct {
-	Version   int             `json:"version"`
-	Enabled   bool            `json:"enabled"`
-	Entries   []ScheduleEntry `json:"entries"`
-	LastApply *LastApply      `json:"last_apply,omitempty"`
+	Version   int                        `json:"version"`
+	Enabled   bool                       `json:"enabled"`
+	Entries   []ScheduleEntry            `json:"entries"`
+	LastApply *LastApply                 `json:"last_apply,omitempty"`
+	FiredAt   map[ScheduleTime]time.Time `json:"fired_at,omitempty"`
 }
 
 const scheduleFileVersion = 1
@@ -234,6 +242,7 @@ func (s *Scheduler) Load() {
 	s.enabled = p.Enabled
 	s.entries = p.Entries
 	s.lastApply = p.LastApply
+	s.firedAt = p.FiredAt
 }
 
 // save writes the current state atomically. Caller MUST hold s.mu.
@@ -243,6 +252,7 @@ func (s *Scheduler) save() error {
 		Enabled:   s.enabled,
 		Entries:   s.entries,
 		LastApply: s.lastApply,
+		FiredAt:   s.firedAt,
 	}
 	if err := writeJSONAtomic(s.statePath(), p); err != nil {
 		return fmt.Errorf("schedule: %w", err)
@@ -266,6 +276,7 @@ func (s *Scheduler) Replace(enabled bool, entries []ScheduleEntry) error {
 	s.entries = cp
 	s.lastApply = nil
 	s.retry = nil
+	s.firedAt = nil
 	if err := s.save(); err != nil {
 		return fmt.Errorf("schedule: persist: %w", err)
 	}
@@ -276,6 +287,15 @@ func (s *Scheduler) Replace(enabled bool, entries []ScheduleEntry) error {
 // to keep the in-memory and on-disk state canonically ordered.
 func sortEntries(entries []ScheduleEntry) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].At < entries[j].At })
+}
+
+// sameLocalDay reports whether a and b fall on the same local calendar
+// day (Year + Month + Day in the daemon's local TZ). Used by the
+// scheduler's firedAt check to suppress fall-back DST double-fires.
+func sameLocalDay(a, b time.Time) bool {
+	ya, ma, da := a.Date()
+	yb, mb, db := b.Date()
+	return ya == yb && ma == mb && da == db
 }
 
 // fireTimeout bounds a single fire attempt's UDP round-trip.
@@ -303,6 +323,10 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	entries := append([]ScheduleEntry(nil), s.entries...)
 	haveLastTick := s.haveLastTick
 	lastTick := s.lastTick
+	firedAt := make(map[ScheduleTime]time.Time, len(s.firedAt))
+	for k, v := range s.firedAt {
+		firedAt[k] = v
+	}
 	s.mu.Unlock()
 
 	nowMinute := ScheduleTime(now.Hour()*60 + now.Minute())
@@ -389,6 +413,9 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 			if !inWindow(e.At) {
 				continue
 			}
+			if last, ok := firedAt[e.At]; ok && sameLocalDay(last, now) {
+				continue
+			}
 			if latest == nil || dist(e.At) > dist(latest.At) {
 				cp := e
 				latest = &cp
@@ -438,6 +465,10 @@ func (s *Scheduler) fire(ctx context.Context, e ScheduleEntry, idx int, now time
 	if fireErr == nil {
 		s.lastApply = &LastApply{At: e.At, Fired: now, OK: true}
 		s.retry = nil
+		if s.firedAt == nil {
+			s.firedAt = make(map[ScheduleTime]time.Time)
+		}
+		s.firedAt[e.At] = now
 		if err := s.save(); err != nil {
 			slog.Warn("schedule: save after success failed", "device", s.Device, "err", err)
 		}
