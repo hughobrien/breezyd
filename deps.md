@@ -48,13 +48,13 @@ All three are `devDependencies`; nothing ships to users.
   - **Why this one**: the SSE / morph round-trip tests need a real browser; Playwright is the only option that's tractable for that.
   - **Critical view**: non-negotiable for the test suite we have. Keep.
 
-- **typescript** ^5.6.0 — Type compiler. Pulled in only because the test files are `.ts`.
-  - **Why this one**: editor inference for Playwright's `Page` / `Locator` / `Response` types is significantly better with TypeScript than with JSDoc.
-  - **Critical view**: the test suite is ~600 lines. JSDoc on plain `.js` would buy roughly the same editor experience for non-trivially less node_modules churn. A one-day rewrite. **Borderline.**
+- **typescript** ^5.6.0 — Type compiler. Pulled in because the test files are `.ts`.
+  - **Why this one**: editor inference for Playwright's `Page` / `Locator` / `Response` types is materially better with TypeScript than with JSDoc.
+  - **Evaluation outcome (#205)**: JSDoc-on-JS migration evaluated and **rejected**. The 1270 lines across 7 `.ts` files lean heavily on literal type unions (`mode: "ventilation"|"regeneration"|"supply"|"extract"`, `n: 1|2|3`, `level: "none"|"alarm"|"warning"`) and inline object shapes — JSDoc handles all of it but the prose form is noticeably noisier than the inline TS annotation, and the migration would force `/** @typedef {import('@playwright/test').Page} Page */` boilerplate at the top of every file. The cost is felt every time the suite is touched; the benefit is dropping 2 devDeps that never ship to users. Keep.
 
 - **tsx** ^4.19.0 — TypeScript runner for non-Playwright scripts (`screenshot.ts`).
   - **Why this one**: lets `just screenshot` run a `.ts` file directly without a separate build step.
-  - **Critical view**: coupled to TypeScript above — if `.ts` goes, `tsx` goes (replaced by `node screenshot.js`).
+  - **Coupled to typescript above**: kept by the same evaluation.
 
 ## Nix (`flake.nix`)
 
@@ -68,4 +68,4 @@ All three are `devDependencies`; nothing ships to users.
 | `BurntSushi/toml`, `a-h/templ`, `brutella/hap`, `prometheus/client_golang`, `starfederation/datastar-go`, `@playwright/test`, `nixpkgs` | Load-bearing. Keep. |
 | `matryer/is` | Stylistic. Replacing means churn for no win. Keep. |
 | `pgregory.net/rapid` | Evaluated and kept (#203) — `testing.F` can't represent slice-of-struct generators and doesn't shrink. |
-| `typescript`, `tsx` | Could drop with a `.ts` → `.js` rewrite of `tests/ui/*`. Borderline. |
+| `typescript`, `tsx` | Evaluated and kept (#205) — JSDoc-on-JS migration's aesthetic cost outweighs dropping 2 devDeps. |
