@@ -682,8 +682,12 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 		// Booleans use value-form data-bind, scoped per-device.
 		`data-bind="automode.` + v.Name + `"`,
 		`data-bind="matchSpeeds.` + v.Name + `"`,
-		// Manual slider still reads evt.target.valueAsNumber in the @post.
-		`{manual: evt.target.valueAsNumber}`,
+		// Manual slider/input reads evt.target.value in the change handler
+		// (parseInt + clamp), then posts the clamped scalar. The key
+		// invariant is that the wire value comes from the DOM element,
+		// not a stale signal (closes #116).
+		`parseInt(evt.target.value, 10)`,
+		`{manual: v}`,
 		// Manual slider binds to per-card local signal via value-form (no colon).
 		`data-bind="_manualPct.` + v.Name + `"`,
 	}
@@ -887,7 +891,10 @@ func TestPresetChipExpr(t *testing.T) {
 func TestPresetSliderExpr_SupplyN2(t *testing.T) {
 	got := presetSliderExpr("alpha", 2, "supply")
 	want := "let raw = parseInt(evt.target.value, 10); " +
+		"if (isNaN(raw)) raw = 0; " +
+		"raw = Math.max(0, Math.min(100, raw)); " +
 		"let v = (raw > 0 && raw < 10) ? 0 : raw; " +
+		"evt.target.value = v; " +
 		"$preset.alpha[2].supply = v; if ($matchSpeeds.alpha) $preset.alpha[2].extract = v; " +
 		"let sup = $preset.alpha[2].supply, ext = $preset.alpha[2].extract; " +
 		"if (sup >= 10 && ext >= 10) @post('/ui/devices/alpha/preset', {payload: {preset: 2, supply: sup, extract: ext}}); " +
