@@ -7,10 +7,16 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 )
 
-// ScheduleBlock renders the collapsible SCHEDULE <details> block (read
-// variant). When s.Present is false, renders nothing. The .alert class
-// fires the visual cue when s.Alert is true; the user's open/closed
-// choice is preserved (no force-open).
+// ScheduleBlock renders the always-editable SCHEDULE <details> block.
+// Row fields autosave on change; the + add row button below the table
+// appends a new client-side row (no autosave until a field commits).
+//
+// data-edit="true" while [open] tells the push pipeline's
+// [data-block="schedule"]:not([data-edit]) selector to skip patches
+// for the duration of the user's interaction. Patches resume the
+// next time the user collapses the details. The next-event indicator
+// on the summary is hidden while expanded (existing data-show), so
+// the user doesn't see it go stale.
 templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 	if s.Present {
 		<details
@@ -18,6 +24,7 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 			class={ "block", "schedule", templ.KV("alert", s.Alert) }
 			data-block="schedule"
 			data-attr:open={ detailsOpenBinding(name, "schedule") }
+			data-attr:data-edit={ fmt.Sprintf("$detailsOpen.%s.schedule ? 'true' : null", name) }
 		>
 			<summary data-on:click={ detailsOpenToggle(name, "schedule") }>
 				<h3>SCHEDULE</h3>
@@ -25,35 +32,40 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 					<span class="next-event" data-show={ fmt.Sprintf("!$detailsOpen.%s.schedule", name) }>next event: { s.NextEvent }</span>
 				}
 			</summary>
-			<div class="schedule-toolbar">
-				<label>
-					<input
-						type="checkbox"
-						if s.Enabled { checked }
-						data-on:change={ postActionExpr(fmt.Sprintf("/ui/devices/%s/schedule/enabled", name), "{enabled: evt.target.checked}") }
-						if stale || len(s.Entries) == 0 { disabled }
-					/>
-					enabled
-				</label>
-				<span class="grow"></span>
-				<button
-					type="button"
-					data-on:click={ datastar.GetSSE("/ui/devices/%s/schedule/edit", name) }
-					if stale { disabled }
-				>edit schedule</button>
-			</div>
-			if len(s.Entries) == 0 {
-				<div class="ctrl-label">no entries</div>
-			} else {
-				<table class="schedule-table">
-					<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
-					<tbody>
-						for _, e := range s.Entries {
-							@scheduleReadRow(e)
-						}
-					</tbody>
-				</table>
-			}
+			<form>
+				<div class="schedule-toolbar">
+					<label>
+						<input
+							type="checkbox"
+							name="enabled"
+							value="true"
+							if s.Enabled { checked }
+							data-on:change={ scheduleSubmitExpr(name) }
+							if stale || len(s.Entries) == 0 { disabled }
+						/>
+						<input type="hidden" name="enabled" value="false"/>
+						enabled
+					</label>
+				</div>
+				if len(s.Entries) > 0 {
+					<table class="schedule-table">
+						<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
+						<tbody class="schedule-edit-tbody">
+							for _, e := range s.Entries {
+								@ScheduleRow(name, e)
+							}
+						</tbody>
+					</table>
+				}
+				<div class="schedule-addrow">
+					<button
+						type="button"
+						class="btn-inline"
+						data-on:click={ scheduleAddRowExpr(name) }
+						if stale { disabled }
+					>+ add row</button>
+				</div>
+			</form>
 			if s.Alert && s.LastApply != nil {
 				<div class="warn">
 					{ fmt.Sprintf("⚠ last apply %s failed: %s", s.LastApply.At, s.LastApply.Err) }
@@ -67,80 +79,28 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 	}
 }
 
-// scheduleReadRow is a read-only row for the read variant.
-templ scheduleReadRow(e ui.ScheduleEntryView) {
-	<tr>
-		<td>{ e.At }</td>
-		<td>{ scheduleActionLabel(e.Action) }</td>
-		<td class={ templ.KV("pct-disabled", e.Action == "off") }>
-			if e.Action != "off" {
-				{ fmt.Sprintf("%d%%", e.Pct) }
-			} else {
-				—
-			}
-		</td>
-		<td></td>
-	</tr>
-}
-
-// ScheduleBlockEdit renders the edit variant of the SCHEDULE block.
-templ ScheduleBlockEdit(name string, s ui.ScheduleView, stale bool, errMsg string) {
-	<details class="block schedule" data-block="schedule" data-edit="true" open>
-		<summary><h3>SCHEDULE</h3></summary>
-		<form
-			data-on:submit__prevent={ scheduleSubmitExpr(name) }
-		>
-			<div class="schedule-toolbar">
-				<label>
-					<input
-						type="checkbox"
-						name="enabled"
-						value="true"
-						if s.Enabled { checked }
-					/>
-					<input type="hidden" name="enabled" value="false"/>
-					enabled
-				</label>
-				<span class="grow"></span>
-				<button
-					type="button"
-					data-on:click={ scheduleAddRowExpr(name) }
-				>+ add row</button>
-				<button
-					type="button"
-					data-on:click={ datastar.GetSSE("/ui/devices/%s/schedule", name) }
-				>cancel</button>
-				<button type="submit">save</button>
-			</div>
-			if errMsg != "" {
-				<div class="warn">{ errMsg }</div>
-			}
-			<table class="schedule-table">
-				<thead><tr><th>at</th><th>mode</th><th>fan</th><th></th></tr></thead>
-				<tbody class="schedule-edit-tbody">
-					for _, e := range s.Entries {
-						@ScheduleEditRow(e)
-					}
-				</tbody>
-			</table>
-		</form>
-	</details>
-}
-
-// ScheduleEditRow renders one editable row in the edit variant.
-// Exported so getUIScheduleNewRow can render it standalone.
-templ ScheduleEditRow(e ui.ScheduleEntryView) {
+// ScheduleRow renders one editable row. The inputs all call
+// scheduleSubmitExpr on change so the form autosaves whenever the
+// user commits a field. Exported so getUIScheduleNewRow can render
+// it standalone (the SSE-append handler for the + add row button).
+templ ScheduleRow(name string, e ui.ScheduleEntryView) {
 	<tr>
 		<td>
 			<input
 				type="time"
 				name="at"
+				class="sched-input"
 				value={ e.At }
 				required
+				data-on:change__debounce.200ms={ scheduleSubmitExpr(name) }
 			/>
 		</td>
 		<td>
-			<select name="action" data-on:change={ scheduleActionChangeExpr() }>
+			<select
+				name="action"
+				class="sched-input"
+				data-on:change={ scheduleActionChangeExpr(name) }
+			>
 				@scheduleActionOption("ventilation", "auto", e.Action)
 				@scheduleActionOption("regeneration", "regen", e.Action)
 				@scheduleActionOption("supply", "supply", e.Action)
@@ -152,12 +112,12 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 			<input
 				type="number"
 				name="pct"
+				class="sched-input"
 				min="10"
 				max="100"
 				value={ schedulePctValue(e) }
 				data-orig-pct={ schedulePctOrigValue(e) }
-				data-on:change="evt.target.dataset.origPct = evt.target.value"
-				class={ templ.KV("pct-disabled", e.Action == "off") }
+				data-on:change__debounce.200ms={ schedulePctChangeExpr(name) }
 				if e.Action == "off" { readonly }
 			/>
 		</td>
@@ -165,49 +125,63 @@ templ ScheduleEditRow(e ui.ScheduleEntryView) {
 			<button
 				type="button"
 				class="del"
-				data-on:click={ scheduleDelRowExpr() }
+				data-on:click={ scheduleDelRowExpr(name) }
 			>×</button>
 		</td>
 	</tr>
-}
-
-// scheduleDelRowExpr removes the row and, when it was the last one,
-// unticks + disables the form's "enabled" checkbox. Mirrors the
-// backend's forced-off invariant (Scheduler.SetEnabled / Replace force
-// enabled=false on empty entries) so the user sees the consistent
-// state before they hit save rather than only after.
-func scheduleDelRowExpr() string {
-	return "var tr = evt.target.closest('tr'); var form = tr.closest('form'); tr.remove(); " +
-		"if (form.querySelectorAll('tbody tr').length === 0) { " +
-		"var cb = form.querySelector('input[type=checkbox][name=enabled]'); " +
-		"cb.checked = false; cb.disabled = true; }"
-}
-
-// scheduleAddRowExpr re-enables the form's "enabled" checkbox (which
-// scheduleDelRowExpr may have disabled after the last row was removed)
-// and then issues the SSE GET that appends a fresh row to the table.
-// Datastar processes the JS prefix synchronously before the @get
-// fires, so by the time the new row lands the checkbox is already
-// interactive again.
-func scheduleAddRowExpr(name string) string {
-	return "var cb = evt.target.closest('form').querySelector('input[type=checkbox][name=enabled]'); cb.disabled = false; " +
-		datastar.GetSSE("/ui/devices/%s/schedule/new-row", name)
 }
 
 templ scheduleActionOption(value, label, current string) {
 	<option value={ value } if value == current { selected }>{ label }</option>
 }
 
-// scheduleSubmitExpr builds the data-on:submit expression for the
-// schedule editor form. Wraps datastar.PutSSE (URL formatting +
-// escaping) and injects {contentType: 'form'} so datastar scrapes the
-// enclosing <form>'s field values and PUTs them as
-// application/x-www-form-urlencoded — the handler (putUISchedule)
-// reads r.Form, so without this option the body would be JSON of the
-// (empty) signal store and every row would silently parse as absent,
-// clearing the schedule on save.
+// scheduleSubmitExpr builds the data-on:change expression that PUTs
+// the form. Wraps datastar.PutSSE for URL formatting and injects
+// {contentType: 'form'} so the form fields land in the handler's
+// r.Form rather than as a JSON signal-store body.
 func scheduleSubmitExpr(name string) string {
 	return withDatastarOpts(datastar.PutSSE("/ui/devices/%s/schedule", name), "{contentType: 'form'}")
+}
+
+// schedulePctChangeExpr is the pct input's change handler: refresh
+// data-orig-pct (so an off→on toggle restores the user's last-edited
+// value, not the server-render default) and then run the autosave
+// submit.
+func schedulePctChangeExpr(name string) string {
+	return "evt.target.dataset.origPct = evt.target.value; " + scheduleSubmitExpr(name)
+}
+
+// scheduleActionChangeExpr toggles the pct input's readonly/class
+// state in lockstep with the action select, then runs the autosave.
+// off → clear pct + lock; non-off → restore data-orig-pct + unlock.
+func scheduleActionChangeExpr(name string) string {
+	return `const pct = evt.target.closest('tr').querySelector('input[name=pct]'); ` +
+		`if (evt.target.value === 'off') { pct.value = ''; pct.setAttribute('readonly', ''); } ` +
+		`else { pct.value = pct.dataset.origPct; pct.removeAttribute('readonly'); } ` +
+		scheduleSubmitExpr(name)
+}
+
+// scheduleAddRowExpr re-enables the form's "enabled" checkbox (which
+// scheduleDelRowExpr disables when removing the last row) and then
+// issues the SSE GET that appends a fresh row. The new row appears
+// in the DOM but no autosave fires — the row commits to the server
+// when the user edits any field on it.
+func scheduleAddRowExpr(name string) string {
+	return "var cb = evt.target.closest('form').querySelector('input[type=checkbox][name=enabled]'); cb.disabled = false; " +
+		datastar.GetSSE("/ui/devices/%s/schedule/new-row", name)
+}
+
+// scheduleDelRowExpr removes the row and, when it was the last one,
+// unticks + disables the form's enabled checkbox so the user sees
+// the forced-off invariant immediately. Then it triggers an
+// autosave so the server state matches the visible DOM (rather
+// than waiting for the user's next field edit on a different row).
+func scheduleDelRowExpr(name string) string {
+	return "var tr = evt.target.closest('tr'); var form = tr.closest('form'); tr.remove(); " +
+		"if (form.querySelectorAll('tbody tr').length === 0) { " +
+		"var cb = form.querySelector('input[type=checkbox][name=enabled]'); " +
+		"cb.checked = false; cb.disabled = true; } " +
+		scheduleSubmitExpr(name)
 }
 
 // schedulePctValue returns the value attribute for the pct input.
@@ -223,11 +197,11 @@ func schedulePctValue(e ui.ScheduleEntryView) string {
 
 // schedulePctOrigValue is the INITIAL value to restore into the pct
 // <input> when the user toggles action away from "off". The pct input
-// also carries a `data-on:change` handler that updates data-orig-pct on
-// every commit, so subsequent off→on toggles restore the user's
-// last-edited value rather than the server-render original. Pct's valid
-// range is [10..100]; 0 (or anything out of range) is the "no value"
-// sentinel and falls back to a sensible default of 50.
+// also carries a handler that updates data-orig-pct on every commit,
+// so subsequent off→on toggles restore the user's last-edited value
+// rather than the server-render original. Pct's valid range is
+// [10..100]; out-of-range is the "no value" sentinel and falls back
+// to a sensible default of 50.
 func schedulePctOrigValue(e ui.ScheduleEntryView) string {
 	if e.Pct >= 10 && e.Pct <= 100 {
 		return fmt.Sprintf("%d", e.Pct)
@@ -235,15 +209,8 @@ func schedulePctOrigValue(e ui.ScheduleEntryView) string {
 	return "50"
 }
 
-// scheduleActionChangeExpr is the inline data-on:change expression for the
-// action <select> in the schedule editor. It locates the row's pct <input>
-// and synchronises value/readonly/class with the new action value:
-// off ⇒ clear + lock; non-off ⇒ restore data-orig-pct + unlock.
-func scheduleActionChangeExpr() string {
-	return `const pct = evt.target.closest('tr').querySelector('input[name=pct]'); if (evt.target.value === 'off') { pct.value = ''; pct.setAttribute('readonly', ''); pct.classList.add('pct-disabled'); } else { pct.value = pct.dataset.origPct; pct.removeAttribute('readonly'); pct.classList.remove('pct-disabled'); }`
-}
-
-// scheduleActionLabel maps action values to display labels.
+// scheduleActionLabel maps action values to display labels. Still
+// used by the snapshot-view label conversion outside templ.
 func scheduleActionLabel(action string) string {
 	switch action {
 	case "ventilation":

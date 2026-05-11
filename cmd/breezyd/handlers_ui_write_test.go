@@ -728,8 +728,10 @@ func TestUIScheduleGet_Read(t *testing.T) {
 	is.Equal(resp.StatusCode, 200)
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	is.True(strings.Contains(bs, `class="block schedule"`)) // body must contain schedule block
-	is.True(strings.Contains(bs, `no entries`))             // empty scheduler renders 'no entries' text
+	is.True(strings.Contains(bs, `class="block schedule"`)) // body has schedule block
+	// Empty schedule renders the + button but no row inputs.
+	is.True(strings.Contains(bs, `+ add row`))
+	is.True(!strings.Contains(bs, `name="at"`))
 }
 
 func TestUIScheduleGet_Read_NotFound(t *testing.T) {
@@ -739,66 +741,6 @@ func TestUIScheduleGet_Read_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule")
-	is.NoErr(err)
-	defer func() { _ = resp.Body.Close() }()
-	is.Equal(resp.StatusCode, 404)
-}
-
-func TestUIScheduleGet_Edit(t *testing.T) {
-	is := is.New(t)
-	h := newUIScheduleTestHandler(t)
-	// Pre-load an entry so we can verify it renders in edit form.
-	sch := h.Schedulers["alpha"]
-	at, _ := ParseScheduleTime("08:00")
-	_ = sch.Replace(true, []ScheduleEntry{{At: at, Action: "regeneration", Pct: 60}})
-
-	srv := httptest.NewServer(h.mux())
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/edit")
-	is.NoErr(err)
-	defer func() { _ = resp.Body.Close() }()
-	is.Equal(resp.StatusCode, 200)
-	body, _ := io.ReadAll(resp.Body)
-	bs := string(body)
-	is.True(strings.Contains(bs, "event: datastar-patch-elements")) // body has SSE event
-	is.True(strings.Contains(bs, "/ui/devices/alpha/schedule"))     // body has form @put target
-	is.True(strings.Contains(bs, "data-on:submit__prevent="))       // body has data-on-submit attribute
-	is.True(strings.Contains(bs, `name="at"`))                      // body has at input
-	is.True(strings.Contains(bs, `name="action"`))                  // body has action select
-}
-
-// TestUIScheduleGet_Edit_EmptySchedule pins the auto-seed behavior: a
-// device with no schedule entries should land in edit mode with one
-// seeded row already rendered, so the user can fill it in directly
-// rather than having to click "+ add row" before any data entry is
-// possible.
-func TestUIScheduleGet_Edit_EmptySchedule(t *testing.T) {
-	is := is.New(t)
-	h := newUIScheduleTestHandler(t)
-	// Do NOT pre-load any entry — exercise the empty-schedule path.
-
-	srv := httptest.NewServer(h.mux())
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/ui/devices/alpha/schedule/edit")
-	is.NoErr(err)
-	defer func() { _ = resp.Body.Close() }()
-	is.Equal(resp.StatusCode, 200)
-	body, _ := io.ReadAll(resp.Body)
-	bs := string(body)
-	is.True(strings.Contains(bs, `name="at"`))     // body has an at input — auto-seed
-	is.True(strings.Contains(bs, `name="action"`)) // body has an action select — auto-seed
-	is.True(strings.Contains(bs, `name="pct"`))    // body has a pct input — auto-seed
-}
-
-func TestUIScheduleGet_Edit_NotFound(t *testing.T) {
-	is := is.New(t)
-	h := newUIScheduleTestHandler(t)
-	srv := httptest.NewServer(h.mux())
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/ui/devices/nope/schedule/edit")
 	is.NoErr(err)
 	defer func() { _ = resp.Body.Close() }()
 	is.Equal(resp.StatusCode, 404)
@@ -951,9 +893,9 @@ func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 	is.Equal(resp.Header.Get("Datastar-Status"), "422")
 	body, _ := io.ReadAll(resp.Body)
 	bs := string(body)
-	// Edit variant rendered with error message via SSE.
-	is.True(strings.Contains(bs, "data-on:submit__prevent="))   // body has edit form
-	is.True(strings.Contains(bs, "/ui/devices/alpha/schedule")) // body has schedule URL
+	// Validation failure routed to global error banner via SSE.
+	is.True(strings.Contains(bs, "event: datastar-patch-elements")) // body has SSE event
+	is.True(strings.Contains(bs, "#global-error-banner"))           // targets the global banner
 }
 
 // ---------- postUISchedEnabled tests ----------
