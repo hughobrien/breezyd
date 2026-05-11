@@ -932,18 +932,16 @@ func controlsEditAttr(name string) string {
 // attentionIfOff wraps a click expression with an "if device is off,
 // glow the power button" prefix. Flips the per-device transient
 // $_attention.<name> signal, which the power button's data-class binding
-// consumes. The 2400 ms timeout is aligned with the CSS animation's
-// 4-iteration × 0.6 s alternate cycle so class removal happens at the
-// natural animation end (ring at zero), not mid-pulse — the prior
-// 1500 ms timeout cut the animation half a cycle in and snapped the
-// visible ring to zero abruptly.
+// consumes. The 1200 ms timeout is aligned with the CSS animation's
+// 2-iteration × 0.6 s alternate cycle (one full out-and-back pulse) so
+// class removal happens at the natural animation end (ring at zero).
 //
 // The wrapped expression always runs after — sending the @post against
 // an off device is harmless and matches the prior behaviour (buttons
 // were never click-disabled when off).
 func attentionIfOff(name, expr string) string {
 	return fmt.Sprintf(
-		"if (!$power.%s) { $_attention.%s = true; setTimeout(() => { $_attention.%s = false; }, 2400); } %s",
+		"if (!$power.%s) { $_attention.%s = true; setTimeout(() => { $_attention.%s = false; }, 1200); } %s",
 		name, name, name, expr,
 	)
 }

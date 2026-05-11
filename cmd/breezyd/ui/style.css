@@ -302,15 +302,12 @@ details.block.schedule > summary > h3 { margin: 0; }
 /* Attention glow: a fellow control was clicked while the device was off.
    attentionIfOff() in controls_block.templ flips $_attention.<name>
    true and schedules a setTimeout to flip it back. data-class:attention
-   on the power button picks that up. The animation runs a fixed 4
-   iterations (= 2 full out-and-back cycles with alternate) so it ends
-   naturally at the "from" state with zero ring. The setTimeout duration
-   in the JS matches (2400ms) so class removal is synchronised with
-   the animation's natural end — the prior infinite + 1500ms timeout
-   cut the animation mid-pulse and snapped a half-grown ring to zero
-   abruptly. */
+   on the power button picks that up. One pulse (out-and-back) =
+   2 iterations × 0.6s with alternate = 1.2s, ending naturally at the
+   "from" keyframe (zero ring). The JS setTimeout matches at 1200ms so
+   class removal is synchronised with the animation's natural end. */
 .power-toggle.attention {
-  animation: power-attention 0.6s ease-in-out 4 alternate;
+  animation: power-attention 0.6s ease-in-out 2 alternate;
 }
 @keyframes power-attention {
   from { box-shadow: 0 0 0 0 var(--accent); }
