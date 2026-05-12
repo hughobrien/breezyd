@@ -1154,8 +1154,12 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: __next}})`,
 		`$specialModeRemainingSeconds.` + name + ` = ($specialMode.` + name + ` === &#39;turbo&#39;) ? 0 : $turboDurationSeconds.` + name,
 		`const __next = $specialMode.` + name + ` === &#39;turbo&#39; ? &#39;off&#39; : &#39;turbo&#39;`,
-		// Heater toggle: posts inverse of $heater signal.
-		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: !$heater.` + name + `}})`,
+		// Heater toggle: clickAction emits __next from the toggle on
+		// $heater (no cascade — heater is independent). The POST payload
+		// reads __next so the wire value matches the just-written local.
+		`const __next = !$heater.` + name,
+		`$heater.` + name + ` = __next`,
+		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: __next}})`,
 	}
 	wantAbsent := []string{
 		// Static {on: true} / {on: false} for heater would be stale once

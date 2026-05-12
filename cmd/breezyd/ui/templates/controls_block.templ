@@ -219,15 +219,18 @@ templ timerRemaining(v ui.DeviceView) {
 	></div>
 }
 
-// heaterClickExpr posts the inverse of the current $heater.<name>
-// signal. Reading the signal (rather than the server-render snapshot)
-// means the toggle works correctly even when the controls-block HTML
-// patch is filtered out by an open preset editor.
+// heaterClickExpr toggles $heater optimistically and POSTs the new
+// value. No cascade — heater is independent of every other signal.
+// Reads $heater (not v.Heater) so a rapid double-click can't fire two
+// same-direction toggles before the SSE patch lands. Payload uses
+// __next (defined by clickAction) so the wire value matches what was
+// just written locally.
 func heaterClickExpr(name string) string {
-	return postActionExpr(
+	return clickAction(name,
+		"heater",
+		fmt.Sprintf("!$heater.%s", name),
 		fmt.Sprintf("/ui/devices/%s/heater", name),
-		fmt.Sprintf("{on: !$heater.%s}", name),
-	)
+		"{on: __next}")
 }
 
 // manualSliderRow renders the manual fan-pct range input. Binds to a
