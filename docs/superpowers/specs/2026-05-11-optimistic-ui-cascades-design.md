@@ -15,7 +15,7 @@ A 5-minute probe script (`/tmp/firmware_invariants_test.sh`, run 2026-05-11 agai
 | `speed_mode` write (any value) | `timer` clears | **Firmware** |
 | `airflow_mode` write | `timer` unchanged | (No cascade) |
 | `timer` activate | `power` unchanged (firmware runs fans regardless) | (Handler writes `power=on`) |
-| `power` off | `timer` unchanged by firmware | (Handler writes `timer=0`) |
+| `power` off | `timer` clears | **Firmware** (re-probed 2026-05-12 with `night` to settle the originally-inconclusive Test 4 — turbo's short configured duration had self-cleared mid-test) |
 
 Firmware cascades fire on the device-side write regardless of who sent it (CLI, panel button, IR remote). Handler cascades fire only when the action goes through `breezyd`'s HTTP handler; an external actor like the wall panel can leave the daemon's cache temporarily incoherent (e.g. `timer=turbo, power=off`).
 
@@ -173,21 +173,19 @@ The `$specialModeRemainingSeconds.X = $<night|turbo>DurationSeconds.X` seeding f
 
 Client-side cascades flip implied signals on the browser optimistically. The daemon's cache also has to reflect those changes immediately — otherwise the next SSE push (from the post-write `notifyAfterWrite` or a poll cycle) carries stale state and overwrites the optimistic update.
 
-Two of the three client cascades already have server-side mirrors (predating this design):
+Each client cascade pairs with a server-side mirror at the ops layer (pkg/breezy/ops.go), so every caller — UI handler, /v1 JSON handler, scheduler, HomeKit — gets the same cache-coherency for free:
 
-| Client cascade | Server-side mirror | Location |
+| Client cascade | Server-side mirror | Where |
 | --- | --- | --- |
+| `speedMode` write → `specialMode = off` | `SetSpeedPreset` / `SetSpeedManual` also write `{0x0007, 0}` | `pkg/breezy/ops.go` |
+| `power = false` → `specialMode = off` | `Power(false)` also writes `{0x0007, 0}` | `pkg/breezy/ops.go` |
 | `specialMode != off` → `power = true` | `/timer` handler calls `powerOnIfOff` before `SetTimer` | `cmd/breezyd/handlers_ui_write.go::postUITimer` |
-| `power = false` → `specialMode = off` | `/power` handler calls `SetTimer(off)` after `Power(off)` | `cmd/breezyd/handlers_ui_write.go::postUIPower` |
 
-The third — `speedMode` write → `specialMode = off` — has no server-side mirror today. Adding one is required:
+The first two are universal firmware invariants (probed 2026-05-11 and 2026-05-12 against firmware 0.11) — they belong at ops because the rule holds for ANY caller writing those params. The third lives at the handler because the firmware does NOT auto-power-on on timer-activate (separately probed); only our handler enforces the coupling.
 
-- Against real firmware, `SetSpeedPreset` / `SetSpeedManual` writes already cause the device to clear `0x0007` (timer) on its own. But the daemon's cache only reflects what we explicitly wrote — so the cache holds the pre-write timer value until the next poll catches up (up to 1s).
-- Against the `MemClient` backend (used by Playwright tests), there is no firmware. The cache holds the stale timer value forever, until something else writes `0x0007`.
+The cost of putting the firmware-mirroring at ops is one extra param per UDP packet against real hardware (a no-op the firmware would have done anyway). The benefit is: the daemon's cache is coherent immediately on write (no 1s poll-tick window), and the MemClient backend behaves identically to firmware — Playwright tests pin the same invariants production sees.
 
-The fix is at the ops layer. Extend `SetSpeedPreset` and `SetSpeedManual` to write `{0x0007, 0}` alongside the speed-mode param. The extra param fits in the same UDP packet (multi-param atomicity is already established for `SetSpeedManual` writing `0x0044` + `0x0002`). The write is a no-op against firmware that already cleared `0x0007` autonomously, and a correctness fix against MemClient and any cache-coherent observers (homekit, `/v1` JSON, the dashboard SSE push).
-
-This places the firmware-mirror in pkg/breezy/ops because the rule is universal — every place that writes `0x0002` should pair it with `0x0007=0`. The four call sites (UI handler, /v1 handler, scheduler, homekit) all go through the ops, so one edit covers them.
+The `/power` HTTP handler used to call `SetTimer(off)` explicitly after `Power(off)`. With the ops-layer cascade in place, that call became redundant and was removed — `Power(false)` already emits both writes atomically.
 
 ### Bindings to update
 

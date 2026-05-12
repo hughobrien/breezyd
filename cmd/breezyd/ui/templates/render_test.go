@@ -6,8 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -722,12 +726,16 @@ func TestRenderSensorsBlock_FormattedValues(t *testing.T) {
 // `$manualpct` signal. Expressions that read the camelCase signal see
 // the stale initial seed. See #116.
 //
-// The boolean checkboxes (automode, matchSpeeds) use value-form
+// The boolean checkboxes (automode, matchSpeeds) still use value-form
 // `data-bind="<key>"`, which preserves casing in the value position.
-// The manual slider binds to the per-card local signal `_manualPct.<name>`
-// via value-form data-bind (no colon) so the val display updates live
-// during drag. The @post still reads evt.target.valueAsNumber directly
-// — no change to wire behaviour. See #26.
+// The manual slider used to bind via `data-bind="_manualPct.<name>"`
+// but no longer does — datastar's data-bind plugin synthesizes change
+// events during signal→input syncs, which produced phantom no-op POSTs
+// (see manualSliderRow's doc-comment for the full failure mode).
+// Today the slider uses data-effect for signal→input and data-on:input
+// for input→signal; the change handler reads evt.target.value directly.
+// See #26 (live val display), #116 (no colon-form), and the 2026-05-12
+// follow-up that replaced data-bind with the effect/input split.
 func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 	v := loadView(t, "snapshot_manual")
 	var sb strings.Builder
@@ -745,8 +753,11 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 		// not a stale signal (closes #116).
 		`parseInt(evt.target.value, 10)`,
 		`{manual: v}`,
-		// Manual slider binds to per-card local signal via value-form (no colon).
-		`data-bind="_manualPct.` + v.Name + `"`,
+		// Manual slider mirrors the per-card signal via data-effect
+		// (signal → input.value, no event dispatch) and data-on:input
+		// (input → signal, live during drag).
+		`data-effect="el.value = $_manualPct.` + v.Name + `;"`,
+		`data-on:input="$_manualPct.` + v.Name + ` = parseInt(evt.target.value, 10);"`,
 	}
 	wantAbsent := []string{
 		// Colon-form for any camelCase signal silently lowercases the key.
@@ -759,6 +770,11 @@ func TestRenderControls_NoColonFormDataBind(t *testing.T) {
 		// Unscoped automode/matchSpeeds would leak across cards.
 		`data-bind="automode"`,
 		`data-bind="matchSpeeds"`,
+		// data-bind on the manual slider was retired 2026-05-12 because
+		// the plugin fires phantom change events during signal→input
+		// syncs that produce no-op POSTs (see manualSliderRow's
+		// doc-comment).
+		`data-bind="_manualPct.`,
 	}
 	for _, s := range wantContains {
 		if !strings.Contains(got, s) {
@@ -1315,15 +1331,74 @@ func TestCascades_HeaterNil(t *testing.T) {
 }
 
 // TestCascadeTable_AllWritableSignalsCovered is the keystone: every
-// signal that a click handler writes optimistically MUST appear in the
-// cascades map (with nil if there's deliberately no cascade). If you
-// add a new writable signal to a click handler, add it here and to the
-// map in the same PR.
+// signal that a click handler writes optimistically MUST appear in
+// the cascades map (with nil if there's deliberately no cascade).
+// The test parses the templates package's .go files (including the
+// generated *_templ.go), walks every clickAction(...) call, extracts
+// the second argument when it's a string literal, and asserts that
+// signal is registered. A new writable signal added via clickAction
+// without a corresponding cascades entry becomes a CI failure rather
+// than a UI bug.
+//
+// Non-literal second arguments (e.g. variables) would slip past this
+// check, but the click-handler convention is to pass a literal — the
+// signal name belongs to the design contract, not runtime data.
 func TestCascadeTable_AllWritableSignalsCovered(t *testing.T) {
-	writable := []string{"speedMode", "specialMode", "power", "heater", "airflowMode"}
-	for _, sig := range writable {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read templates dir: %v", err)
+	}
+	signals := map[string]token.Position{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			// Skip dirs, non-Go files, and our own tests (the test's
+			// want-strings would otherwise self-reference and produce
+			// false signals).
+			continue
+		}
+		file, perr := parser.ParseFile(fset, name, nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", name, perr)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			ident, ok := call.Fun.(*ast.Ident)
+			if !ok || ident.Name != "clickAction" {
+				return true
+			}
+			if len(call.Args) < 2 {
+				return true
+			}
+			lit, ok := call.Args[1].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				// Non-literal signal arg — can't statically check.
+				// If this ever fires, either pass a literal here or
+				// extend the test to track the variable's value.
+				t.Logf("clickAction at %s: 2nd arg is not a string literal (%T) — skipping coverage check", fset.Position(call.Pos()), call.Args[1])
+				return true
+			}
+			unquoted, uerr := strconv.Unquote(lit.Value)
+			if uerr != nil {
+				t.Errorf("clickAction at %s: cannot unquote 2nd arg %q: %v", fset.Position(call.Pos()), lit.Value, uerr)
+				return true
+			}
+			if _, dup := signals[unquoted]; !dup {
+				signals[unquoted] = fset.Position(call.Pos())
+			}
+			return true
+		})
+	}
+	if len(signals) == 0 {
+		t.Fatalf("no clickAction calls found — either the walker is broken or no click handler uses clickAction yet")
+	}
+	for sig, pos := range signals {
 		if _, ok := cascades[sig]; !ok {
-			t.Errorf("signal %q is written by a click handler but not in cascades — register it (use nil for no cascade)", sig)
+			t.Errorf("signal %q is written by clickAction at %s but not registered in cascades — add an entry (use nil for no cascade)", sig, pos)
 		}
 	}
 }

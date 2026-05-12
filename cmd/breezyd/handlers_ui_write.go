@@ -493,13 +493,9 @@ func (h *Handler) postUIResetFaults(w http.ResponseWriter, r *http.Request) {
 //
 // JSON: {"on": bool}
 //
-// Powering off also explicitly clears any active timer (0x0007 → 0).
-// The firmware normally clears 0x0007 on a 1→0 power transition, but
-// when the timer was set externally (IR remote / panel buttons) on a
-// device whose 0x0001 was already 0, the user's power-off click would
-// otherwise no-op at the firmware level and the cache would stay
-// stale. The explicit SetTimer(off) keeps the cache and the device
-// in sync regardless of how the timer was activated.
+// Powering off implicitly clears the timer (0x0007 → 0); breezy.Power
+// emits both writes in one packet to mirror the firmware behavior at
+// the cache level. See pkg/breezy/ops.go::Power.
 func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 	type req struct {
 		On *bool `json:"on"`
@@ -512,13 +508,7 @@ func (h *Handler) postUIPower(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 	postUIWriteJSON(h, w, r, shape, func(ctx context.Context, rc *recordingClient, q *req) error {
-		if err := breezy.Power(ctx, rc, *q.On); err != nil {
-			return err
-		}
-		if !*q.On {
-			return breezy.SetTimer(ctx, rc, "off")
-		}
-		return nil
+		return breezy.Power(ctx, rc, *q.On)
 	})
 }
 
