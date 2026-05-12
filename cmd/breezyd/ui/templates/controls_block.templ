@@ -63,26 +63,42 @@ templ ControlsBlock(v ui.DeviceView) {
 	</div>
 }
 
-// presetBtn renders one of the three SPEED preset chips. The label
-// reads from the per-device $preset.<name>[n] signal so dragging the
-// supply/extract sliders in the open editor updates the chip's "x/y"
-// readout live — without this, the chip stays at the last-rendered
-// server value because the controls-block HTML patch is filtered out
-// while the editor is open (data-edit="true"). The server-rendered
-// children act as a pre-datastar-paint fallback.
+// presetBtn renders one of the three SPEED preset chips. Click handler
+// uses clickAction() so $speedMode flips optimistically and the
+// speedMode cascade clears $specialMode (firmware clears timer on any
+// speed_mode write). Editor-toggle logic runs first, using a wasActive
+// flag captured BEFORE clickAction's primary write — otherwise the
+// $speedMode optimistic update would make every preset click look
+// "active" by the time the editor check runs.
 //
-// aria-pressed is gated on $specialMode === 'off' as well: when night
-// or turbo is active, that mode owns the fan and the speed selection
-// is suspended — de-highlighting the preset chip makes it clear that
-// the configured speed isn't currently driving the device.
+// aria-pressed reads $speedMode directly: after clickAction sets it
+// optimistically, the chip lights up instantly. The (formerly-needed)
+// $specialMode === 'off' && ... gate is no longer required because the
+// cascade keeps $specialMode coherent.
 templ presetBtn(v ui.DeviceView, n int) {
 	<button
 		type="button"
-		data-on:click={ attentionIfOff(v.Name, presetChipExpr(v.Name, n)) }
+		data-on:click={ attentionIfOff(v.Name, presetClickExpr(v.Name, n)) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$specialMode.%s === 'off' && $speedMode.%s === 'preset%d' ? 'true' : 'false'", v.Name, v.Name, n) }
 		data-text={ presetChipDataText(v.Name, n) }
 	>{ presetLabel(v, n) }</button>
+}
+
+// presetClickExpr is the data-on:click body for preset chips. Computes
+// wasActive (so the editor only opens when re-clicking the already-
+// active preset) using the pre-click signal values, sets $editor, then
+// delegates the primary signal write + cascade + POST to clickAction.
+func presetClickExpr(name string, n int) string {
+	return fmt.Sprintf(
+		"const wasActive = ($specialMode.%s === 'off' && $speedMode.%s === 'preset%d'); $editor.%s = wasActive ? ($editor.%s === %d ? 0 : %d) : 0; %s",
+		name, name, n, name, name, n, n,
+		clickAction(name,
+			"speedMode",
+			fmt.Sprintf("'preset%d'", n),
+			fmt.Sprintf("/ui/devices/%s/speed", name),
+			fmt.Sprintf("{preset: %d}", n)),
+	)
 }
 
 // manualBtn renders the SPEED-row "manual" chip. aria-pressed reads the
@@ -443,19 +459,6 @@ func attentionIfOff(name, expr string) string {
 	return fmt.Sprintf(
 		"if (!$power.%s) { $_attention.%s = true; setTimeout(() => { $_attention.%s = false; }, 1200); } %s",
 		name, name, name, expr,
-	)
-}
-
-// presetChipExpr fires the speed-preset POST and manages the per-device
-// $editor.<name> signal. The editor only toggles when the clicked chip
-// is already the active preset (matching aria-pressed: special mode off
-// AND $speedMode === 'preset<n>'); clicking a non-active chip selects
-// the preset and closes any open editor without expanding the new one.
-func presetChipExpr(name string, n int) string {
-	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
-	return fmt.Sprintf(
-		"if ($specialMode.%s === 'off' && $speedMode.%s === 'preset%d') { $editor.%s = $editor.%s === %d ? 0 : %d; } else { $editor.%s = 0; } %s",
-		name, name, n, name, name, n, n, name, post,
 	)
 }
 

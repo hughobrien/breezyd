@@ -861,32 +861,30 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	}
 }
 
-// TestPresetChipExpr pins the active-only-expand behaviour of the
-// preset chip click handler: the editor toggles only when the clicked
-// chip is the currently-active preset ($specialMode === 'off' and
-// $speedMode === 'preset<n>'); clicking a non-active chip selects the
-// preset and closes any open editor without expanding the new one.
+// TestPresetClickExpr pins the active-only-expand behavior of the preset
+// chip click handler, now built on top of clickAction. The editor toggles
+// only when the clicked chip is the currently-active preset; clicking a
+// non-active chip selects it (clickAction writes $speedMode optimistically
+// + the speedMode cascade clears $specialMode) without expanding. The
+// wasActive snapshot is captured BEFORE clickAction's primary write, so
+// the editor-toggle check uses pre-click signal state.
 //
-// Strict equality (===) matters because the JS engine handles
-// stringified-vs-numeric edge cases — `==` would coerce and match
-// unexpectedly when the seed type drifted (see G-web-8 and the preset
-// numeric-typing test).
-//
-// The signal is scoped per device so opening preset n on one card does
-// not open the same preset's editor on every sibling card.
-func TestPresetChipExpr(t *testing.T) {
-	got := presetChipExpr("alpha", 2)
-	want := "if ($specialMode.alpha === 'off' && $speedMode.alpha === 'preset2') { $editor.alpha = $editor.alpha === 2 ? 0 : 2; } else { $editor.alpha = 0; } @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
+// Strict equality (===) matters in the wasActive check because the JS
+// engine handles stringified-vs-numeric edge cases — `==` would coerce
+// and match unexpectedly when the seed type drifted (see G-web-8).
+func TestPresetClickExpr(t *testing.T) {
+	got := presetClickExpr("alpha", 2)
+	want := "const wasActive = ($specialMode.alpha === 'off' && $speedMode.alpha === 'preset2'); $editor.alpha = wasActive ? ($editor.alpha === 2 ? 0 : 2) : 0; const __next = 'preset2'; $speedMode.alpha = __next; $specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0; @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
 	if got != want {
-		t.Errorf("presetChipExpr(alpha, 2):\n  got: %s\n want: %s", got, want)
+		t.Errorf("presetClickExpr(alpha, 2):\n  got: %s\n want: %s", got, want)
 	}
 	// Negative: must use strict equality, not loose.
 	if strings.Contains(got, "$editor.alpha == 2") {
-		t.Errorf("presetChipExpr must use strict equality (===), got: %s", got)
+		t.Errorf("presetClickExpr must use strict equality (===), got: %s", got)
 	}
 	// Negative: must scope $editor per-device, not unscoped.
 	if strings.Contains(got, "$editor =") || strings.Contains(got, "$editor ===") {
-		t.Errorf("presetChipExpr must scope $editor per-device; got: %s", got)
+		t.Errorf("presetClickExpr must scope $editor per-device; got: %s", got)
 	}
 }
 
