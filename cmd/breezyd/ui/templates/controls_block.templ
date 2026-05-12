@@ -101,34 +101,54 @@ func presetClickExpr(name string, n int) string {
 	)
 }
 
-// manualBtn renders the SPEED-row "manual" chip. aria-pressed reads the
-// per-device $speedMode.<name> signal so the chip de-highlights as soon
-// as the signal patch arrives — necessary because clicking a preset
-// chip opens the preset editor, which filters out the next controls-
-// block HTML patch via [:not([data-edit])] in push_render.go.
-//
-// Same special-mode gate as presetBtn: when a timer is active, the
-// manual chip de-highlights so the active driver (night/turbo) is
-// visually unambiguous.
+// manualBtn renders the SPEED-row "manual" chip. Click handler closes
+// the preset editor and uses clickAction to optimistically flip
+// $speedMode + cascade-clear $specialMode. aria-pressed reads the
+// signals directly (the speedMode cascade keeps $specialMode coherent).
 templ manualBtn(v ui.DeviceView) {
 	<button
 		type="button"
-		data-on:click={ attentionIfOff(v.Name, closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/speed", fmt.Sprintf("{manual: %d}", manualBtnPct(v))))) }
+		data-on:click={ attentionIfOff(v.Name, manualClickExpr(v)) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$specialMode.%s === 'off' && $speedMode.%s === 'manual' ? 'true' : 'false'", v.Name, v.Name) }
 	>manual</button>
 }
 
-// modeBtn renders one of the four MODE chips. aria-pressed reads the
-// per-device $airflowMode.<name> signal for the same reason as
-// manualBtn — the controls-block HTML patch can be filtered out.
+func manualClickExpr(v ui.DeviceView) string {
+	return fmt.Sprintf(
+		"$editor.%s = 0; %s",
+		v.Name,
+		clickAction(v.Name,
+			"speedMode",
+			"'manual'",
+			fmt.Sprintf("/ui/devices/%s/speed", v.Name),
+			fmt.Sprintf("{manual: %d}", manualBtnPct(v))),
+	)
+}
+
+// modeBtn renders one of the four MODE chips. Click handler closes the
+// preset editor and uses clickAction to optimistically flip
+// $airflowMode (no cascade — firmware leaves the timer alone on
+// airflow_mode writes per the 2026-05-11 probe).
 templ modeBtn(v ui.DeviceView, label, value string) {
 	<button
 		type="button"
-		data-on:click={ attentionIfOff(v.Name, closeEditorThen(v.Name, postActionExpr("/ui/devices/"+v.Name+"/mode", fmt.Sprintf("{mode: '%s'}", value)))) }
+		data-on:click={ attentionIfOff(v.Name, modeClickExpr(v.Name, value)) }
 		if v.Stale { disabled }
 		data-attr:aria-pressed={ fmt.Sprintf("$airflowMode.%s === '%s' ? 'true' : 'false'", v.Name, value) }
 	>{ label }</button>
+}
+
+func modeClickExpr(name, value string) string {
+	return fmt.Sprintf(
+		"$editor.%s = 0; %s",
+		name,
+		clickAction(name,
+			"airflowMode",
+			fmt.Sprintf("'%s'", value),
+			fmt.Sprintf("/ui/devices/%s/mode", name),
+			fmt.Sprintf("{mode: '%s'}", value)),
+	)
 }
 
 // timerBtn renders one of the two SPECIAL-mode chips (night / turbo).
@@ -460,15 +480,6 @@ func attentionIfOff(name, expr string) string {
 		"if (!$power.%s) { $_attention.%s = true; setTimeout(() => { $_attention.%s = false; }, 1200); } %s",
 		name, name, name, expr,
 	)
-}
-
-// closeEditorThen prefixes a JS expression with $editor.<name> = 0 so
-// any open preset-editor on this card closes before the wrapped
-// expression runs. Used by the manual and mode buttons (which select a
-// non-preset speed): the presetChipExpr toggle handles its own $editor
-// state, so only these non-preset paths need the explicit reset.
-func closeEditorThen(name, expr string) string {
-	return fmt.Sprintf("$editor.%s = 0; ", name) + expr
 }
 
 // presetSliderExpr builds the data-on:change expression for a preset
