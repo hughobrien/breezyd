@@ -226,6 +226,35 @@ test.describe("controls", () => {
     await expect(editor2).toBeHidden({ timeout: 2_000 });
   });
 
+  // Pins the optimistic-cascade contract: a click that the firmware will
+  // honor by clearing the timer must de-light the timer chip on the
+  // CLIENT immediately — well before the SSE roundtrip reports the new
+  // state. Without the cascade, the night chip stays visually pressed
+  // for 200-800ms (UDP roundtrip + daemon poll + push). 100ms is well
+  // below the daemon's 1s poll interval, so the only way this assertion
+  // passes is if $specialMode flipped client-side, not server-pushed.
+  test("preset chip click optimistically de-lights active timer chip", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.asPresetSpeed(DEVICE, 1);
+    await presets.withTimer(DEVICE, "night");
+    const card = await loadCard(page);
+
+    // Wait for the night chip to show as pressed (poll has caught up to
+    // the seeded timer state).
+    const nightChip = card.getByRole("button", { name: "night" });
+    await expect(nightChip).toHaveAttribute("aria-pressed", "true", {
+      timeout: POLL_PUSH_TIMEOUT,
+    });
+
+    // Click preset 2 — the firmware will clear the timer, but our test
+    // asserts the CLIENT reflects that clearing within 100ms, not after
+    // the roundtrip. Preset-2 chip label is "48/49" (snapshot seed).
+    await card.getByRole("button", { name: "48/49" }).click();
+    await expect(nightChip).toHaveAttribute("aria-pressed", "false", {
+      timeout: 100,
+    });
+  });
+
   // Catalog B-17: a rapid drag of a slider with `data-on:change__debounce.200ms`
   // should produce exactly one POST, not one per intermediate value. Pins
   // the debounce attribute against accidental removal/relaxation.
