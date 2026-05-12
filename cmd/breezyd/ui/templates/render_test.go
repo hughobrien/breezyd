@@ -75,6 +75,7 @@ func TestLayout(t *testing.T) {
 		`<dl class="sse-debug"`,
 		`$debug.lastEventAt`,
 		`$debug.events`,
+		`function effPower`, // bridges timer-active state where $power stays 0
 	}
 	wantAbsent := []string{
 		`htmx`,

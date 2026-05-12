@@ -76,7 +76,7 @@ templ InfoDetails(v ui.DeviceView) {
 			data-class:attention={ "$_attention." + v.Name }
 			data-on:click={ powerButtonExpr(v) }
 			if v.Stale { disabled }
-			data-attr:aria-pressed={ fmt.Sprintf("$power.%s ? 'true' : 'false'", v.Name) }
+			data-attr:aria-pressed={ fmt.Sprintf("effPower($power.%s, $specialMode.%s) ? 'true' : 'false'", v.Name, v.Name) }
 		>power</button>
 	</div>
 }

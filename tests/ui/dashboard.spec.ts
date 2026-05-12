@@ -540,6 +540,24 @@ test.describe("controls", () => {
       .toBeGreaterThanOrEqual(1);
     expect(manualPosts[0]).toBe(75);
   });
+
+  // Pins effPower: when a timer is active but $power reads false
+  // (the firmware doesn't auto-power-on when timer activates; only
+  // breezyd's /timer handler does, so an external actor can leave
+  // power=0 + timer=night), the dashboard must still show the power
+  // button as pressed. setDeviceState writes both params directly,
+  // bypassing the daemon's handler-side power=on coupling.
+  test("effPower: power button reflects timer state when power flag is desynced", async ({ page }) => {
+    await reset(DEVICE);
+    await presets.asPowerOff(DEVICE);
+    await presets.withTimer(DEVICE, "night");
+    const card = await loadCard(page);
+
+    const powerBtn = card.locator(".power-toggle");
+    await expect(powerBtn).toHaveAttribute("aria-pressed", "true", {
+      timeout: POLL_PUSH_TIMEOUT,
+    });
+  });
 });
 
 test.describe("schedule editor", () => {
