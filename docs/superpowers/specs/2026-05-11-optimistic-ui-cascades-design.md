@@ -44,33 +44,37 @@ Click handlers stop hand-rolling multi-signal logic. Each becomes a one-liner na
 ```go
 // cmd/breezyd/ui/templates/cascades.go (new file)
 
-// cascadeFunc returns the JS string for the implied signal updates that
-// follow a write to its primary signal. jsValue is the JS expression for
-// the new value (not a literal), so cascades can branch on toggle inputs
-// like `!$power.alpha`.
-type cascadeFunc func(name, jsValue string) string
+// cascadeFunc returns the JS string for implied signal updates that
+// follow a write to its primary signal. The cascade fires AFTER the
+// primary write, so it can read $signal.name directly to see the new
+// value — no jsValue argument needed, and no risk of operator-precedence
+// surprises with ternary toggle expressions.
+type cascadeFunc func(name string) string
 
 var cascades = map[string]cascadeFunc{
     // Firmware: any speed_mode write clears the timer (probe 2026-05-11).
-    "speedMode": func(name, _ string) string {
+    "speedMode": func(name string) string {
         return fmt.Sprintf(
             "$specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0;",
             name, name)
     },
 
-    // Handler: activating a timer (non-off) writes power=on. Toggle to
-    // 'off' doesn't change power.
-    "specialMode": func(name, jsValue string) string {
+    // Handler: activating a timer (non-off) writes power=on. Reads the
+    // signal directly so the ternary toggle expression (timer click) is
+    // evaluated exactly once — by the primary write — not re-evaluated
+    // here.
+    "specialMode": func(name string) string {
         return fmt.Sprintf(
-            "if (%s !== 'off') { $power.%s = true; }",
-            jsValue, name)
+            "if ($specialMode.%s !== 'off') { $power.%s = true; }",
+            name, name)
     },
 
-    // Handler: power=off explicitly clears the timer.
-    "power": func(name, jsValue string) string {
+    // Handler: power=off explicitly clears the timer. Same direct-read
+    // approach.
+    "power": func(name string) string {
         return fmt.Sprintf(
-            "if (!(%s)) { $specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0; }",
-            jsValue, name, name)
+            "if (!$power.%s) { $specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0; }",
+            name, name, name)
     },
 
     // No cascade (firmware leaves timer alone). Explicit nil so the
@@ -82,28 +86,43 @@ var cascades = map[string]cascadeFunc{
 // clickAction builds the data-on:click expression for a button whose
 // primary intent is a single optimistic signal write plus a POST. The
 // cascade table contributes implied signal updates between the primary
-// write and the POST.
+// write and the POST. Order is critical: jsValue is evaluated ONCE into
+// __next; primary write uses __next; cascade reads the signal (now
+// holding __next); POST payload uses __next directly.
+//
+// The __next intermediate exists because toggle-style jsValues like
+// `!$power.alpha` and `$specialMode.alpha === 'night' ? 'off' : 'night'`
+// read the same signal they're about to write. Without __next, the
+// payload expression would re-read the just-mutated signal and send
+// the wrong value to the server. Callers reference __next in payload
+// expressions wherever the payload should equal the new signal value.
 //
 //   name    — device name (e.g. "alpha")
 //   signal  — primary signal key, must appear in cascades
 //   jsValue — JS expression for the new value (e.g. "'preset2'", "!$power.alpha")
 //   url     — POST endpoint
 //   payload — JS object-literal expression for the POST body (or "")
+//             May reference `__next` for the just-computed new value.
 func clickAction(name, signal, jsValue, url, payload string) string {
     cascade, ok := cascades[signal]
     if !ok {
         panic(fmt.Sprintf("clickAction: unknown signal %q — register in cascades map", signal))
     }
     parts := []string{
-        fmt.Sprintf("$%s.%s = %s;", signal, name, jsValue),
+        fmt.Sprintf("const __next = %s;", jsValue),
+        fmt.Sprintf("$%s.%s = __next;", signal, name),
     }
     if cascade != nil {
-        parts = append(parts, cascade(name, jsValue))
+        parts = append(parts, cascade(name))
     }
     parts = append(parts, postActionExpr(url, payload))
     return strings.Join(parts, " ")
 }
 ```
+
+The `__next` intermediate is the load-bearing piece for toggle handlers. With it, the timer button's ternary evaluates once (deciding between `'off'` and `'<value>'`), the primary write stores that result, and the POST sends the same value — no risk of the ternary's predicate flipping mid-expression.
+
+Callers whose payload doesn't depend on the new signal value (preset chips: `{preset: 2}`, mode buttons: `{mode: 'ventilation'}`) ignore `__next`. Callers whose payload mirrors the new value (power, heater, timer) use `__next` directly.
 
 ### Click-handler call sites
 
@@ -192,12 +211,14 @@ Add a per-cascade behavior test:
 // If a future firmware revision changes this and we remove the cascade,
 // this test ensures the rationale is documented in the diff.
 func TestCascades_SpeedModeClearsTimer(t *testing.T) {
-    got := cascades["speedMode"]("alpha", "'preset2'")
+    got := cascades["speedMode"]("alpha")
     want := "$specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0;"
     if got != want { t.Errorf("got: %s\nwant: %s", got, want) }
 }
-// Similar for specialMode (activation → power on, toggle-off → no-op)
-// and power (off → clear timer, on → no-op).
+// Similar for specialMode (activation → power on) and power (off →
+// clear timer). The cascade reads signals post-primary-write, so the
+// guard checks the actual signal value rather than a re-evaluated
+// jsValue expression.
 ```
 
 ## Migration touchpoints
