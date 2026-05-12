@@ -39,11 +39,20 @@ func Power(ctx context.Context, c DeviceClient, on bool) error {
 }
 
 // SetSpeedPreset selects a numbered fan preset (1, 2, or 3) via 0x0002.
+//
+// Also writes 0x0007=0 (special-mode/timer off) in the same packet. The
+// firmware always clears 0x0007 autonomously on any 0x0002 write — we
+// encode that invariant here so the daemon's cache (and any non-firmware
+// backend like *MemClient) stays coherent without waiting for the next
+// poll to catch up.
 func SetSpeedPreset(ctx context.Context, c DeviceClient, preset int) error {
 	if preset < 1 || preset > 3 {
 		return fmt.Errorf("%w: preset must be 1-3, got %d", ErrInvalidArg, preset)
 	}
-	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0002, Value: []byte{byte(preset)}}})
+	return c.WriteParams(ctx, []ParamWrite{
+		{ID: 0x0002, Value: []byte{byte(preset)}},
+		{ID: 0x0007, Value: []byte{0}},
+	})
 }
 
 // SetPresetSpeed writes the per-preset supply and extract percentages
@@ -77,6 +86,12 @@ func SetPresetSpeed(ctx context.Context, c DeviceClient, preset, supply, extract
 // vendor manual: write 0x0044 (percentage) BEFORE 0x0002 (manual flag),
 // so the firmware doesn't briefly interpret the flag against a stale
 // value.
+//
+// Also writes 0x0007=0 (special-mode/timer off) in the same packet. The
+// firmware always clears 0x0007 autonomously on any 0x0002 write — we
+// encode that invariant here so the daemon's cache (and any non-firmware
+// backend like *MemClient) stays coherent without waiting for the next
+// poll to catch up.
 func SetSpeedManual(ctx context.Context, c DeviceClient, pct int) error {
 	if pct < 10 || pct > 100 {
 		return fmt.Errorf("%w: manual percent must be 10-100, got %d", ErrInvalidArg, pct)
@@ -84,6 +99,7 @@ func SetSpeedManual(ctx context.Context, c DeviceClient, pct int) error {
 	return c.WriteParams(ctx, []ParamWrite{
 		{ID: 0x0044, Value: []byte{byte(pct)}},
 		{ID: 0x0002, Value: []byte{0xFF}},
+		{ID: 0x0007, Value: []byte{0}},
 	})
 }
 
