@@ -36,11 +36,54 @@ func TestOps_Power(t *testing.T) {
 	c := &recordingClient{}
 	is.NoErr(Power(context.Background(), c, true))
 	want := []ParamWrite{{ID: 0x0001, Value: []byte{1}}}
-	is.Equal(c.writes[0], want)
+	is.Equal(c.writes[0], want) // Power(true): single write, no cascade
 
 	c = &recordingClient{}
 	is.NoErr(Power(context.Background(), c, false))
 	is.Equal(c.writes[0][0].Value[0], byte(0)) // Power(false) writes value 0
+}
+
+// TestPowerOff_ClearsTimer verifies the server-side mirror of the
+// firmware invariant probed 2026-05-12: writing 0x0001=0 also clears
+// 0x0007 (timer) at the firmware level. Power(false) emits both writes
+// in one packet so the daemon's cache and MemClient stay coherent
+// without waiting for the next poll. Power(true) does NOT emit a
+// timer-clear (probe showed no firmware coupling in that direction).
+func TestPowerOff_ClearsTimer(t *testing.T) {
+	is := is.New(t)
+	c := &recordingClient{}
+	is.NoErr(Power(context.Background(), c, false))
+	is.Equal(len(c.writes), 1) // one atomic packet
+	pkt := c.writes[0]
+	sawPowerOff := false
+	sawTimerClear := false
+	for _, w := range pkt {
+		switch w.ID {
+		case ParamID(0x0001):
+			is.Equal(w.Value, []byte{0})
+			sawPowerOff = true
+		case ParamID(0x0007):
+			is.Equal(w.Value, []byte{0})
+			sawTimerClear = true
+		}
+	}
+	is.True(sawPowerOff)   // 0x0001=0 must be in the packet
+	is.True(sawTimerClear) // 0x0007=0 must be alongside it
+}
+
+// TestPowerOn_NoTimerClear locks the asymmetry: powering on does NOT
+// touch 0x0007 (firmware probe found no coupling). Without this pin,
+// a careless extension of Power could silently start clearing timers
+// on every power-on, which would surprise users who'd preset a timer
+// just before flipping the unit on.
+func TestPowerOn_NoTimerClear(t *testing.T) {
+	is := is.New(t)
+	c := &recordingClient{}
+	is.NoErr(Power(context.Background(), c, true))
+	pkt := c.writes[0]
+	for _, w := range pkt {
+		is.True(w.ID != ParamID(0x0007)) // Power(true) must NOT write 0x0007
+	}
 }
 
 func TestOps_SetSpeedPreset(t *testing.T) {

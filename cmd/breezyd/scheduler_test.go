@@ -285,9 +285,15 @@ func TestScheduler_Tick_FiresOff(t *testing.T) {
 	s.tick(context.Background(), atHM(21, 59))
 	s.tick(context.Background(), atHM(22, 0))
 	got := fc.flatWrites()
-	is.Equal(len(got), 1) // off action issues exactly one write
+	// off action issues two writes in one packet: 0x0001=0 (Power off) +
+	// 0x0007=0 (timer-clear cascade — firmware would clear timer on a 1→0
+	// power transition anyway; the ops layer mirrors that explicitly so the
+	// daemon's cache stays coherent without waiting for the next poll).
+	is.Equal(len(got), 2)
 	is.Equal(got[0].ID, breezy.ParamID(0x0001))
 	is.Equal(got[0].Value[0], byte(0)) // off => Power(false)
+	is.Equal(got[1].ID, breezy.ParamID(0x0007))
+	is.Equal(got[1].Value[0], byte(0)) // and timer cascade-cleared
 }
 
 func TestScheduler_Tick_DisabledIsInert(t *testing.T) {
