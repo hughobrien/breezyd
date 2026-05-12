@@ -888,6 +888,22 @@ func TestPresetClickExpr(t *testing.T) {
 	}
 }
 
+// TestTimerClickExpr pins the structure of the timer-chip click
+// handler after the clickAction migration: countdown seed, then
+// clickAction (__next = toggle ternary, primary $specialMode write,
+// power-on cascade reading $specialMode, POST with __next). The
+// cascade reads the just-mutated $specialMode signal — so the
+// power-on guard fires only when the click is activating, not
+// toggling off. POST uses __next so wire value matches the locally-
+// written value (the toggle ternary evaluates once).
+func TestTimerClickExpr(t *testing.T) {
+	got := timerClickExpr("alpha", "night")
+	want := "$specialModeRemainingSeconds.alpha = ($specialMode.alpha === 'night') ? 0 : $nightDurationSeconds.alpha; const __next = $specialMode.alpha === 'night' ? 'off' : 'night'; $specialMode.alpha = __next; if ($specialMode.alpha !== 'off') { $power.alpha = true; } @post('/ui/devices/alpha/timer', {payload: {mode: __next}})"
+	if got != want {
+		t.Errorf("timerClickExpr(alpha, night):\n  got: %s\n want: %s", got, want)
+	}
+}
+
 // TestPresetSliderExpr pins the full data-on:change expression for one
 // (name, n, side) tuple. Locks the four implied-mode branches without
 // a browser:
@@ -1127,22 +1143,17 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 	got := sb.String()
 	name := v.Name
 	wantContains := []string{
-		// Timer toggle: reads the active state from $specialMode, posts
-		// "off" if already in this mode. Also seeds $specialModeRemainingSeconds
-		// from the relevant per-mode duration signal so the countdown
+		// Timer toggle: clickAction emits __next from the toggle ternary on
+		// $specialMode and the specialMode cascade powers-on when activating.
+		// Countdown seed branches on $specialMode === '<mode>' so the
 		// readout appears optimistically before the next poll.
-		`var active = $specialMode.` + name + ` === &#39;night&#39;`,
-		`$specialModeRemainingSeconds.` + name + ` = $nightDurationSeconds.` + name,
-		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;night&#39;}})`,
-		`var active = $specialMode.` + name + ` === &#39;turbo&#39;`,
-		`$specialModeRemainingSeconds.` + name + ` = $turboDurationSeconds.` + name,
-		// Activating a timer also optimistically flips $power=true so the
-		// power button reflects the on-state instantly (the firmware runs
-		// the fans on timer regardless of 0x0001, and postUITimer
-		// explicitly writes Power(true) too — pinning the optimistic side
-		// keeps the click latency under one frame).
-		`$power.` + name + ` = true`,
-		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;turbo&#39;}})`,
+		`$specialModeRemainingSeconds.` + name + ` = ($specialMode.` + name + ` === &#39;night&#39;) ? 0 : $nightDurationSeconds.` + name,
+		`const __next = $specialMode.` + name + ` === &#39;night&#39; ? &#39;off&#39; : &#39;night&#39;`,
+		`$specialMode.` + name + ` = __next`,
+		`if ($specialMode.` + name + ` !== &#39;off&#39;) { $power.` + name + ` = true; }`,
+		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: __next}})`,
+		`$specialModeRemainingSeconds.` + name + ` = ($specialMode.` + name + ` === &#39;turbo&#39;) ? 0 : $turboDurationSeconds.` + name,
+		`const __next = $specialMode.` + name + ` === &#39;turbo&#39; ? &#39;off&#39; : &#39;turbo&#39;`,
 		// Heater toggle: posts inverse of $heater signal.
 		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: !$heater.` + name + `}})`,
 	}
@@ -1154,6 +1165,10 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 		// Static {mode: 'off'} / {mode: 'night'} as the entire payload
 		// (with no ternary) would mean the click handler can't toggle.
 		`{mode: &#39;off&#39;}`,
+		// Old pre-clickAction shape — `var active = ...` toggle would
+		// re-evaluate against the just-mutated $specialMode in the POST
+		// payload. The migration replaces it with clickAction's __next.
+		`var active = $specialMode.` + name,
 	}
 	for _, s := range wantContains {
 		if !strings.Contains(got, s) {

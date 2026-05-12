@@ -499,11 +499,11 @@ func modeClickExpr(name, value string) string {
 }
 
 // timerBtn renders one of the two SPECIAL-mode chips (night / turbo).
-// aria-pressed AND the click handler's toggle decision both read the
-// live $specialMode.<name> signal: the aria binding so the chip
-// reflects the current state even with the controls-block HTML patch
-// filtered out, and the click so re-clicking the active chip posts
-// "off" without depending on the server-render snapshot being fresh.
+// Click handler seeds the local $specialModeRemainingSeconds countdown
+// then delegates to clickAction, which optimistically flips
+// $specialMode + (via the specialMode cascade) writes $power=true
+// when activating. aria-pressed reads the signal directly so toggle-off
+// works correctly even with controls-block patches filtered.
 func timerBtn(v ui.DeviceView, label, value string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -582,34 +582,34 @@ func timerBtn(v ui.DeviceView, label, value string) templ.Component {
 	})
 }
 
-// timerClickExpr posts "off" when the chip already matches the current
-// $specialMode.<name>, otherwise posts the chip's value. Also flips
-// $specialMode and seeds $specialModeRemainingSeconds locally so the
-// "X remaining" line appears instantly rather than waiting for the
-// next poll to report the new state — the per-mode duration (night vs
-// turbo) is read from the seeded $<mode>DurationSeconds signal so the
-// initial countdown reflects the device's configured value. Server
-// poll overwrites both signals once it catches up.
+// timerClickExpr is the data-on:click body for night/turbo chips.
+// Computes the toggle: if the chip is already active, the new
+// $specialMode is 'off' (which deactivates); otherwise it's the chip's
+// own value. Before clickAction runs, seeds $specialModeRemainingSeconds
+// to the per-mode duration signal so the countdown line appears
+// instantly — this is NOT a cascade (cascades fire on the primary
+// signal generically; the duration seed depends on which mode is being
+// activated). When deactivating (new value 'off'), zero the countdown
+// in the same seed expression.
 //
-// When the duration signal is 0 (device hasn't been polled yet, or its
-// firmware doesn't expose 0x0302 / 0x0303), the seed is 0 and the
-// countdown readout falls back to a "<mode> timer active" placeholder
-// — see timerRemaining's data-text expression — until the next poll
-// fills in real values.
+// POST payload references __next (defined by clickAction from the
+// toggle ternary in jsValue) so the wire value matches what was
+// written locally — without this the payload's re-evaluation of the
+// ternary would read the just-mutated $specialMode and send the
+// inverse of what the user intended.
 func timerClickExpr(name, value string) string {
-	post := postActionExpr(
-		fmt.Sprintf("/ui/devices/%s/timer", name),
-		fmt.Sprintf("{mode: active ? 'off' : '%s'}", value),
-	)
+	newSpecial := fmt.Sprintf("$specialMode.%s === '%s' ? 'off' : '%s'", name, value, value)
+	seedRemaining := fmt.Sprintf(
+		"$specialModeRemainingSeconds.%s = ($specialMode.%s === '%s') ? 0 : $%sDurationSeconds.%s;",
+		name, name, value, value, name)
 	return fmt.Sprintf(
-		"var active = $specialMode.%s === '%s'; "+
-			"if (active) { $specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0; } "+
-			"else { $specialMode.%s = '%s'; $specialModeRemainingSeconds.%s = $%sDurationSeconds.%s; $power.%s = true; } "+
-			"%s;",
-		name, value,
-		name, name,
-		name, value, name, value, name, name,
-		post,
+		"%s %s",
+		seedRemaining,
+		clickAction(name,
+			"specialMode",
+			newSpecial,
+			fmt.Sprintf("/ui/devices/%s/timer", name),
+			"{mode: __next}"),
 	)
 }
 
