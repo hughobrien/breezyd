@@ -199,7 +199,7 @@ test.describe("SSE push", () => {
 // on slider drag; the datastar lowercase-bind regression that drove
 // #116). These are not unit-testable.
 test.describe("controls", () => {
-  test("preset chip: click opens editor, second click closes it", async ({ page }) => {
+  test("preset chip: click opens editor only when already active", async ({ page }) => {
     await reset(DEVICE);
     // The seed has timer=turbo (0x0007=02). Speed-chip aria-pressed is
     // gated on $specialMode === 'off' so that an active timer
@@ -211,8 +211,17 @@ test.describe("controls", () => {
     const card = await loadCard(page);
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeHidden();
+    // Click preset 2 while preset 1 is active: selects preset 2 but does
+    // NOT expand the editor.
     await card.getByRole("button", { name: "48/49" }).click();
+    await expect(
+      card.getByRole("button", { name: "48/49", pressed: true }),
+    ).toBeVisible({ timeout: 2_000 });
+    await expect(editor2).toBeHidden();
+    // Click preset 2 again while it's now active: editor opens.
+    await card.getByRole("button", { name: "48/49", pressed: true }).click();
     await expect(editor2).toBeVisible({ timeout: 2_000 });
+    // Click once more: editor closes.
     await card.getByRole("button", { name: "48/49", pressed: true }).click();
     await expect(editor2).toBeHidden({ timeout: 2_000 });
   });
@@ -225,11 +234,19 @@ test.describe("controls", () => {
   // round-trip is pinned by the dedicated #116 test below.
   test("preset slider drag debounces — one POST per drag", async ({ page }) => {
     await reset(DEVICE);
-    await presets.asPresetSpeed(DEVICE, 1);
+    // Editor opens only when the clicked chip is already the active
+    // preset, so put preset 2 in the active slot. asPresetSpeed sets the
+    // backend value; wait for the daemon poll to patch $speedMode to
+    // 'preset2' (visible as aria-pressed=true on the chip) before the
+    // open click — the click expression reads the live signal.
+    await presets.withTimer(DEVICE, "off");
+    await presets.asPresetSpeed(DEVICE, 2);
     const card = await loadCard(page);
+    const chip = card.getByRole("button", { name: "48/49" });
+    await expect(chip).toHaveAttribute("aria-pressed", "true", { timeout: POLL_PUSH_TIMEOUT });
 
     // Open the preset-2 editor.
-    await card.getByRole("button", { name: "48/49" }).click();
+    await chip.click();
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeVisible({ timeout: 2_000 });
     const supplySlider = editor2.locator('input[name="supply"]');
@@ -317,9 +334,8 @@ test.describe("controls", () => {
     const manualPane = card.locator(".manual-pane");
     await expect(manualPane).toBeVisible({ timeout: POLL_PUSH_TIMEOUT });
 
-    // Click any preset chip — it opens the editor (data-edit="true")
-    // which filters the controls-block patch. The data-show should
-    // hide the pane based on the speedMode signal flipping to preset.
+    // Click any preset chip. The data-show should hide the pane based
+    // on the speedMode signal flipping from 'manual' to 'preset2'.
     await card.getByRole("button", { name: "48/49" }).click();
     await expect(manualPane).toBeHidden({ timeout: POLL_PUSH_TIMEOUT });
   });
@@ -332,10 +348,16 @@ test.describe("controls", () => {
   // release behind the supply slider during the drag.
   test("match-speeds mirrors live during slider input (not just on change)", async ({ page }) => {
     await reset(DEVICE);
-    await presets.asPresetSpeed(DEVICE, 1);
+    // Editor opens only when the clicked chip is already the active
+    // preset, so put preset 2 in the active slot and wait for the chip's
+    // aria-pressed signal patch before the open click.
+    await presets.withTimer(DEVICE, "off");
+    await presets.asPresetSpeed(DEVICE, 2);
     const card = await loadCard(page);
+    const chip = card.getByRole("button", { name: "48/49" });
+    await expect(chip).toHaveAttribute("aria-pressed", "true", { timeout: POLL_PUSH_TIMEOUT });
 
-    await card.getByRole("button", { name: "48/49" }).click();
+    await chip.click();
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeVisible({ timeout: 2_000 });
     const supplySlider = editor2.locator('input[name="supply"]');
@@ -392,10 +414,16 @@ test.describe("controls", () => {
   // preamble guards JS-set out-of-range values.
   test("preset slider clamps above-max values to 100", async ({ page }) => {
     await reset(DEVICE);
-    await presets.asPresetSpeed(DEVICE, 1);
+    // Editor opens only when the clicked chip is already the active
+    // preset, so put preset 2 in the active slot and wait for the chip's
+    // aria-pressed signal patch before the open click.
+    await presets.withTimer(DEVICE, "off");
+    await presets.asPresetSpeed(DEVICE, 2);
     const card = await loadCard(page);
+    const chip = card.getByRole("button", { name: "48/49" });
+    await expect(chip).toHaveAttribute("aria-pressed", "true", { timeout: POLL_PUSH_TIMEOUT });
 
-    await card.getByRole("button", { name: "48/49" }).click();
+    await chip.click();
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeVisible({ timeout: 2_000 });
     const supplySlider = editor2.locator('input[type="range"][name="supply"]');
@@ -724,13 +752,19 @@ test.describe("editor preservation across polls (#65)", () => {
 
   test("preset editor slider value survives multiple polls", async ({ page }) => {
     await reset(DEVICE);
-    await presets.asPresetSpeed(DEVICE, 1);
+    // Editor opens only when the clicked chip is already the active
+    // preset, so put preset 2 in the active slot and wait for the chip's
+    // aria-pressed signal patch before the open click.
+    await presets.withTimer(DEVICE, "off");
+    await presets.asPresetSpeed(DEVICE, 2);
     const card = await loadCard(page);
 
     // Open the preset-2 editor by clicking its chip. Preset-2 chip text is
     // "48/49" (snapshot_148.json: 0x003C=0x30=48, 0x003D=0x31=49).
     // Use the same role-by-name selector as the existing preset-chip test.
-    await card.getByRole("button", { name: "48/49" }).click();
+    const chip = card.getByRole("button", { name: "48/49" });
+    await expect(chip).toHaveAttribute("aria-pressed", "true", { timeout: POLL_PUSH_TIMEOUT });
+    await chip.click();
 
     const editor2 = card.locator('[data-preset-editor="2"]');
     await expect(editor2).toBeVisible({ timeout: 2_000 });
