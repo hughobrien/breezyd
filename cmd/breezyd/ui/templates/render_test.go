@@ -1385,3 +1385,15 @@ func TestClickAction_UnknownSignalPanics(t *testing.T) {
 	}()
 	_ = clickAction("alpha", "notARealSignal", "true", "/x", "")
 }
+
+// TestPowerButtonExpr pins the structure after the clickAction
+// migration: __next const, primary $power toggle, power cascade (reads
+// $power, clears timer on transition to off), POST with __next.
+func TestPowerButtonExpr(t *testing.T) {
+	v := ui.DeviceView{Name: "alpha"}
+	got := powerButtonExpr(v)
+	want := "const __next = !$power.alpha; $power.alpha = __next; if (!$power.alpha) { $specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0; } @post('/ui/devices/alpha/power', {payload: {on: __next}})"
+	if got != want {
+		t.Errorf("powerButtonExpr:\n  got: %s\n want: %s", got, want)
+	}
+}
