@@ -75,6 +75,7 @@ func TestLayout(t *testing.T) {
 		`<dl class="sse-debug"`,
 		`$debug.lastEventAt`,
 		`$debug.events`,
+		`function effPower`, // bridges timer-active state where $power stays 0
 	}
 	wantAbsent := []string{
 		`htmx`,
@@ -861,32 +862,46 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	}
 }
 
-// TestPresetChipExpr pins the active-only-expand behaviour of the
-// preset chip click handler: the editor toggles only when the clicked
-// chip is the currently-active preset ($specialMode === 'off' and
-// $speedMode === 'preset<n>'); clicking a non-active chip selects the
-// preset and closes any open editor without expanding the new one.
+// TestPresetClickExpr pins the active-only-expand behavior of the preset
+// chip click handler, now built on top of clickAction. The editor toggles
+// only when the clicked chip is the currently-active preset; clicking a
+// non-active chip selects it (clickAction writes $speedMode optimistically
+// + the speedMode cascade clears $specialMode) without expanding. The
+// wasActive snapshot is captured BEFORE clickAction's primary write, so
+// the editor-toggle check uses pre-click signal state.
 //
-// Strict equality (===) matters because the JS engine handles
-// stringified-vs-numeric edge cases — `==` would coerce and match
-// unexpectedly when the seed type drifted (see G-web-8 and the preset
-// numeric-typing test).
-//
-// The signal is scoped per device so opening preset n on one card does
-// not open the same preset's editor on every sibling card.
-func TestPresetChipExpr(t *testing.T) {
-	got := presetChipExpr("alpha", 2)
-	want := "if ($specialMode.alpha === 'off' && $speedMode.alpha === 'preset2') { $editor.alpha = $editor.alpha === 2 ? 0 : 2; } else { $editor.alpha = 0; } @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
+// Strict equality (===) matters in the wasActive check because the JS
+// engine handles stringified-vs-numeric edge cases — `==` would coerce
+// and match unexpectedly when the seed type drifted (see G-web-8).
+func TestPresetClickExpr(t *testing.T) {
+	got := presetClickExpr("alpha", 2)
+	want := "const wasActive = ($specialMode.alpha === 'off' && $speedMode.alpha === 'preset2'); $editor.alpha = wasActive ? ($editor.alpha === 2 ? 0 : 2) : 0; const __next = 'preset2'; $speedMode.alpha = __next; $specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0; @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
 	if got != want {
-		t.Errorf("presetChipExpr(alpha, 2):\n  got: %s\n want: %s", got, want)
+		t.Errorf("presetClickExpr(alpha, 2):\n  got: %s\n want: %s", got, want)
 	}
 	// Negative: must use strict equality, not loose.
 	if strings.Contains(got, "$editor.alpha == 2") {
-		t.Errorf("presetChipExpr must use strict equality (===), got: %s", got)
+		t.Errorf("presetClickExpr must use strict equality (===), got: %s", got)
 	}
 	// Negative: must scope $editor per-device, not unscoped.
 	if strings.Contains(got, "$editor =") || strings.Contains(got, "$editor ===") {
-		t.Errorf("presetChipExpr must scope $editor per-device; got: %s", got)
+		t.Errorf("presetClickExpr must scope $editor per-device; got: %s", got)
+	}
+}
+
+// TestTimerClickExpr pins the structure of the timer-chip click
+// handler after the clickAction migration: countdown seed, then
+// clickAction (__next = toggle ternary, primary $specialMode write,
+// power-on cascade reading $specialMode, POST with __next). The
+// cascade reads the just-mutated $specialMode signal — so the
+// power-on guard fires only when the click is activating, not
+// toggling off. POST uses __next so wire value matches the locally-
+// written value (the toggle ternary evaluates once).
+func TestTimerClickExpr(t *testing.T) {
+	got := timerClickExpr("alpha", "night")
+	want := "$specialModeRemainingSeconds.alpha = ($specialMode.alpha === 'night') ? 0 : $nightDurationSeconds.alpha; const __next = $specialMode.alpha === 'night' ? 'off' : 'night'; $specialMode.alpha = __next; if ($specialMode.alpha !== 'off') { $power.alpha = true; } @post('/ui/devices/alpha/timer', {payload: {mode: __next}})"
+	if got != want {
+		t.Errorf("timerClickExpr(alpha, night):\n  got: %s\n want: %s", got, want)
 	}
 }
 
@@ -1129,24 +1144,23 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 	got := sb.String()
 	name := v.Name
 	wantContains := []string{
-		// Timer toggle: reads the active state from $specialMode, posts
-		// "off" if already in this mode. Also seeds $specialModeRemainingSeconds
-		// from the relevant per-mode duration signal so the countdown
+		// Timer toggle: clickAction emits __next from the toggle ternary on
+		// $specialMode and the specialMode cascade powers-on when activating.
+		// Countdown seed branches on $specialMode === '<mode>' so the
 		// readout appears optimistically before the next poll.
-		`var active = $specialMode.` + name + ` === &#39;night&#39;`,
-		`$specialModeRemainingSeconds.` + name + ` = $nightDurationSeconds.` + name,
-		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;night&#39;}})`,
-		`var active = $specialMode.` + name + ` === &#39;turbo&#39;`,
-		`$specialModeRemainingSeconds.` + name + ` = $turboDurationSeconds.` + name,
-		// Activating a timer also optimistically flips $power=true so the
-		// power button reflects the on-state instantly (the firmware runs
-		// the fans on timer regardless of 0x0001, and postUITimer
-		// explicitly writes Power(true) too — pinning the optimistic side
-		// keeps the click latency under one frame).
-		`$power.` + name + ` = true`,
-		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: active ? &#39;off&#39; : &#39;turbo&#39;}})`,
-		// Heater toggle: posts inverse of $heater signal.
-		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: !$heater.` + name + `}})`,
+		`$specialModeRemainingSeconds.` + name + ` = ($specialMode.` + name + ` === &#39;night&#39;) ? 0 : $nightDurationSeconds.` + name,
+		`const __next = $specialMode.` + name + ` === &#39;night&#39; ? &#39;off&#39; : &#39;night&#39;`,
+		`$specialMode.` + name + ` = __next`,
+		`if ($specialMode.` + name + ` !== &#39;off&#39;) { $power.` + name + ` = true; }`,
+		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: __next}})`,
+		`$specialModeRemainingSeconds.` + name + ` = ($specialMode.` + name + ` === &#39;turbo&#39;) ? 0 : $turboDurationSeconds.` + name,
+		`const __next = $specialMode.` + name + ` === &#39;turbo&#39; ? &#39;off&#39; : &#39;turbo&#39;`,
+		// Heater toggle: clickAction emits __next from the toggle on
+		// $heater (no cascade — heater is independent). The POST payload
+		// reads __next so the wire value matches the just-written local.
+		`const __next = !$heater.` + name,
+		`$heater.` + name + ` = __next`,
+		`@post(&#39;/ui/devices/` + name + `/heater&#39;, {payload: {on: __next}})`,
 	}
 	wantAbsent := []string{
 		// Static {on: true} / {on: false} for heater would be stale once
@@ -1156,6 +1170,10 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 		// Static {mode: 'off'} / {mode: 'night'} as the entire payload
 		// (with no ternary) would mean the click handler can't toggle.
 		`{mode: &#39;off&#39;}`,
+		// Old pre-clickAction shape — `var active = ...` toggle would
+		// re-evaluate against the just-mutated $specialMode in the POST
+		// payload. The migration replaces it with clickAction's __next.
+		`var active = $specialMode.` + name,
 	}
 	for _, s := range wantContains {
 		if !strings.Contains(got, s) {
@@ -1240,5 +1258,143 @@ func TestCardSignalsFor_JSON(t *testing.T) {
 	}
 	if got := getBool("sensorsAlert"); got != true {
 		t.Errorf("sensorsAlert.%s: got %v, want true", v.Name, got)
+	}
+}
+
+// TestCascades_SpeedModeClearsTimer locks the firmware invariant probed
+// on 2026-05-11: writing any speed_mode value clears the timer (param
+// 0x0007). The cascade mirrors that on the client so sibling bindings
+// (the night/turbo chips) de-light optimistically.
+func TestCascades_SpeedModeClearsTimer(t *testing.T) {
+	got := cascades["speedMode"]("alpha")
+	want := "$specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0;"
+	if got != want {
+		t.Errorf("speedMode cascade:\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestCascades_SpecialModeActivatePowersOn locks the handler invariant:
+// activating a timer also writes power=on. The cascade reads the
+// just-mutated $specialMode signal directly — at runtime, the primary
+// write has set $specialMode to the new value, and this guard fires
+// only when that value is non-'off'.
+func TestCascades_SpecialModeActivatePowersOn(t *testing.T) {
+	got := cascades["specialMode"]("alpha")
+	want := "if ($specialMode.alpha !== 'off') { $power.alpha = true; }"
+	if got != want {
+		t.Errorf("specialMode cascade:\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestCascades_PowerOffClearsTimer locks the handler invariant: writing
+// power=off also clears the timer. The cascade reads the just-mutated
+// $power signal directly.
+func TestCascades_PowerOffClearsTimer(t *testing.T) {
+	got := cascades["power"]("alpha")
+	want := "if (!$power.alpha) { $specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0; }"
+	if got != want {
+		t.Errorf("power cascade:\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestCascades_AirflowModeNil pins the explicit "no cascade" decision —
+// removing this entry would make the AllWritableSignalsCovered test
+// fail, but we want a separate assertion documenting that this nil-ness
+// is deliberate (firmware probe confirmed timer survives mode writes).
+func TestCascades_AirflowModeNil(t *testing.T) {
+	if cascades["airflowMode"] != nil {
+		t.Errorf("airflowMode cascade should be nil (firmware leaves timer alone); got non-nil")
+	}
+}
+
+// TestCascades_HeaterNil similarly pins the heater "no cascade" decision.
+func TestCascades_HeaterNil(t *testing.T) {
+	if cascades["heater"] != nil {
+		t.Errorf("heater cascade should be nil (no cross-signal effects); got non-nil")
+	}
+}
+
+// TestCascadeTable_AllWritableSignalsCovered is the keystone: every
+// signal that a click handler writes optimistically MUST appear in the
+// cascades map (with nil if there's deliberately no cascade). If you
+// add a new writable signal to a click handler, add it here and to the
+// map in the same PR.
+func TestCascadeTable_AllWritableSignalsCovered(t *testing.T) {
+	writable := []string{"speedMode", "specialMode", "power", "heater", "airflowMode"}
+	for _, sig := range writable {
+		if _, ok := cascades[sig]; !ok {
+			t.Errorf("signal %q is written by a click handler but not in cascades — register it (use nil for no cascade)", sig)
+		}
+	}
+}
+
+// TestClickAction_NoCascade pins the structure of a click-action
+// expression for a signal whose cascade is nil (heater). Expected
+// shape: __next const, primary write, POST. No cascade segment.
+// Callers reference __next in payload to send the new value to the
+// server without re-reading the just-mutated signal.
+func TestClickAction_NoCascade(t *testing.T) {
+	got := clickAction("alpha", "heater", "!$heater.alpha",
+		"/ui/devices/alpha/heater", "{on: __next}")
+	want := "const __next = !$heater.alpha; $heater.alpha = __next; @post('/ui/devices/alpha/heater', {payload: {on: __next}})"
+	if got != want {
+		t.Errorf("clickAction (no cascade):\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestClickAction_WithCascade pins the structure for a signal with a
+// cascade (specialMode → power-on guard). Expected shape: __next const,
+// primary write, cascade (reads the just-mutated signal), POST — joined
+// by single spaces.
+func TestClickAction_WithCascade(t *testing.T) {
+	got := clickAction("alpha", "specialMode", "'night'",
+		"/ui/devices/alpha/timer", "{mode: __next}")
+	want := "const __next = 'night'; $specialMode.alpha = __next; if ($specialMode.alpha !== 'off') { $power.alpha = true; } @post('/ui/devices/alpha/timer', {payload: {mode: __next}})"
+	if got != want {
+		t.Errorf("clickAction (with cascade):\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestClickAction_NoPayload pins the empty-payload form: postActionExpr
+// emits @post('url') without a {payload: ...} when payload is "". This
+// path is used by reset-faults / reset-filter style buttons that send
+// no body (covered by other helpers, not clickAction in this plan, but
+// the no-payload code path stays exercised for completeness).
+func TestClickAction_NoPayload(t *testing.T) {
+	got := clickAction("alpha", "heater", "!$heater.alpha",
+		"/ui/devices/alpha/heater", "")
+	want := "const __next = !$heater.alpha; $heater.alpha = __next; @post('/ui/devices/alpha/heater')"
+	if got != want {
+		t.Errorf("clickAction (no payload):\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestClickAction_UnknownSignalPanics is the canary: adding a click
+// handler that writes an unregistered signal must crash the build
+// (template render) immediately, not silently emit a half-formed
+// expression.
+func TestClickAction_UnknownSignalPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("clickAction should panic for unknown signal, but didn't")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "unknown signal") {
+			t.Errorf("panic message should mention 'unknown signal', got: %v", r)
+		}
+	}()
+	_ = clickAction("alpha", "notARealSignal", "true", "/x", "")
+}
+
+// TestPowerButtonExpr pins the structure after the clickAction
+// migration: __next const, primary $power toggle, power cascade (reads
+// $power, clears timer on transition to off), POST with __next.
+func TestPowerButtonExpr(t *testing.T) {
+	v := ui.DeviceView{Name: "alpha"}
+	got := powerButtonExpr(v)
+	want := "const __next = !$power.alpha; $power.alpha = __next; if (!$power.alpha) { $specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0; } @post('/ui/devices/alpha/power', {payload: {on: __next}})"
+	if got != want {
+		t.Errorf("powerButtonExpr:\n  got: %s\n want: %s", got, want)
 	}
 }

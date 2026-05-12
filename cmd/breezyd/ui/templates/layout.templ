@@ -68,6 +68,16 @@ window.fmtRemaining = function(secs) {
   var m = Math.floor((secs % 3600) / 60);
   return (h > 0 ? h + 'h ' + m + 'm' : m + 'm') + ' remaining';
 };
+// effPower bridges externally-induced state where the firmware
+// runs the fans during timer mode without setting power=1. The
+// /timer HTTP handler in breezyd writes power=on to keep the
+// flag coherent for user-driven clicks, but an external actor
+// (panel button, IR remote) can start a timer with power=0. The
+// poller honestly reflects that; effPower makes the dashboard
+// show "on" anyway.
+function effPower(power, special) {
+    return special !== 'off' || power;
+}
 (function() {
   var picker = document.querySelector('.theme-picker');
   if (!picker) return;

@@ -374,9 +374,9 @@ func InfoDetails(v ui.DeviceView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var19 string
-		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("$power.%s ? 'true' : 'false'", v.Name))
+		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("effPower($power.%s, $specialMode.%s) ? 'true' : 'false'", v.Name, v.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/device_card.templ`, Line: 79, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `cmd/breezyd/ui/templates/device_card.templ`, Line: 79, Col: 114}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 		if templ_7745c5c3_Err != nil {
@@ -631,27 +631,21 @@ func detailsOpenToggle(deviceName, section string) string {
 }
 
 // powerButtonExpr produces the data-on:click expression for the power
-// toggle. POSTs the inverse of the current $power.<name> signal. Reads
-// the live signal rather than v.Power at template-render time so a
-// rapid double-click can't fire two same-direction toggles before the
-// info block patch refreshes.
+// toggle. Uses clickAction so the primary $power write fires optimistically
+// AND the power cascade clears $specialMode + $specialModeRemainingSeconds
+// when transitioning to off (the daemon's /power handler does the same
+// timer-clear server-side; the cascade mirrors it on the client).
 //
-// When the click is an on→off transition, also clear $specialMode and
-// $specialModeRemainingSeconds locally so the night/turbo chips
-// de-highlight and the countdown line vanishes instantly. Verified
-// against firmware 0.11 on 192.168.1.148: writing 0x0001=0 while a
-// timer is running resets 0x0007 (timer) and 0x000B (timer countdown)
-// to 0 device-side, so the optimistic clear matches what the next
-// poll will report anyway.
+// Reads the live $power signal (not v.Power at render time) so a rapid
+// double-click can't fire two same-direction toggles before the SSE
+// patch lands. Payload uses __next so the wire value matches the
+// just-written local value.
 func powerButtonExpr(v ui.DeviceView) string {
-	post := postActionExpr(
+	return clickAction(v.Name,
+		"power",
+		fmt.Sprintf("!$power.%s", v.Name),
 		fmt.Sprintf("/ui/devices/%s/power", v.Name),
-		fmt.Sprintf("{on: !$power.%s}", v.Name),
-	)
-	return fmt.Sprintf(
-		"if ($power.%s) { $specialMode.%s = 'off'; $specialModeRemainingSeconds.%s = 0; } %s",
-		v.Name, v.Name, v.Name, post,
-	)
+		"{on: __next}")
 }
 
 // initialCardSignals returns the per-card datastar signals seed as JSON.
