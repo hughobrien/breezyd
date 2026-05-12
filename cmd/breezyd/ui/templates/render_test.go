@@ -1242,3 +1242,129 @@ func TestCardSignalsFor_JSON(t *testing.T) {
 		t.Errorf("sensorsAlert.%s: got %v, want true", v.Name, got)
 	}
 }
+
+// TestCascades_SpeedModeClearsTimer locks the firmware invariant probed
+// on 2026-05-11: writing any speed_mode value clears the timer (param
+// 0x0007). The cascade mirrors that on the client so sibling bindings
+// (the night/turbo chips) de-light optimistically.
+func TestCascades_SpeedModeClearsTimer(t *testing.T) {
+	got := cascades["speedMode"]("alpha")
+	want := "$specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0;"
+	if got != want {
+		t.Errorf("speedMode cascade:\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestCascades_SpecialModeActivatePowersOn locks the handler invariant:
+// activating a timer also writes power=on. The cascade reads the
+// just-mutated $specialMode signal directly — at runtime, the primary
+// write has set $specialMode to the new value, and this guard fires
+// only when that value is non-'off'.
+func TestCascades_SpecialModeActivatePowersOn(t *testing.T) {
+	got := cascades["specialMode"]("alpha")
+	want := "if ($specialMode.alpha !== 'off') { $power.alpha = true; }"
+	if got != want {
+		t.Errorf("specialMode cascade:\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestCascades_PowerOffClearsTimer locks the handler invariant: writing
+// power=off also clears the timer. The cascade reads the just-mutated
+// $power signal directly.
+func TestCascades_PowerOffClearsTimer(t *testing.T) {
+	got := cascades["power"]("alpha")
+	want := "if (!$power.alpha) { $specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0; }"
+	if got != want {
+		t.Errorf("power cascade:\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestCascades_AirflowModeNil pins the explicit "no cascade" decision —
+// removing this entry would make the AllWritableSignalsCovered test
+// fail, but we want a separate assertion documenting that this nil-ness
+// is deliberate (firmware probe confirmed timer survives mode writes).
+func TestCascades_AirflowModeNil(t *testing.T) {
+	if cascades["airflowMode"] != nil {
+		t.Errorf("airflowMode cascade should be nil (firmware leaves timer alone); got non-nil")
+	}
+}
+
+// TestCascades_HeaterNil similarly pins the heater "no cascade" decision.
+func TestCascades_HeaterNil(t *testing.T) {
+	if cascades["heater"] != nil {
+		t.Errorf("heater cascade should be nil (no cross-signal effects); got non-nil")
+	}
+}
+
+// TestCascadeTable_AllWritableSignalsCovered is the keystone: every
+// signal that a click handler writes optimistically MUST appear in the
+// cascades map (with nil if there's deliberately no cascade). If you
+// add a new writable signal to a click handler, add it here and to the
+// map in the same PR.
+func TestCascadeTable_AllWritableSignalsCovered(t *testing.T) {
+	writable := []string{"speedMode", "specialMode", "power", "heater", "airflowMode"}
+	for _, sig := range writable {
+		if _, ok := cascades[sig]; !ok {
+			t.Errorf("signal %q is written by a click handler but not in cascades — register it (use nil for no cascade)", sig)
+		}
+	}
+}
+
+// TestClickAction_NoCascade pins the structure of a click-action
+// expression for a signal whose cascade is nil (heater). Expected
+// shape: __next const, primary write, POST. No cascade segment.
+// Callers reference __next in payload to send the new value to the
+// server without re-reading the just-mutated signal.
+func TestClickAction_NoCascade(t *testing.T) {
+	got := clickAction("alpha", "heater", "!$heater.alpha",
+		"/ui/devices/alpha/heater", "{on: __next}")
+	want := "const __next = !$heater.alpha; $heater.alpha = __next; @post('/ui/devices/alpha/heater', {payload: {on: __next}})"
+	if got != want {
+		t.Errorf("clickAction (no cascade):\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestClickAction_WithCascade pins the structure for a signal with a
+// cascade (specialMode → power-on guard). Expected shape: __next const,
+// primary write, cascade (reads the just-mutated signal), POST — joined
+// by single spaces.
+func TestClickAction_WithCascade(t *testing.T) {
+	got := clickAction("alpha", "specialMode", "'night'",
+		"/ui/devices/alpha/timer", "{mode: __next}")
+	want := "const __next = 'night'; $specialMode.alpha = __next; if ($specialMode.alpha !== 'off') { $power.alpha = true; } @post('/ui/devices/alpha/timer', {payload: {mode: __next}})"
+	if got != want {
+		t.Errorf("clickAction (with cascade):\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestClickAction_NoPayload pins the empty-payload form: postActionExpr
+// emits @post('url') without a {payload: ...} when payload is "". This
+// path is used by reset-faults / reset-filter style buttons that send
+// no body (covered by other helpers, not clickAction in this plan, but
+// the no-payload code path stays exercised for completeness).
+func TestClickAction_NoPayload(t *testing.T) {
+	got := clickAction("alpha", "heater", "!$heater.alpha",
+		"/ui/devices/alpha/heater", "")
+	want := "const __next = !$heater.alpha; $heater.alpha = __next; @post('/ui/devices/alpha/heater')"
+	if got != want {
+		t.Errorf("clickAction (no payload):\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestClickAction_UnknownSignalPanics is the canary: adding a click
+// handler that writes an unregistered signal must crash the build
+// (template render) immediately, not silently emit a half-formed
+// expression.
+func TestClickAction_UnknownSignalPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("clickAction should panic for unknown signal, but didn't")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "unknown signal") {
+			t.Errorf("panic message should mention 'unknown signal', got: %v", r)
+		}
+	}()
+	_ = clickAction("alpha", "notARealSignal", "true", "/x", "")
+}
