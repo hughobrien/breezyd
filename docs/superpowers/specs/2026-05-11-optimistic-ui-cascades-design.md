@@ -169,6 +169,26 @@ clickAction(v.Name, "heater", fmt.Sprintf("!$heater.%s", v.Name),
 
 The `$specialModeRemainingSeconds.X = $<night|turbo>DurationSeconds.X` seeding from today's `timerClickExpr` stays in the timer click handler — it's not a cascade (specialMode change implies it), it's an explicit additional optimistic seed for the countdown display. Keep it inline alongside `clickAction()`.
 
+### Layer B server-side mirrors
+
+Client-side cascades flip implied signals on the browser optimistically. The daemon's cache also has to reflect those changes immediately — otherwise the next SSE push (from the post-write `notifyAfterWrite` or a poll cycle) carries stale state and overwrites the optimistic update.
+
+Two of the three client cascades already have server-side mirrors (predating this design):
+
+| Client cascade | Server-side mirror | Location |
+| --- | --- | --- |
+| `specialMode != off` → `power = true` | `/timer` handler calls `powerOnIfOff` before `SetTimer` | `cmd/breezyd/handlers_ui_write.go::postUITimer` |
+| `power = false` → `specialMode = off` | `/power` handler calls `SetTimer(off)` after `Power(off)` | `cmd/breezyd/handlers_ui_write.go::postUIPower` |
+
+The third — `speedMode` write → `specialMode = off` — has no server-side mirror today. Adding one is required:
+
+- Against real firmware, `SetSpeedPreset` / `SetSpeedManual` writes already cause the device to clear `0x0007` (timer) on its own. But the daemon's cache only reflects what we explicitly wrote — so the cache holds the pre-write timer value until the next poll catches up (up to 1s).
+- Against the `MemClient` backend (used by Playwright tests), there is no firmware. The cache holds the stale timer value forever, until something else writes `0x0007`.
+
+The fix is at the ops layer. Extend `SetSpeedPreset` and `SetSpeedManual` to write `{0x0007, 0}` alongside the speed-mode param. The extra param fits in the same UDP packet (multi-param atomicity is already established for `SetSpeedManual` writing `0x0044` + `0x0002`). The write is a no-op against firmware that already cleared `0x0007` autonomously, and a correctness fix against MemClient and any cache-coherent observers (homekit, `/v1` JSON, the dashboard SSE push).
+
+This places the firmware-mirror in pkg/breezy/ops because the rule is universal — every place that writes `0x0002` should pair it with `0x0007=0`. The four call sites (UI handler, /v1 handler, scheduler, homekit) all go through the ops, so one edit covers them.
+
 ### Bindings to update
 
 Only one binding switches from a raw signal to a Layer-A derivation:

@@ -48,8 +48,11 @@ func TestOps_SetSpeedPreset(t *testing.T) {
 	for _, preset := range []int{1, 2, 3} {
 		c := &recordingClient{}
 		is.NoErr(SetSpeedPreset(context.Background(), c, preset))
-		got := c.writes[0][0].Value[0]
-		is.Equal(int(got), preset)
+		is.Equal(len(c.writes), 1)    // one packet
+		is.Equal(len(c.writes[0]), 2) // two writes: 0x0002 + 0x0007
+		pkt := c.writes[0]
+		is.Equal(pkt[0].ID, ParamID(0x0002))
+		is.Equal(int(pkt[0].Value[0]), preset)
 	}
 	for _, bad := range []int{0, 4, -1, 255} {
 		c := &recordingClient{}
@@ -57,6 +60,26 @@ func TestOps_SetSpeedPreset(t *testing.T) {
 		is.True(errors.Is(err, ErrInvalidArg)) // bad preset must yield ErrInvalidArg
 		is.Equal(len(c.writes), 0)             // bad preset should not have issued writes
 	}
+}
+
+// TestSetSpeedPreset_ClearsTimer verifies the server-side mirror of the
+// firmware's "any 0x0002 write also clears 0x0007" rule — SetSpeedPreset
+// must write {0x0007, 0} alongside the preset selection so the daemon's
+// cache and MemClient stay coherent without waiting for the next poll.
+func TestSetSpeedPreset_ClearsTimer(t *testing.T) {
+	is := is.New(t)
+	c := &recordingClient{}
+	is.NoErr(SetSpeedPreset(context.Background(), c, 2))
+	is.Equal(len(c.writes), 1) // one atomic packet
+	pkt := c.writes[0]
+	sawTimerClear := false
+	for _, w := range pkt {
+		if w.ID == ParamID(0x0007) {
+			is.Equal(w.Value, []byte{0}) // timer-clear must be 0
+			sawTimerClear = true
+		}
+	}
+	is.True(sawTimerClear) // 0x0007=0 must be present alongside the 0x0002 write
 }
 
 func TestOps_SetPresetSpeed(t *testing.T) {
@@ -106,11 +129,33 @@ func TestOps_SetSpeedManual_PacketOrder(t *testing.T) {
 	is.NoErr(SetSpeedManual(context.Background(), c, 30))
 	is.Equal(len(c.writes), 1) // one packet
 	pkt := c.writes[0]
-	is.Equal(len(pkt), 2)                // two writes in packet
+	is.Equal(len(pkt), 3)                // three writes in packet: 0x0044, 0x0002, 0x0007
 	is.Equal(pkt[0].ID, ParamID(0x0044)) // first write must be 0x0044 (manual_pct)
 	is.Equal(pkt[0].Value[0], byte(30))
 	is.Equal(pkt[1].ID, ParamID(0x0002))  // second write must be 0x0002 (speed_mode)
 	is.Equal(pkt[1].Value[0], byte(0xFF)) // 0xFF is the manual flag
+	is.Equal(pkt[2].ID, ParamID(0x0007))  // third write must be 0x0007 (timer-clear)
+	is.Equal(pkt[2].Value[0], byte(0))
+}
+
+// TestSetSpeedManual_ClearsTimer verifies the server-side mirror of the
+// firmware's "any 0x0002 write also clears 0x0007" rule — SetSpeedManual
+// must write {0x0007, 0} alongside the speed-mode flip so the daemon's
+// cache and MemClient stay coherent without waiting for the next poll.
+func TestSetSpeedManual_ClearsTimer(t *testing.T) {
+	is := is.New(t)
+	c := &recordingClient{}
+	is.NoErr(SetSpeedManual(context.Background(), c, 45))
+	is.Equal(len(c.writes), 1) // one atomic packet
+	pkt := c.writes[0]
+	sawTimerClear := false
+	for _, w := range pkt {
+		if w.ID == ParamID(0x0007) {
+			is.Equal(w.Value, []byte{0}) // timer-clear must be 0
+			sawTimerClear = true
+		}
+	}
+	is.True(sawTimerClear) // 0x0007=0 must be present alongside the 0x0044+0x0002 writes
 }
 
 func TestOps_SetSpeedManual_RangeReject(t *testing.T) {
