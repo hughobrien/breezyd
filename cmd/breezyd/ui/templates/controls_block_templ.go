@@ -1272,12 +1272,17 @@ func attentionIfOff(name, expr string) string {
 	)
 }
 
-// presetChipExpr toggles the per-device $editor.<name> signal for chip
-// n and fires the speed-preset POST. Re-clicking the same chip closes
-// the editor.
+// presetChipExpr fires the speed-preset POST and manages the per-device
+// $editor.<name> signal. The editor only toggles when the clicked chip
+// is already the active preset (matching aria-pressed: special mode off
+// AND $speedMode === 'preset<n>'); clicking a non-active chip selects
+// the preset and closes any open editor without expanding the new one.
 func presetChipExpr(name string, n int) string {
 	post := postActionExpr(fmt.Sprintf("/ui/devices/%s/speed", name), fmt.Sprintf("{preset: %d}", n))
-	return fmt.Sprintf("$editor.%s = $editor.%s === %d ? 0 : %d; %s", name, name, n, n, post)
+	return fmt.Sprintf(
+		"if ($specialMode.%s === 'off' && $speedMode.%s === 'preset%d') { $editor.%s = $editor.%s === %d ? 0 : %d; } else { $editor.%s = 0; } %s",
+		name, name, n, name, name, n, n, name, post,
+	)
 }
 
 // closeEditorThen prefixes a JS expression with $editor.<name> = 0 so

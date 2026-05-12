@@ -861,9 +861,13 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 	}
 }
 
-// TestPresetChipExpr pins the strict-equality toggle on the per-device
-// $editor.<name> signal: clicking chip n flips $editor.<name> between 0
-// and n. Strict equality (===) matters because the JS engine handles
+// TestPresetChipExpr pins the active-only-expand behaviour of the
+// preset chip click handler: the editor toggles only when the clicked
+// chip is the currently-active preset ($specialMode === 'off' and
+// $speedMode === 'preset<n>'); clicking a non-active chip selects the
+// preset and closes any open editor without expanding the new one.
+//
+// Strict equality (===) matters because the JS engine handles
 // stringified-vs-numeric edge cases — `==` would coerce and match
 // unexpectedly when the seed type drifted (see G-web-8 and the preset
 // numeric-typing test).
@@ -872,7 +876,7 @@ func TestRenderThresholdEdit_HasDataEdit(t *testing.T) {
 // not open the same preset's editor on every sibling card.
 func TestPresetChipExpr(t *testing.T) {
 	got := presetChipExpr("alpha", 2)
-	want := "$editor.alpha = $editor.alpha === 2 ? 0 : 2; @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
+	want := "if ($specialMode.alpha === 'off' && $speedMode.alpha === 'preset2') { $editor.alpha = $editor.alpha === 2 ? 0 : 2; } else { $editor.alpha = 0; } @post('/ui/devices/alpha/speed', {payload: {preset: 2}})"
 	if got != want {
 		t.Errorf("presetChipExpr(alpha, 2):\n  got: %s\n want: %s", got, want)
 	}
