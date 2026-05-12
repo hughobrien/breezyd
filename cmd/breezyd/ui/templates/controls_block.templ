@@ -233,16 +233,34 @@ func heaterClickExpr(name string) string {
 		"{on: __next}")
 }
 
-// manualSliderRow renders the manual fan-pct range input. Binds to a
-// per-card local signal $_manualPct.<name> (underscore prefix = client-only,
-// not sent in @post bodies) so the val display updates live during drag.
-// See #26 and #116.
+// manualSliderRow renders the manual fan-pct range input. Both inputs
+// (slider + number) share signal `$_manualPct.<name>` (underscore prefix
+// = client-only, not sent in @post bodies). See #26 and #116.
 //
-// The pct readout to the right of the slider is a number input rather
-// than a span: two-way data-bind to the same $_manualPct.<name> signal
-// keeps the slider thumb and the typed value in sync, so the user can
-// click & type a precise value when the slider's coarseness is the
-// wrong tool. data-on:change fires the same handler as the slider —
+// Pattern is intentionally NOT data-bind: instead, data-effect mirrors
+// signal → input.value (a direct property assignment that doesn't
+// dispatch any DOM event), data-on:input updates input → signal during
+// drag (live mirror across the two inputs), and data-on:change (NO
+// debounce) fires the @post on release.
+//
+// Why not data-bind: datastar's data-bind plugin fires the change
+// handler synchronously during its signal→input syncs (initial setup
+// AND every SSE-pushed signal update). These synthetic change events
+// have isTrusted=false and the same value the signal already held,
+// which on the manual slider produced phantom no-op {manual:50} POSTs
+// that pre-empted the Playwright suite's deliberate-drag test under
+// load (the dedup-by-_lastPosted approach didn't help because data-bind
+// re-syncs on every SSE push). Stack trace pointed at u.rx in
+// datastar-1.0.1.min.js:4:3121 (captured 2026-05-12).
+//
+// Why NO __debounce.200ms on change: the previous form had a 200ms
+// window between event dispatch and handler-fire. During that window,
+// an SSE push could call data-effect and reset el.value, so the
+// handler read the OLD (server) value instead of the dragged value
+// and POSTed the wrong number. Synchronous read closes the gap.
+// The original debounce was for coalescing rapid changes, but native
+// `change` only fires once per release — debouncing it never helped.
+//
 // manualChangeExpr clamps to [10, 100] before posting because HTML5
 // number inputs don't constrain free-typed values (the min/max attrs
 // only validate on form-submit, and there's no form here).
@@ -255,9 +273,10 @@ templ manualSliderRow(v ui.DeviceView) {
 			min="10"
 			max="100"
 			step="1"
-			data-bind={ fmt.Sprintf("_manualPct.%s", v.Name) }
 			value={ fmt.Sprintf("%d", v.ManualPct) }
-			data-on:change__debounce.200ms={ manualChangeExpr(v.Name) }
+			data-effect={ fmt.Sprintf("el.value = $_manualPct.%s;", v.Name) }
+			data-on:input={ fmt.Sprintf("$_manualPct.%s = parseInt(evt.target.value, 10);", v.Name) }
+			data-on:change={ manualChangeExpr(v.Name) }
 		/>
 		<span class="val">
 			<input
@@ -266,9 +285,10 @@ templ manualSliderRow(v ui.DeviceView) {
 				min="10"
 				max="100"
 				step="1"
-				data-bind={ fmt.Sprintf("_manualPct.%s", v.Name) }
 				value={ fmt.Sprintf("%d", v.ManualPct) }
-				data-on:change__debounce.200ms={ manualChangeExpr(v.Name) }
+				data-effect={ fmt.Sprintf("el.value = $_manualPct.%s;", v.Name) }
+				data-on:input={ fmt.Sprintf("$_manualPct.%s = parseInt(evt.target.value, 10);", v.Name) }
+				data-on:change={ manualChangeExpr(v.Name) }
 			/><span class="val-suffix">%</span>
 		</span>
 	</div>

@@ -30,12 +30,26 @@ type DeviceClient interface {
 var ErrInvalidArg = errors.New("breezy: invalid argument")
 
 // Power turns the device on or off (parameter 0x0001).
+//
+// Powering off also writes 0x0007=0 (timer off) in the same packet. The
+// firmware always clears the timer autonomously on a 1→0 power
+// transition (probed 2026-05-12 against a Twinfresh Elite 160 running
+// firmware 0.11) — encoding that invariant here keeps the daemon's
+// cache coherent without waiting for the next poll, and matches the
+// *MemClient* (in-process) backend's behavior so Playwright tests see
+// the same effect as production.
+//
+// Powering on is unconditional — no implicit cascade. Activating a
+// timer via SetTimer requires power=on as a prerequisite, but that
+// coupling lives in the caller (the /timer handler) rather than here.
 func Power(ctx context.Context, c DeviceClient, on bool) error {
-	val := byte(0)
 	if on {
-		val = 1
+		return c.WriteParams(ctx, []ParamWrite{{ID: 0x0001, Value: []byte{1}}})
 	}
-	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0001, Value: []byte{val}}})
+	return c.WriteParams(ctx, []ParamWrite{
+		{ID: 0x0001, Value: []byte{0}},
+		{ID: 0x0007, Value: []byte{0}},
+	})
 }
 
 // SetSpeedPreset selects a numbered fan preset (1, 2, or 3) via 0x0002.
