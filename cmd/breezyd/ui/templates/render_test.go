@@ -919,7 +919,7 @@ func TestTimerClickExpr_FromInactive(t *testing.T) {
 		// Inactive branch:
 		"$durationEditor.alpha = 'off'",
 		"$specialModeRemainingSeconds.alpha = $nightDurationSeconds.alpha",
-		"$specialMode.alpha = ", // clickAction's primary write
+		"$specialMode.alpha = ",                                      // clickAction's primary write
 		"if ($specialMode.alpha !== 'off') { $power.alpha = true; }", // power-on cascade
 		"@post('/ui/devices/alpha/timer'",
 	}
@@ -1121,8 +1121,8 @@ func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 func TestInitialCardSignals_DurationEditSeed(t *testing.T) {
 	v := ui.DeviceView{
 		Name:                 "alpha",
-		NightDurationSeconds: 8 * 3600,        // 8h 0m
-		TurboDurationSeconds: 4*3600 + 30*60,  // 4h 30m
+		NightDurationSeconds: 8 * 3600,       // 8h 0m
+		TurboDurationSeconds: 4*3600 + 30*60, // 4h 30m
 	}
 	raw := initialCardSignals(v)
 	var got map[string]any
