@@ -320,6 +320,55 @@ func TestOps_SetThreshold(t *testing.T) {
 	}
 }
 
+func TestOps_SetTimerDuration(t *testing.T) {
+	is := is.New(t)
+	cases := []struct {
+		mode    string
+		hours   int
+		minutes int
+		wantID  ParamID
+		wantVal []byte
+	}{
+		{"night", 1, 30, 0x0302, []byte{30, 1}},
+		{"turbo", 0, 5, 0x0303, []byte{5, 0}},
+		{"NIGHT", 8, 0, 0x0302, []byte{0, 8}},
+		{"Turbo", 0, 1, 0x0303, []byte{1, 0}},
+		{"night", 23, 59, 0x0302, []byte{59, 23}},
+	}
+	for _, tc := range cases {
+		c := &recordingClient{}
+		is.NoErr(SetTimerDuration(context.Background(), c, tc.mode, tc.hours, tc.minutes))
+		is.Equal(len(c.writes), 1)    // one packet
+		is.Equal(len(c.writes[0]), 1) // one write
+		got := c.writes[0][0]
+		is.Equal(got.ID, tc.wantID)
+		is.Equal(got.Value, tc.wantVal)
+	}
+}
+
+func TestOps_SetTimerDuration_RangeReject(t *testing.T) {
+	is := is.New(t)
+	bad := []struct {
+		mode string
+		h, m int
+	}{
+		{"night", -1, 0},
+		{"night", 24, 0},
+		{"night", 0, -1},
+		{"night", 0, 60},
+		{"night", 0, 0},
+		{"turbo", 0, 0},
+		{"sleep", 1, 0},
+		{"", 1, 0},
+	}
+	for _, b := range bad {
+		c := &recordingClient{}
+		err := SetTimerDuration(context.Background(), c, b.mode, b.h, b.m)
+		is.True(errors.Is(err, ErrInvalidArg)) // invalid duration must yield ErrInvalidArg
+		is.Equal(len(c.writes), 0)             // no writes on invalid input
+	}
+}
+
 func TestSetThresholdConfig_ValueOnly(t *testing.T) {
 	is := is.New(t)
 	rec := &recordingClient{}
