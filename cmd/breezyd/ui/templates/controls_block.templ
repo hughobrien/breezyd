@@ -48,6 +48,8 @@ templ ControlsBlock(v ui.DeviceView) {
 					@timerBtn(v, "turbo", "turbo")
 				</div>
 				@timerRemaining(v)
+				@timerDurationEditor(v, "night")
+				@timerDurationEditor(v, "turbo")
 			</div>
 			<div class="ctrl-group ctrl-group-heater">
 				<span class="ctrl-label">HEATER</span>
@@ -613,5 +615,84 @@ func timerGroupCloseEditorEffect(name string) string {
 	return fmt.Sprintf(
 		"if ($durationEditor.%s !== 'off' && $durationEditor.%s !== $specialMode.%s) $durationEditor.%s = 'off'",
 		name, name, name, name,
+	)
+}
+
+// timerDurationEditor renders the centred [hours h] [minutes m]
+// editor under the timer-remaining line. Mounted once per mode
+// (night, turbo). Visibility is driven by data-show keyed on
+// $durationEditor.<name>; the closure rule on the parent
+// .ctrl-group-timer (see timerGroupCloseEditorEffect) keeps stale
+// editors from sticking open. Both inputs two-way-bind to per-device
+// per-mode signals; on change (debounce 300ms) the shared
+// timerDurationChangeExpr clamps and posts.
+templ timerDurationEditor(v ui.DeviceView, mode string) {
+	<div
+		class="timer-duration-editor"
+		style="display:none"
+		data-show={ fmt.Sprintf("$durationEditor.%s === '%s'", v.Name, mode) }
+	>
+		<input
+			type="number"
+			class="val-input"
+			min="0"
+			max="23"
+			step="1"
+			data-bind={ fmt.Sprintf("_durationEdit.%s.%s.hours", v.Name, mode) }
+			data-on:change__debounce.300ms={ timerDurationChangeExpr(v.Name, mode) }
+			if v.Stale {
+				disabled
+			}
+		/>
+		<span class="val-suffix">h</span>
+		<input
+			type="number"
+			class="val-input"
+			min="0"
+			max="59"
+			step="1"
+			data-bind={ fmt.Sprintf("_durationEdit.%s.%s.minutes", v.Name, mode) }
+			data-on:change__debounce.300ms={ timerDurationChangeExpr(v.Name, mode) }
+			if v.Stale {
+				disabled
+			}
+		/>
+		<span class="val-suffix">m</span>
+	</div>
+}
+
+// timerDurationChangeExpr is the data-on:change body shared by both
+// inputs of the per-mode duration editor. Reads both halves of the
+// $_durationEdit.<name>.<mode> signal (data-bind keeps them current
+// with the input values), clamps to [0,23]/[0,59], snaps (0,0) to
+// (0,1) so the firmware never sees a zero-duration write, reflects
+// the clamped values back into the bound signals (so the inputs
+// snap visually when the user types out-of-range), then mirrors the
+// new total seconds into $specialModeRemainingSeconds.<name> (so the
+// countdown line snaps to the new duration instantly — matching the
+// verified firmware behaviour where 0x0302/0x0303 writes restart the
+// running countdown) AND into $<mode>DurationSeconds.<name> (so a
+// future fresh activation uses the new value before the next poll
+// catches up). Finally POSTs the new duration; errors land in
+// #global-error-banner via the SSE error envelope.
+func timerDurationChangeExpr(name, mode string) string {
+	post := postActionExpr(
+		fmt.Sprintf("/ui/devices/%s/timer-duration", name),
+		fmt.Sprintf("{mode: '%s', hours: h, minutes: m}", mode),
+	)
+	return fmt.Sprintf(
+		`let h = parseInt($_durationEdit.%s.%s.hours, 10); `+
+			`let m = parseInt($_durationEdit.%s.%s.minutes, 10); `+
+			`if (isNaN(h)) h = 0; `+
+			`if (isNaN(m)) m = 0; `+
+			`h = Math.max(0, Math.min(23, h)); `+
+			`m = Math.max(0, Math.min(59, m)); `+
+			`if (h === 0 && m === 0) m = 1; `+
+			`$_durationEdit.%s.%s.hours = h; `+
+			`$_durationEdit.%s.%s.minutes = m; `+
+			`$specialModeRemainingSeconds.%s = h * 3600 + m * 60; `+
+			`$%sDurationSeconds.%s = h * 3600 + m * 60; `+
+			`%s`,
+		name, mode, name, mode, name, mode, name, mode, name, mode, name, post,
 	)
 }

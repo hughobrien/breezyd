@@ -1597,3 +1597,46 @@ func TestPowerButtonExpr(t *testing.T) {
 		t.Errorf("powerButtonExpr:\n  got: %s\n want: %s", got, want)
 	}
 }
+
+// TestTimerDurationEditor_ChangeExpr pins the centred-editor input
+// handler: clamp h/m, snap (0,0)→(0,1), mirror to remaining + per-mode
+// duration signals, POST the new value. Per-device per-mode scoping
+// keeps multi-card edits independent.
+func TestTimerDurationEditor_ChangeExpr(t *testing.T) {
+	got := timerDurationChangeExpr("alpha", "night")
+	mustContain := []string{
+		"let h = parseInt($_durationEdit.alpha.night.hours, 10)",
+		"let m = parseInt($_durationEdit.alpha.night.minutes, 10)",
+		"if (isNaN(h)) h = 0",
+		"if (isNaN(m)) m = 0",
+		"h = Math.max(0, Math.min(23, h))",
+		"m = Math.max(0, Math.min(59, m))",
+		"if (h === 0 && m === 0) m = 1",
+		"$_durationEdit.alpha.night.hours = h",
+		"$_durationEdit.alpha.night.minutes = m",
+		"$specialModeRemainingSeconds.alpha = h * 3600 + m * 60",
+		"$nightDurationSeconds.alpha = h * 3600 + m * 60",
+		"@post('/ui/devices/alpha/timer-duration'",
+		"{mode: 'night', hours: h, minutes: m}",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(got, s) {
+			t.Errorf("timerDurationChangeExpr(alpha, night) missing %q\ngot: %s", s, got)
+		}
+	}
+}
+
+func TestTimerDurationEditor_ChangeExpr_Turbo(t *testing.T) {
+	got := timerDurationChangeExpr("beta", "turbo")
+	mustContain := []string{
+		"$_durationEdit.beta.turbo.hours",
+		"$turboDurationSeconds.beta = h * 3600 + m * 60",
+		"@post('/ui/devices/beta/timer-duration'",
+		"{mode: 'turbo', hours: h, minutes: m}",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(got, s) {
+			t.Errorf("timerDurationChangeExpr(beta, turbo) missing %q\ngot: %s", s, got)
+		}
+	}
+}
