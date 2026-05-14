@@ -163,6 +163,7 @@ func TestUIWriteAction_NotFound(t *testing.T) {
 		{"Speed", "speed", map[string]any{"manual": 50}},
 		{"Heater", "heater", map[string]any{"on": true}},
 		{"Timer", "timer", map[string]any{"mode": "night"}},
+		{"TimerDuration", "timer-duration", map[string]any{"mode": "night", "hours": 1, "minutes": 0}},
 		{"ResetFilter", "reset-filter", nil},
 		{"ResetFaults", "reset-faults", nil},
 	}
@@ -476,6 +477,66 @@ func TestUIWriteTimer_BadForm(t *testing.T) {
 	is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
 	body, _ := io.ReadAll(resp.Body)
 	assertSSEErrorBody(t, body, "mode must be")
+}
+
+// ---------- postUITimerDuration tests ----------
+
+func TestUIWriteTimerDuration_Happy(t *testing.T) {
+	is := is.New(t)
+	h := newUIWriteTestHandler(t)
+	notifies := attachFakePushHub(h)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	cases := []struct {
+		mode    string
+		hours   int
+		minutes int
+	}{
+		{"night", 1, 30},
+		{"turbo", 0, 5},
+		{"night", 8, 0},
+		{"turbo", 23, 59},
+	}
+	for _, tc := range cases {
+		resp := postJSON(t, srv.URL+"/ui/devices/alpha/timer-duration", map[string]any{
+			"mode":    tc.mode,
+			"hours":   tc.hours,
+			"minutes": tc.minutes,
+		})
+		defer func() { _ = resp.Body.Close() }()
+		is.Equal(resp.StatusCode, 200) // every valid duration must succeed
+	}
+	is.Equal(len(notifies.calls()), len(cases)) // one notify per successful write
+}
+
+func TestUIWriteTimerDuration_BadForm(t *testing.T) {
+	is := is.New(t)
+	h := newUIWriteTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	bad := []struct {
+		name string
+		body map[string]any
+		msg  string
+	}{
+		{"bad mode", map[string]any{"mode": "sleep", "hours": 1, "minutes": 0}, "mode must be"},
+		{"hours hi", map[string]any{"mode": "night", "hours": 24, "minutes": 0}, "hours must be"},
+		{"hours lo", map[string]any{"mode": "night", "hours": -1, "minutes": 0}, "hours must be"},
+		{"minutes hi", map[string]any{"mode": "night", "hours": 0, "minutes": 60}, "minutes must be"},
+		{"minutes lo", map[string]any{"mode": "night", "hours": 0, "minutes": -1}, "minutes must be"},
+		{"both zero", map[string]any{"mode": "night", "hours": 0, "minutes": 0}, "at least 1 minute"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := postJSON(t, srv.URL+"/ui/devices/alpha/timer-duration", tc.body)
+			defer func() { _ = resp.Body.Close() }()
+			is.Equal(resp.StatusCode, 200) // SSE error banner returns 200
+			body, _ := io.ReadAll(resp.Body)
+			assertSSEErrorBody(t, body, tc.msg)
+		})
+	}
 }
 
 // ---------- threshold endpoint tests ----------

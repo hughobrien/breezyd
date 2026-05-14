@@ -475,6 +475,47 @@ func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// postUITimerDuration writes the configured duration for one of the
+// special-mode timers. When the matching timer is currently active,
+// the firmware restarts the running countdown to the new total on
+// its own — no follow-up 0x0007 write needed (verified against
+// firmware 0.11; see the design doc).
+//
+// JSON: {"mode": "night"|"turbo", "hours": 0..23, "minutes": 0..59}
+//
+// Hours+minutes must sum to at least 1 minute. All validation errors
+// land in #global-error-banner via the SSE error envelope.
+func (h *Handler) postUITimerDuration(w http.ResponseWriter, r *http.Request) {
+	type req struct {
+		Mode    string `json:"mode"`
+		Hours   int    `json:"hours"`
+		Minutes int    `json:"minutes"`
+	}
+	shape := func(q *req) bool {
+		m := strings.ToLower(q.Mode)
+		if m != "night" && m != "turbo" {
+			h.uiValidationError(w, r, "", "mode must be 'night' or 'turbo'")
+			return false
+		}
+		if q.Hours < 0 || q.Hours > 23 {
+			h.uiValidationError(w, r, "", "hours must be 0..23")
+			return false
+		}
+		if q.Minutes < 0 || q.Minutes > 59 {
+			h.uiValidationError(w, r, "", "minutes must be 0..59")
+			return false
+		}
+		if q.Hours == 0 && q.Minutes == 0 {
+			h.uiValidationError(w, r, "", "duration must be at least 1 minute")
+			return false
+		}
+		return true
+	}
+	postUIWriteJSON(h, w, r, shape, func(ctx context.Context, rc *recordingClient, q *req) error {
+		return breezy.SetTimerDuration(ctx, rc, q.Mode, q.Hours, q.Minutes)
+	})
+}
+
 // postUIResetFilter resets the filter-clogged counter. No body.
 func (h *Handler) postUIResetFilter(w http.ResponseWriter, r *http.Request) {
 	postUIWriteNoBody(h, w, r, func(ctx context.Context, rc *recordingClient) error {
