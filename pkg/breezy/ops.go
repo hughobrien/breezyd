@@ -167,6 +167,31 @@ func SetTimer(ctx context.Context, c DeviceClient, mode string) error {
 	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0007, Value: []byte{val}}})
 }
 
+// SetTimerDuration writes the configured duration for one of the
+// special-mode timers: param 0x0302 (night) or 0x0303 (turbo). When
+// the matching timer is currently active, the firmware restarts the
+// running countdown to the new total on its own (verified against
+// firmware 0.11 — see docs/superpowers/specs/2026-05-14-timer-duration-editor-design.md).
+// Mode is case-insensitive. Range: hours 0..23, minutes 0..59, total ≥ 1 min.
+func SetTimerDuration(ctx context.Context, c DeviceClient, mode string, hours, minutes int) error {
+	if hours < 0 || hours > 23 || minutes < 0 || minutes > 59 {
+		return fmt.Errorf("%w: hours 0..23, minutes 0..59, got %dh %dm", ErrInvalidArg, hours, minutes)
+	}
+	if hours == 0 && minutes == 0 {
+		return fmt.Errorf("%w: duration must be at least 1 minute", ErrInvalidArg)
+	}
+	var id ParamID
+	switch strings.ToLower(mode) {
+	case "night":
+		id = 0x0302
+	case "turbo":
+		id = 0x0303
+	default:
+		return fmt.Errorf("%w: mode must be night or turbo, got %q", ErrInvalidArg, mode)
+	}
+	return c.WriteParams(ctx, []ParamWrite{{ID: id, Value: []byte{byte(minutes), byte(hours)}}})
+}
+
 // SetThresholdConfig writes one or both of: the per-sensor over-threshold
 // setpoint and the per-sensor enable flag (the firmware's "trigger fan
 // boost when this sensor is over its threshold"). At least one of value

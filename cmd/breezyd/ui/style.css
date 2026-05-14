@@ -436,6 +436,23 @@ details.block.schedule > summary > h3 { margin: 0; }
 /* Same idea for the timer countdown line — it sits directly under the
    night/turbo seg, and without a gap the two visually fuse. */
 .timer-remaining { margin-top: 0.4rem; }
+/* Duration editor: centred two-input row under the timer-remaining
+   line. Toggled by data-show keyed on $durationEditor.<name>. Reuses
+   the .val-input width/text-align/tabular-nums rule; this block only
+   handles container layout and inter-element gaps. */
+.timer-duration-editor {
+  margin-top: 0.4rem;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+.timer-duration-editor .val-suffix {
+  margin-right: 0.4rem;
+}
+.timer-duration-editor .val-suffix:last-child {
+  margin-right: 0;
+}
 /* Preset editor: a tight inline panel under the preset buttons. */
 .preset-editor {
   margin-top: 0.4rem; padding: 0.4rem 0.5rem;

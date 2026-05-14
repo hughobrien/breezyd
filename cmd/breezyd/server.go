@@ -253,6 +253,7 @@ func (h *Handler) mux() *http.ServeMux {
 	mux.HandleFunc("POST /ui/devices/{name}/speed", h.postUISpeed)
 	mux.HandleFunc("POST /ui/devices/{name}/heater", h.postUIHeater)
 	mux.HandleFunc("POST /ui/devices/{name}/timer", h.postUITimer)
+	mux.HandleFunc("POST /ui/devices/{name}/timer-duration", h.postUITimerDuration)
 	mux.HandleFunc("POST /ui/devices/{name}/reset-filter", h.postUIResetFilter)
 	mux.HandleFunc("POST /ui/devices/{name}/reset-faults", h.postUIResetFaults)
 	mux.HandleFunc("GET /ui/devices/{name}/threshold/{kind}", h.getUIThresholdRead)
