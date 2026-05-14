@@ -38,7 +38,10 @@ templ ControlsBlock(v ui.DeviceView) {
 			</div>
 		</div>
 		<div class="ctrl ctrl-pair">
-			<div class="ctrl-group ctrl-group-timer">
+			<div
+				class="ctrl-group ctrl-group-timer"
+				data-effect={ timerGroupCloseEditorEffect(v.Name) }
+			>
 				<span class="ctrl-label">TIMER</span>
 				<div class="seg">
 					@timerBtn(v, "night", "night")
@@ -167,33 +170,49 @@ templ timerBtn(v ui.DeviceView, label, value string) {
 }
 
 // timerClickExpr is the data-on:click body for night/turbo chips.
-// Computes the toggle: if the chip is already active, the new
-// $specialMode is 'off' (which deactivates); otherwise it's the chip's
-// own value. Before clickAction runs, seeds $specialModeRemainingSeconds
-// to the per-mode duration signal so the countdown line appears
-// instantly — this is NOT a cascade (cascades fire on the primary
-// signal generically; the duration seed depends on which mode is being
-// activated). When deactivating (new value 'off'), zero the countdown
-// in the same seed expression.
+// Two branches keyed on wasActive (computed BEFORE any signal flip):
 //
-// POST payload references __next (defined by clickAction from the
-// toggle ternary in jsValue) so the wire value matches what was
-// written locally — without this the payload's re-evaluation of the
-// ternary would read the just-mutated $specialMode and send the
-// inverse of what the user intended.
+//   wasActive (re-click on the running timer): toggle $durationEditor
+//     between mode and 'off'. No signal flip, no POST — the timer
+//     keeps running; only the editor's open/closed state changes.
+//     Mirrors the preset-chip pattern (presetClickExpr) where the
+//     re-click on the active chip toggles its editor.
+//
+//   !wasActive (first click, or switching from the other timer):
+//     reset $durationEditor.<name> = 'off' (so the OTHER mode's
+//     editor closes synchronously when switching), seed
+//     $specialModeRemainingSeconds from the per-mode duration
+//     signal so the countdown appears instantly, then delegate to
+//     clickAction which optimistically flips $specialMode +
+//     cascade-writes $power=true on activation.
+//
+// In-chip deactivate (the old behaviour) is gone — to stop a timer
+// the user clicks any speed chip (preset/manual) or powers the
+// device off. Both paths route through cascades that clear
+// $specialMode, which the .ctrl-group-timer data-effect (see
+// timerGroupCloseEditorEffect below) translates into editor closure.
+// See docs/superpowers/specs/2026-05-14-timer-duration-editor-design.md.
 func timerClickExpr(name, value string) string {
-	newSpecial := fmt.Sprintf("$specialMode.%s === '%s' ? 'off' : '%s'", name, value, value)
+	wasActive := fmt.Sprintf("$specialMode.%s === '%s'", name, value)
+	activeBranch := fmt.Sprintf(
+		"$durationEditor.%s = ($durationEditor.%s === '%s') ? 'off' : '%s';",
+		name, name, value, value)
 	seedRemaining := fmt.Sprintf(
-		"$specialModeRemainingSeconds.%s = ($specialMode.%s === '%s') ? 0 : $%sDurationSeconds.%s;",
-		name, name, value, value, name)
-	return fmt.Sprintf(
-		"%s %s",
+		"$specialModeRemainingSeconds.%s = $%sDurationSeconds.%s;",
+		name, value, name)
+	inactiveBranch := fmt.Sprintf(
+		"$durationEditor.%s = 'off'; %s %s",
+		name,
 		seedRemaining,
 		clickAction(name,
 			"specialMode",
-			newSpecial,
+			fmt.Sprintf("'%s'", value),
 			fmt.Sprintf("/ui/devices/%s/timer", name),
-			"{mode: __next}"),
+			fmt.Sprintf("{mode: '%s'}", value)),
+	)
+	return fmt.Sprintf(
+		"const wasActive = (%s); if (wasActive) { %s } else { %s }",
+		wasActive, activeBranch, inactiveBranch,
 	)
 }
 
@@ -581,4 +600,18 @@ func presetSliderValue(pct int) string {
 		return "50"
 	}
 	return fmt.Sprintf("%d", pct)
+}
+
+// timerGroupCloseEditorEffect builds the data-effect expression that
+// closes the duration editor whenever $specialMode.<name> no longer
+// matches the currently-open editor. Catches every closure path
+// with one rule: cascade-driven (preset/manual click), power-off,
+// scheduler-driven deactivation, server-pushed mode change (another
+// client switched night↔turbo). The 'off' guard avoids self-write
+// loops when the editor is already closed.
+func timerGroupCloseEditorEffect(name string) string {
+	return fmt.Sprintf(
+		"if ($durationEditor.%s !== 'off' && $durationEditor.%s !== $specialMode.%s) $durationEditor.%s = 'off'",
+		name, name, name, name,
+	)
 }
