@@ -1033,6 +1033,81 @@ func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 			t.Errorf("detailsOpen.%s.%s: want %v, got %v", v.Name, k, w, details[k])
 		}
 	}
+
+	// New: durationEditor defaults to closed ("off").
+	deOuter, ok := got["durationEditor"].(map[string]any)
+	if !ok {
+		t.Fatalf("durationEditor: want object, got %T", got["durationEditor"])
+	}
+	if deOuter[v.Name] != "off" {
+		t.Errorf("durationEditor.%s: want \"off\", got %v", v.Name, deOuter[v.Name])
+	}
+
+	// New: _durationEdit seeds per-mode {hours, minutes} from view durations.
+	// For v with zero durations, all four values land at 0.
+	editOuter, ok := got["_durationEdit"].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit: want object, got %T", got["_durationEdit"])
+	}
+	editPer, ok := editOuter[v.Name].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit.%s: want object, got %T", v.Name, editOuter[v.Name])
+	}
+	for _, mode := range []string{"night", "turbo"} {
+		m, ok := editPer[mode].(map[string]any)
+		if !ok {
+			t.Fatalf("_durationEdit.%s.%s: want object, got %T", v.Name, mode, editPer[mode])
+		}
+		if m["hours"] != float64(0) || m["minutes"] != float64(0) {
+			t.Errorf("_durationEdit.%s.%s: want {0, 0}, got %v", v.Name, mode, m)
+		}
+	}
+}
+
+// TestInitialCardSignals_DurationEditSeed pins the per-mode hours/minutes
+// split derived from v.NightDurationSeconds / v.TurboDurationSeconds. The
+// editor's number inputs are two-way-bound to these signals so the seed
+// must arrive as JSON numbers, not strings (datastar's data-bind would
+// silently flip type otherwise).
+func TestInitialCardSignals_DurationEditSeed(t *testing.T) {
+	v := ui.DeviceView{
+		Name:                 "alpha",
+		NightDurationSeconds: 8 * 3600,        // 8h 0m
+		TurboDurationSeconds: 4*3600 + 30*60,  // 4h 30m
+	}
+	raw := initialCardSignals(v)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal: %v\nseed: %s", err, raw)
+	}
+	editOuter, ok := got["_durationEdit"].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit: want object, got %T", got["_durationEdit"])
+	}
+	editPer, ok := editOuter[v.Name].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit.%s: want object, got %T", v.Name, editOuter[v.Name])
+	}
+	cases := []struct {
+		mode      string
+		wantHours float64
+		wantMins  float64
+	}{
+		{"night", 8, 0},
+		{"turbo", 4, 30},
+	}
+	for _, tc := range cases {
+		m, ok := editPer[tc.mode].(map[string]any)
+		if !ok {
+			t.Fatalf("_durationEdit.%s.%s: want object, got %T", v.Name, tc.mode, editPer[tc.mode])
+		}
+		if m["hours"] != tc.wantHours {
+			t.Errorf("_durationEdit.%s.%s.hours: want %v, got %v", v.Name, tc.mode, tc.wantHours, m["hours"])
+		}
+		if m["minutes"] != tc.wantMins {
+			t.Errorf("_durationEdit.%s.%s.minutes: want %v, got %v", v.Name, tc.mode, tc.wantMins, m["minutes"])
+		}
+	}
 }
 
 // TestInitialCardSignals_PresetSeedTypedAsNumber pins that
