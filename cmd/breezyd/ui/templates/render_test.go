@@ -905,19 +905,68 @@ func TestPresetClickExpr(t *testing.T) {
 	}
 }
 
-// TestTimerClickExpr pins the structure of the timer-chip click
-// handler after the clickAction migration: countdown seed, then
-// clickAction (__next = toggle ternary, primary $specialMode write,
-// power-on cascade reading $specialMode, POST with __next). The
-// cascade reads the just-mutated $specialMode signal — so the
-// power-on guard fires only when the click is activating, not
-// toggling off. POST uses __next so wire value matches the locally-
-// written value (the toggle ternary evaluates once).
-func TestTimerClickExpr(t *testing.T) {
+// TestTimerClickExpr_FromInactive pins the from-inactive branch:
+// reset the duration editor to 'off' (so re-clicking the OTHER
+// timer chip while THIS one has its editor open closes it
+// synchronously), seed the countdown signal from the per-mode
+// duration, then delegate to clickAction (power-on cascade reading
+// $specialMode + POST).
+func TestTimerClickExpr_FromInactive(t *testing.T) {
 	got := timerClickExpr("alpha", "night")
-	want := "$specialModeRemainingSeconds.alpha = ($specialMode.alpha === 'night') ? 0 : $nightDurationSeconds.alpha; const __next = $specialMode.alpha === 'night' ? 'off' : 'night'; $specialMode.alpha = __next; if ($specialMode.alpha !== 'off') { $power.alpha = true; } @post('/ui/devices/alpha/timer', {payload: {mode: __next}})"
+	// Structure: const wasActive = ...; if (wasActive) {...} else {...inactive...}
+	mustContain := []string{
+		"const wasActive = ($specialMode.alpha === 'night')",
+		// Inactive branch:
+		"$durationEditor.alpha = 'off'",
+		"$specialModeRemainingSeconds.alpha = $nightDurationSeconds.alpha",
+		"$specialMode.alpha = ",                                      // clickAction's primary write
+		"if ($specialMode.alpha !== 'off') { $power.alpha = true; }", // power-on cascade
+		"@post('/ui/devices/alpha/timer'",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(got, s) {
+			t.Errorf("timerClickExpr(alpha, night) missing %q\ngot: %s", s, got)
+		}
+	}
+}
+
+// TestTimerClickExpr_TogglesEditor_WhenActive pins the from-active
+// branch: toggle $durationEditor between mode and 'off'. NO signal
+// flip on $specialMode (timer stays running), NO @post('/timer').
+func TestTimerClickExpr_TogglesEditor_WhenActive(t *testing.T) {
+	got := timerClickExpr("alpha", "turbo")
+	// Active-branch fingerprint: the durationEditor toggle ternary
+	// keyed on the CURRENT $durationEditor value (not specialMode)
+	// so a third click closes the open editor.
+	want := "$durationEditor.alpha = ($durationEditor.alpha === 'turbo') ? 'off' : 'turbo'"
+	if !strings.Contains(got, want) {
+		t.Errorf("timerClickExpr(alpha, turbo) missing editor toggle %q\ngot: %s", want, got)
+	}
+	// And the active branch must NOT contain any /timer POST.
+	if !strings.Contains(got, "if (wasActive)") {
+		t.Fatalf("expected if (wasActive) branch in expression, got: %s", got)
+	}
+	start := strings.Index(got, "if (wasActive)")
+	end := strings.Index(got, "} else {")
+	if end <= start {
+		t.Fatalf("expected wasActive/else structure, got: %s", got)
+	}
+	activeBranch := got[start:end]
+	if strings.Contains(activeBranch, "@post('/ui/devices/alpha/timer'") {
+		t.Errorf("active branch must not POST /timer; got: %s", activeBranch)
+	}
+}
+
+// TestTimerGroupCloseEditorEffect pins the data-effect expression
+// that closes a stale duration editor (one whose mode no longer
+// matches the active special mode). One rule covers every closure
+// path: cascade-driven (preset/manual click), power-off, scheduler-
+// driven deactivation, server-pushed mode change.
+func TestTimerGroupCloseEditorEffect(t *testing.T) {
+	got := timerGroupCloseEditorEffect("alpha")
+	want := "if ($durationEditor.alpha !== 'off' && $durationEditor.alpha !== $specialMode.alpha) $durationEditor.alpha = 'off'"
 	if got != want {
-		t.Errorf("timerClickExpr(alpha, night):\n  got: %s\n want: %s", got, want)
+		t.Errorf("timerGroupCloseEditorEffect(alpha):\n  got: %s\n want: %s", got, want)
 	}
 }
 
@@ -1031,6 +1080,81 @@ func TestInitialCardSignals_StaticFlagsAndDetailsOpen(t *testing.T) {
 	for k, w := range wantOpen {
 		if details[k] != w {
 			t.Errorf("detailsOpen.%s.%s: want %v, got %v", v.Name, k, w, details[k])
+		}
+	}
+
+	// New: durationEditor defaults to closed ("off").
+	deOuter, ok := got["durationEditor"].(map[string]any)
+	if !ok {
+		t.Fatalf("durationEditor: want object, got %T", got["durationEditor"])
+	}
+	if deOuter[v.Name] != "off" {
+		t.Errorf("durationEditor.%s: want \"off\", got %v", v.Name, deOuter[v.Name])
+	}
+
+	// New: _durationEdit seeds per-mode {hours, minutes} from view durations.
+	// For v with zero durations, all four values land at 0.
+	editOuter, ok := got["_durationEdit"].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit: want object, got %T", got["_durationEdit"])
+	}
+	editPer, ok := editOuter[v.Name].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit.%s: want object, got %T", v.Name, editOuter[v.Name])
+	}
+	for _, mode := range []string{"night", "turbo"} {
+		m, ok := editPer[mode].(map[string]any)
+		if !ok {
+			t.Fatalf("_durationEdit.%s.%s: want object, got %T", v.Name, mode, editPer[mode])
+		}
+		if m["hours"] != float64(0) || m["minutes"] != float64(0) {
+			t.Errorf("_durationEdit.%s.%s: want {0, 0}, got %v", v.Name, mode, m)
+		}
+	}
+}
+
+// TestInitialCardSignals_DurationEditSeed pins the per-mode hours/minutes
+// split derived from v.NightDurationSeconds / v.TurboDurationSeconds. The
+// editor's number inputs are two-way-bound to these signals so the seed
+// must arrive as JSON numbers, not strings (datastar's data-bind would
+// silently flip type otherwise).
+func TestInitialCardSignals_DurationEditSeed(t *testing.T) {
+	v := ui.DeviceView{
+		Name:                 "alpha",
+		NightDurationSeconds: 8 * 3600,       // 8h 0m
+		TurboDurationSeconds: 4*3600 + 30*60, // 4h 30m
+	}
+	raw := initialCardSignals(v)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal: %v\nseed: %s", err, raw)
+	}
+	editOuter, ok := got["_durationEdit"].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit: want object, got %T", got["_durationEdit"])
+	}
+	editPer, ok := editOuter[v.Name].(map[string]any)
+	if !ok {
+		t.Fatalf("_durationEdit.%s: want object, got %T", v.Name, editOuter[v.Name])
+	}
+	cases := []struct {
+		mode      string
+		wantHours float64
+		wantMins  float64
+	}{
+		{"night", 8, 0},
+		{"turbo", 4, 30},
+	}
+	for _, tc := range cases {
+		m, ok := editPer[tc.mode].(map[string]any)
+		if !ok {
+			t.Fatalf("_durationEdit.%s.%s: want object, got %T", v.Name, tc.mode, editPer[tc.mode])
+		}
+		if m["hours"] != tc.wantHours {
+			t.Errorf("_durationEdit.%s.%s.hours: want %v, got %v", v.Name, tc.mode, tc.wantHours, m["hours"])
+		}
+		if m["minutes"] != tc.wantMins {
+			t.Errorf("_durationEdit.%s.%s.minutes: want %v, got %v", v.Name, tc.mode, tc.wantMins, m["minutes"])
 		}
 	}
 }
@@ -1160,17 +1284,17 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 	got := sb.String()
 	name := v.Name
 	wantContains := []string{
-		// Timer toggle: clickAction emits __next from the toggle ternary on
-		// $specialMode and the specialMode cascade powers-on when activating.
-		// Countdown seed branches on $specialMode === '<mode>' so the
-		// readout appears optimistically before the next poll.
-		`$specialModeRemainingSeconds.` + name + ` = ($specialMode.` + name + ` === &#39;night&#39;) ? 0 : $nightDurationSeconds.` + name,
-		`const __next = $specialMode.` + name + ` === &#39;night&#39; ? &#39;off&#39; : &#39;night&#39;`,
-		`$specialMode.` + name + ` = __next`,
+		// Timer: wasActive-branching click handler. From-inactive branch
+		// seeds countdown from per-mode duration signal, then delegates
+		// to clickAction (power-on cascade + POST). From-active branch
+		// toggles $durationEditor without any $specialMode write or POST.
+		`const wasActive = ($specialMode.` + name + ` === &#39;night&#39;)`,
+		`$durationEditor.` + name + ` = &#39;off&#39;`,
+		`$specialModeRemainingSeconds.` + name + ` = $nightDurationSeconds.` + name,
 		`if ($specialMode.` + name + ` !== &#39;off&#39;) { $power.` + name + ` = true; }`,
-		`@post(&#39;/ui/devices/` + name + `/timer&#39;, {payload: {mode: __next}})`,
-		`$specialModeRemainingSeconds.` + name + ` = ($specialMode.` + name + ` === &#39;turbo&#39;) ? 0 : $turboDurationSeconds.` + name,
-		`const __next = $specialMode.` + name + ` === &#39;turbo&#39; ? &#39;off&#39; : &#39;turbo&#39;`,
+		`@post(&#39;/ui/devices/` + name + `/timer&#39;,`,
+		`const wasActive = ($specialMode.` + name + ` === &#39;turbo&#39;)`,
+		`$durationEditor.` + name + ` = ($durationEditor.` + name + ` === &#39;turbo&#39;) ? &#39;off&#39; : &#39;turbo&#39;`,
 		// Heater toggle: clickAction emits __next from the toggle on
 		// $heater (no cascade — heater is independent). The POST payload
 		// reads __next so the wire value matches the just-written local.
@@ -1183,8 +1307,8 @@ func TestRenderControlsBlock_ReactiveClickHandlers(t *testing.T) {
 		// the controls-block HTML patch gets filtered out.
 		`{on: true}`,
 		`{on: false}`,
-		// Static {mode: 'off'} / {mode: 'night'} as the entire payload
-		// (with no ternary) would mean the click handler can't toggle.
+		// {mode: 'off'} must never appear as a POST payload — deactivation
+		// now happens only via preset/manual/power-off cascades, not in-chip.
 		`{mode: &#39;off&#39;}`,
 		// Old pre-clickAction shape — `var active = ...` toggle would
 		// re-evaluate against the just-mutated $specialMode in the POST
@@ -1471,5 +1595,48 @@ func TestPowerButtonExpr(t *testing.T) {
 	want := "const __next = !$power.alpha; $power.alpha = __next; if (!$power.alpha) { $specialMode.alpha = 'off'; $specialModeRemainingSeconds.alpha = 0; } @post('/ui/devices/alpha/power', {payload: {on: __next}})"
 	if got != want {
 		t.Errorf("powerButtonExpr:\n  got: %s\n want: %s", got, want)
+	}
+}
+
+// TestTimerDurationEditor_ChangeExpr pins the centred-editor input
+// handler: clamp h/m, snap (0,0)→(0,1), mirror to remaining + per-mode
+// duration signals, POST the new value. Per-device per-mode scoping
+// keeps multi-card edits independent.
+func TestTimerDurationEditor_ChangeExpr(t *testing.T) {
+	got := timerDurationChangeExpr("alpha", "night")
+	mustContain := []string{
+		"let h = parseInt($_durationEdit.alpha.night.hours, 10)",
+		"let m = parseInt($_durationEdit.alpha.night.minutes, 10)",
+		"if (isNaN(h)) h = 0",
+		"if (isNaN(m)) m = 0",
+		"h = Math.max(0, Math.min(23, h))",
+		"m = Math.max(0, Math.min(59, m))",
+		"if (h === 0 && m === 0) m = 1",
+		"$_durationEdit.alpha.night.hours = h",
+		"$_durationEdit.alpha.night.minutes = m",
+		"$specialModeRemainingSeconds.alpha = h * 3600 + m * 60",
+		"$nightDurationSeconds.alpha = h * 3600 + m * 60",
+		"@post('/ui/devices/alpha/timer-duration'",
+		"{mode: 'night', hours: h, minutes: m}",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(got, s) {
+			t.Errorf("timerDurationChangeExpr(alpha, night) missing %q\ngot: %s", s, got)
+		}
+	}
+}
+
+func TestTimerDurationEditor_ChangeExpr_Turbo(t *testing.T) {
+	got := timerDurationChangeExpr("beta", "turbo")
+	mustContain := []string{
+		"$_durationEdit.beta.turbo.hours",
+		"$turboDurationSeconds.beta = h * 3600 + m * 60",
+		"@post('/ui/devices/beta/timer-duration'",
+		"{mode: 'turbo', hours: h, minutes: m}",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(got, s) {
+			t.Errorf("timerDurationChangeExpr(beta, turbo) missing %q\ngot: %s", s, got)
+		}
 	}
 }

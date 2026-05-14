@@ -184,6 +184,18 @@ export const presets = {
   },
 
   /**
+   * Set per-mode timer duration via direct admin write.
+   * night_duration (0x0302), turbo_duration (0x0303). 2-byte LE
+   * encoding: [minutes, hours].
+   */
+  withDuration: (name: string, mode: "night" | "turbo", hours: number, minutes: number) => {
+    const id = mode === "night" ? "0302" : "0303";
+    const min = minutes.toString(16).padStart(2, "0");
+    const hr = hours.toString(16).padStart(2, "0");
+    return setDeviceState(name, { [id]: `${min}${hr}` });
+  },
+
+  /**
    * Set air quality alert flags via the alert bitmap (0x0084).
    * 5-byte bitmap: byte 0 = RH, byte 1 = CO2, bytes 2-3 reserved, byte 4 = VOC.
    */

@@ -201,6 +201,8 @@ func initialCardSignals(v ui.DeviceView) string {
 		"_manualPct":                  map[string]int{v.Name: v.ManualPct},
 		"_attention":                  map[string]bool{v.Name: false},
 		"_addRowAttn":                 map[string]bool{v.Name: false},
+		"durationEditor":              map[string]string{v.Name: "off"},
+		"_durationEdit":               map[string]map[string]map[string]int{v.Name: durationEditSeed(v)},
 		"stale":                       map[string]bool{v.Name: v.Stale},
 		"power":                       map[string]bool{v.Name: v.Power},
 		"speedMode":                   map[string]string{v.Name: v.SpeedMode},
@@ -236,5 +238,24 @@ func presetSeed(v ui.DeviceView) map[string]map[string]int {
 		"1": atLeastZero(v.Preset1),
 		"2": atLeastZero(v.Preset2),
 		"3": atLeastZero(v.Preset3),
+	}
+}
+
+// durationEditSeed returns the inner per-mode {hours, minutes} seed for
+// the duration editor's input signals. The caller wraps it in a
+// {device-name: ...} map (mirrors presetSeed). Pre-poll durations are 0
+// → both fields seed to 0; the editor doesn't open until the user
+// activates a timer, by which point the next poll has updated the
+// nightDurationSeconds/turboDurationSeconds signals.
+func durationEditSeed(v ui.DeviceView) map[string]map[string]int {
+	split := func(secs int) map[string]int {
+		return map[string]int{
+			"hours":   secs / 3600,
+			"minutes": (secs % 3600) / 60,
+		}
+	}
+	return map[string]map[string]int{
+		"night": split(v.NightDurationSeconds),
+		"turbo": split(v.TurboDurationSeconds),
 	}
 }
