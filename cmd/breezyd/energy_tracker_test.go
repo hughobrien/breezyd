@@ -463,10 +463,17 @@ func TestEnergyTracker_Tick_MonthRolloverPersists(t *testing.T) {
 	notRegen[0x00B7] = []byte{0} // ventilation; early-return after rollovers
 	tr.Tick(notRegen, t1)
 
-	tr2 := &EnergyTracker{Device: "month-rollover-persist", StateDir: dir}
-	tr2.Load()
-	is.Equal(tr2.MonthStart, "2026-05")
-	is.Equal(tr2.HeatingMonthKWh, float64(0))
+	// Read the persisted file directly rather than via Load(), which uses
+	// wall-clock time.Now() to derive "this month" and would overwrite the
+	// loaded MonthStart with the current wall month (masking the rollover
+	// save unless the test happens to run in May 2026). Mirrors
+	// TestEnergyTracker_Tick_RolloverPersists.
+	data, err := os.ReadFile(filepath.Join(dir, "energy_month-rollover-persist.json"))
+	is.NoErr(err)
+	var p persistedEnergy
+	is.NoErr(json.Unmarshal(data, &p))
+	is.Equal(p.MonthStart, "2026-05")       // month rollover persisted before early return
+	is.Equal(p.HeatingMonthKWh, float64(0)) // month counter zeroed in persisted state
 }
 
 func TestEnergyTracker_Tick_UnsupportedModel(t *testing.T) {
