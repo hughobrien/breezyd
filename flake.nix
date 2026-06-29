@@ -78,41 +78,25 @@
         ];
       };
 
-      # Pure CI merge-gate, run HERMETICALLY in nix's build sandbox (no host
-      # /etc, no network, no live daemons) via `nix build .#checks.<sys>.gate`.
-      # This is what the forge test workflow gates merges on. Running the gate
-      # as a pure build (not an impure `nix develop` on the host) is what makes
-      # it hermetic — e.g. the standalone test can't see the host's
-      # /etc/breezy/config.toml here, so it correctly resolves standalone.
+      # CI merge-gate, run hermetically in the nix build sandbox.
+      # nix build .#checks.<system>.gate
       checks.gate = breezyd-pkg.overrideAttrs (old: {
         pname = "breezyd-ci-gate";
-        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
-          pkgs.clang          # CC=clang for -race
-          pkgs.golangci-lint  # test-staticcheck
-        ];
+        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.clang pkgs.golangci-lint pkgs.templ ];
         doCheck = true;
         checkPhase = ''
           runHook preCheck
           export HOME="$TMPDIR"
-          echo "== go vet =="
           go vet ./...
-          echo "== gofmt =="
-          # buildGoModule vendors deps into ./vendor in the sandbox; gofmt walks
-          # the filesystem (unlike `go ... ./...`), so exclude vendor explicitly.
           drift=$(gofmt -l . | grep -v '^vendor/' || true)
-          if [ -n "$drift" ]; then echo "gofmt drift in:"; echo "$drift"; exit 1; fi
-          echo "== go test =="
+          [ -z "$drift" ] || { echo "gofmt drift: $drift"; exit 1; }
           go test ./...
-          echo "== go test -race =="
           CGO_ENABLED=1 CC=clang go test -race ./...
-          echo "== golangci-lint =="
           golangci-lint run ./...
-          echo "== test-test-admin =="
           go test -tags breezyd_test_admin ./cmd/breezyd/ -run TestAdmin
-          # NOTE: templ-drift intentionally omitted — it's a codegen-freshness
-          # check sensitive to the templ binary version (committed files are
-          # from templ v0.3.1020; nixpkgs here ships v0.3.1001), so it produces
-          # spurious diffs. It stays on GitHub where the toolchain matches.
+          cp -a cmd/breezyd/ui/templates "$TMPDIR/templ-before"
+          templ generate
+          diff -rq "$TMPDIR/templ-before" cmd/breezyd/ui/templates || { echo "templ drift; run 'just generate'"; exit 1; }
           runHook postCheck
         '';
       });

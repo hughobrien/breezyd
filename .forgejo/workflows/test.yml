@@ -1,8 +1,5 @@
 name: ci
-# Merge gate: runs the test suite HERMETICALLY as a pure nix build of the
-# flake's checks.gate (vet + gofmt + go test + race + golangci-lint +
-# test-test-admin) inside nix's sandbox — no host /etc, network, or live
-# daemon leaks. Branch protection on main requires this check.
+# Merge gate: pure nix build of the flake's checks.gate.
 on:
   pull_request:
     branches: [main]
@@ -14,9 +11,8 @@ jobs:
     steps:
       - run: |
           umask 077
-          cat > "$HOME/.netrc" <<NETRC
-          machine forgejo.wg login x-access-token password ${{ github.token }}
-          NETRC
+          host="${{ github.server_url }}"
+          printf 'machine %s login x-access-token password %s\n' "${host#https://}" "${{ github.token }}" > "$HOME/.netrc"
           nix build --no-write-lock-file -L \
-            "git+https://forgejo.wg/hughobrien/breezyd.git?ref=${{ github.ref_name }}&rev=${{ github.sha }}#checks.x86_64-linux.gate"
+            "git+${{ github.server_url }}/${{ github.repository }}.git?ref=${{ github.ref_name }}&rev=${{ github.sha }}#checks.x86_64-linux.gate"
           rm -f "$HOME/.netrc"
