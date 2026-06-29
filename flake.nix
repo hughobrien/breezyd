@@ -78,6 +78,29 @@
         ];
       };
 
+      # CI merge-gate, run hermetically in the nix build sandbox.
+      # nix build .#checks.<system>.gate
+      checks.gate = breezyd-pkg.overrideAttrs (old: {
+        pname = "breezyd-ci-gate";
+        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.clang pkgs.golangci-lint pkgs.templ ];
+        doCheck = true;
+        checkPhase = ''
+          runHook preCheck
+          export HOME="$TMPDIR"
+          go vet ./...
+          drift=$(gofmt -l . | grep -v '^vendor/' || true)
+          [ -z "$drift" ] || { echo "gofmt drift: $drift"; exit 1; }
+          go test ./...
+          CGO_ENABLED=1 CC=clang go test -race ./...
+          golangci-lint run ./...
+          go test -tags breezyd_test_admin ./cmd/breezyd/ -run TestAdmin
+          cp -a cmd/breezyd/ui/templates "$TMPDIR/templ-before"
+          templ generate
+          diff -rq "$TMPDIR/templ-before" cmd/breezyd/ui/templates || { echo "templ drift; run 'just generate'"; exit 1; }
+          runHook postCheck
+        '';
+      });
+
       formatter = pkgs.nixpkgs-fmt;
     });
 
@@ -96,6 +119,7 @@
 
     packages   = forEachSystem (system: perSystem.${system}.packages);
     apps       = forEachSystem (system: perSystem.${system}.apps);
+    checks     = forEachSystem (system: perSystem.${system}.checks);
     devShells  = forEachSystem (system: perSystem.${system}.devShells);
     formatter  = forEachSystem (system: perSystem.${system}.formatter);
   };
