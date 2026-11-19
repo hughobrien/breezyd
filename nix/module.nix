@@ -110,9 +110,9 @@ in {
       };
 
       scrapeInterval = lib.mkOption {
-        type = lib.types.str;
-        default = "30s";
-        description = "Scrape interval. Match or exceed the daemon's poll_interval.";
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Scrape interval. null uses Prometheus's global default. Match or exceed the daemon's poll_interval.";
       };
     };
 
