@@ -224,9 +224,8 @@ non-loopback address.
 
 ```nix
 services.breezyd.prometheus.enable = true;
-# Optional tunables, defaults shown:
+# Optional tunable, default shown:
 # services.breezyd.prometheus.jobName = "breezyd";
-# services.breezyd.prometheus.scrapeInterval = null;  # null = Prometheus's global default
 ```
 
 Injects an entry into `services.prometheus.scrapeConfigs` only when

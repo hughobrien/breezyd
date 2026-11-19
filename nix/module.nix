@@ -108,12 +108,6 @@ in {
         default = "breezyd";
         description = "Prometheus job_name for the auto-registered scrape.";
       };
-
-      scrapeInterval = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "Scrape interval. null uses Prometheus's global default. Match or exceed the daemon's poll_interval.";
-      };
     };
 
     homekit = {
@@ -332,7 +326,6 @@ EOF
     services.prometheus.scrapeConfigs = lib.mkIf
       (cfg.prometheus.enable && config.services.prometheus.enable) [{
         job_name = cfg.prometheus.jobName;
-        scrape_interval = cfg.prometheus.scrapeInterval;
         static_configs = [{
           targets = [ (cfg.settings.daemon.listen or "127.0.0.1:9876") ];
         }];
