@@ -3,10 +3,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -539,4 +543,40 @@ func TestHomekit_WriteCallbacks(t *testing.T) {
 		snap, _ := h.State.Get(name)
 		is.Equal(snap.Values[0x0065], []byte{0x01}) // filter reset writes 1 to 0x0065
 	})
+}
+
+// lockedBuf is a log sink safe for the HAP goroutine and the test.
+type lockedBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// TestHomekit_StopIsNotAnError: stopping the bridge is how every daemon
+// shutdown and restart ends, so it must not log "HAP server exited" at
+// ERROR (it did, with http.ErrServerClosed, on each nixos-rebuild).
+func TestHomekit_StopIsNotAnError(t *testing.T) {
+	is := is.New(t)
+	logs := &lockedBuf{}
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	h := newTestHandler(t, map[string]DeviceConfig{})
+	stop, err := h.StartHomekit(context.Background(), config.Homekit{Enabled: true, BridgeName: "b", StateDir: t.TempDir()}, nil)
+	is.NoErr(err)
+	time.Sleep(200 * time.Millisecond) // let ListenAndServe get going
+	is.NoErr(stop())
+	is.True(!strings.Contains(logs.String(), "HAP server exited")) // a clean stop logs no error
 }

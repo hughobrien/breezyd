@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -118,7 +119,10 @@ func (h *Handler) StartHomekit(ctx context.Context, cfg config.Homekit, devices 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if serveErr := server.ListenAndServe(hapCtx); serveErr != nil && !errors.Is(serveErr, context.Canceled) {
+		// Stopping returns context.Canceled or http.ErrServerClosed; both
+		// are the normal end, not a failure.
+		serveErr := server.ListenAndServe(hapCtx)
+		if serveErr != nil && !errors.Is(serveErr, context.Canceled) && !errors.Is(serveErr, http.ErrServerClosed) {
 			slog.Error("HAP server exited", "err", serveErr)
 		}
 	}()
