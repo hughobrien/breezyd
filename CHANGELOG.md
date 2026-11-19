@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `services.prometheus`) when `prometheus.enable` is on, registers the scrape
   job there with the drop rule, and takes more targets in `push.<name>.url`.
 
+### Removed
+
+- The six resetting Prometheus gauges `breezyd_energy_{heating,cooling,consumed}_{today,month}_kwh`
+  (served and pushed). `increase(breezyd_energy_heating_lifetime_kwh[$__range])`
+  gives any period in any time zone without depending on the daemon's idea of
+  midnight or the first of the month. The web UI's ENERGY block and the JSON
+  snapshot keep their today/month fields. `grafana/breezyd.json` now uses
+  `increase()` over the lifetime counters: the "Energy: recovered vs spent on
+  fans" columns follow the dashboard's time range, and "Today (all units)"
+  sets the panel's relative time to `now/d`.
+
 ## [2.1.0] - 2026-05-12
 
 Minor release: two UX features (inline-edit schedule, optimistic-UI cascades) plus dashboard polish + correctness fixes uncovered while exercising v2.0.2 against the three production devices. No `/v1` API or CLI surface change.

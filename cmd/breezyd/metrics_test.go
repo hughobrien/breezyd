@@ -301,11 +301,6 @@ func TestMetrics_SetEnergy_Supported(t *testing.T) {
 	want := map[string]float64{
 		"breezyd_energy_recovered_watts":       245,
 		"breezyd_energy_consumed_watts":        18,
-		"breezyd_energy_heating_today_kwh":     1.234,
-		"breezyd_energy_consumed_today_kwh":    0.123,
-		"breezyd_energy_heating_month_kwh":     30.0,
-		"breezyd_energy_cooling_month_kwh":     5.5,
-		"breezyd_energy_consumed_month_kwh":    3.7,
 		"breezyd_energy_heating_lifetime_kwh":  234.5,
 		"breezyd_energy_consumed_lifetime_kwh": 12.3,
 	}
@@ -343,12 +338,6 @@ func TestMetrics_SetEnergy_UnsupportedDropsLabels(t *testing.T) {
 	energyGauges := map[string]bool{
 		"breezyd_energy_recovered_watts":       true,
 		"breezyd_energy_consumed_watts":        true,
-		"breezyd_energy_heating_today_kwh":     true,
-		"breezyd_energy_cooling_today_kwh":     true,
-		"breezyd_energy_consumed_today_kwh":    true,
-		"breezyd_energy_heating_month_kwh":     true,
-		"breezyd_energy_cooling_month_kwh":     true,
-		"breezyd_energy_consumed_month_kwh":    true,
 		"breezyd_energy_heating_lifetime_kwh":  true,
 		"breezyd_energy_cooling_lifetime_kwh":  true,
 		"breezyd_energy_consumed_lifetime_kwh": true,
@@ -379,5 +368,21 @@ func TestMetricsHelpStringsNonEmpty(t *testing.T) {
 	is.NoErr(err)
 	for _, mf := range mfs {
 		is.True(strings.TrimSpace(mf.GetHelp()) != "") // every collector must declare a Help string
+	}
+}
+
+// The resetting today/month gauges are gone from Prometheus: increase() over
+// the lifetime counters gives any period. The web UI still reads the tracker.
+func TestMetrics_NoResettingEnergyGauges(t *testing.T) {
+	is := is.New(t)
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+	m.SetEnergy("playroom", breezy.EnergyValues{Supported: true, HeatingTodayKWh: 1, HeatingMonthKWh: 2, HeatingLifetimeKWh: 3})
+	families, err := reg.Gather()
+	is.NoErr(err)
+	for _, fam := range families {
+		n := fam.GetName()
+		resetting := strings.HasSuffix(n, "_today_kwh") || strings.HasSuffix(n, "_month_kwh")
+		is.True(!strings.HasPrefix(n, "breezyd_energy_") || !resetting) // no resetting energy gauge
 	}
 }

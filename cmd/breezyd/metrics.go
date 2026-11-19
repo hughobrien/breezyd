@@ -77,12 +77,6 @@ type Metrics struct {
 	// Energy accounting (opt-in; only emitted for supported models).
 	EnergyRecoveredWatts      *prometheus.GaugeVec
 	EnergyConsumedWatts       *prometheus.GaugeVec
-	EnergyHeatingTodayKWh     *prometheus.GaugeVec
-	EnergyCoolingTodayKWh     *prometheus.GaugeVec
-	EnergyConsumedTodayKWh    *prometheus.GaugeVec
-	EnergyHeatingMonthKWh     *prometheus.GaugeVec
-	EnergyCoolingMonthKWh     *prometheus.GaugeVec
-	EnergyConsumedMonthKWh    *prometheus.GaugeVec
 	EnergyHeatingLifetimeKWh  *prometheus.GaugeVec
 	EnergyCoolingLifetimeKWh  *prometheus.GaugeVec
 	EnergyConsumedLifetimeKWh *prometheus.GaugeVec
@@ -169,12 +163,6 @@ func NewPushedMetrics(reg, data prometheus.Registerer, pushed map[string]string)
 		// Energy accounting (opt-in; "device"-only label).
 		{"breezyd_energy_recovered_watts", "Instantaneous heat-transfer power across the HRV exchanger. Positive = heating recovered (winter), negative = cooling recovered (summer).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyRecoveredWatts = g }},
 		{"breezyd_energy_consumed_watts", "Instantaneous electric draw of both fans combined (magnitude).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyConsumedWatts = g }},
-		{"breezyd_energy_heating_today_kwh", "Heating energy recovered today (resets at local midnight).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyHeatingTodayKWh = g }},
-		{"breezyd_energy_cooling_today_kwh", "Cooling energy recovered today (resets at local midnight).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyCoolingTodayKWh = g }},
-		{"breezyd_energy_consumed_today_kwh", "Electric energy consumed by the fans today (resets at local midnight).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyConsumedTodayKWh = g }},
-		{"breezyd_energy_heating_month_kwh", "Heating energy recovered this calendar month (resets on first-of-month, local TZ).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyHeatingMonthKWh = g }},
-		{"breezyd_energy_cooling_month_kwh", "Cooling energy recovered this calendar month (resets on first-of-month, local TZ).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyCoolingMonthKWh = g }},
-		{"breezyd_energy_consumed_month_kwh", "Electric energy consumed by the fans this calendar month (resets on first-of-month, local TZ).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyConsumedMonthKWh = g }},
 		{"breezyd_energy_heating_lifetime_kwh", "Heating energy recovered cumulative (persists across daemon restart).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyHeatingLifetimeKWh = g }},
 		{"breezyd_energy_cooling_lifetime_kwh", "Cooling energy recovered cumulative (persists across daemon restart).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyCoolingLifetimeKWh = g }},
 		{"breezyd_energy_consumed_lifetime_kwh", "Electric energy consumed by the fans cumulative (persists across daemon restart).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyConsumedLifetimeKWh = g }},
@@ -372,15 +360,13 @@ func (m *Metrics) Update(name, id string, snap Snapshot) {
 	}
 }
 
-// SetEnergy updates all eight energy gauges for a device. When the
+// SetEnergy updates all the energy gauges for a device. When the
 // tracker reports an unsupported model (Error != ""), previously-
 // emitted samples for this device are dropped via DeleteLabelValues so
 // /metrics doesn't expose phantom zeros for un-calibrated units.
 func (m *Metrics) SetEnergy(device string, ev breezy.EnergyValues) {
 	all := []*prometheus.GaugeVec{
 		m.EnergyRecoveredWatts, m.EnergyConsumedWatts,
-		m.EnergyHeatingTodayKWh, m.EnergyCoolingTodayKWh, m.EnergyConsumedTodayKWh,
-		m.EnergyHeatingMonthKWh, m.EnergyCoolingMonthKWh, m.EnergyConsumedMonthKWh,
 		m.EnergyHeatingLifetimeKWh, m.EnergyCoolingLifetimeKWh, m.EnergyConsumedLifetimeKWh,
 	}
 	if ev.Error != "" {
@@ -391,12 +377,6 @@ func (m *Metrics) SetEnergy(device string, ev breezy.EnergyValues) {
 	}
 	m.EnergyRecoveredWatts.WithLabelValues(device).Set(ev.InstantW)
 	m.EnergyConsumedWatts.WithLabelValues(device).Set(ev.ConsumedW)
-	m.EnergyHeatingTodayKWh.WithLabelValues(device).Set(ev.HeatingTodayKWh)
-	m.EnergyCoolingTodayKWh.WithLabelValues(device).Set(ev.CoolingTodayKWh)
-	m.EnergyConsumedTodayKWh.WithLabelValues(device).Set(ev.ConsumedTodayKWh)
-	m.EnergyHeatingMonthKWh.WithLabelValues(device).Set(ev.HeatingMonthKWh)
-	m.EnergyCoolingMonthKWh.WithLabelValues(device).Set(ev.CoolingMonthKWh)
-	m.EnergyConsumedMonthKWh.WithLabelValues(device).Set(ev.ConsumedMonthKWh)
 	m.EnergyHeatingLifetimeKWh.WithLabelValues(device).Set(ev.HeatingLifetimeKWh)
 	m.EnergyCoolingLifetimeKWh.WithLabelValues(device).Set(ev.CoolingLifetimeKWh)
 	m.EnergyConsumedLifetimeKWh.WithLabelValues(device).Set(ev.ConsumedLifetimeKWh)

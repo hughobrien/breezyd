@@ -1148,7 +1148,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Ratio this month"
+              "options": "Ratio in range"
             },
             "properties": [
               {
@@ -1209,8 +1209,8 @@
             "Value #B",
             "Value #D",
             "Value #E",
-            "Recovered this month",
-            "Fans this month",
+            "Recovered in range",
+            "Fans in range",
             "Recovered lifetime",
             "Fans lifetime"
           ],
@@ -1227,7 +1227,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (device) (breezyd_energy_heating_month_kwh{device=~\"$device\"} + breezyd_energy_cooling_month_kwh{device=~\"$device\"})",
+          "expr": "max by (device) (increase(breezyd_energy_heating_lifetime_kwh{device=~\"$device\"}[$__range]) + increase(breezyd_energy_cooling_lifetime_kwh{device=~\"$device\"}[$__range]))",
           "format": "table",
           "instant": true,
           "legendFormat": "",
@@ -1239,7 +1239,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (device) (breezyd_energy_consumed_month_kwh{device=~\"$device\"})",
+          "expr": "max by (device) (increase(breezyd_energy_consumed_lifetime_kwh{device=~\"$device\"}[$__range]))",
           "format": "table",
           "instant": true,
           "legendFormat": "",
@@ -1251,7 +1251,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (device) ((breezyd_energy_heating_month_kwh{device=~\"$device\"} + breezyd_energy_cooling_month_kwh{device=~\"$device\"}) / (breezyd_energy_consumed_month_kwh{device=~\"$device\"}))",
+          "expr": "max by (device) ((increase(breezyd_energy_heating_lifetime_kwh{device=~\"$device\"}[$__range]) + increase(breezyd_energy_cooling_lifetime_kwh{device=~\"$device\"}[$__range])) / (increase(breezyd_energy_consumed_lifetime_kwh{device=~\"$device\"}[$__range])))",
           "format": "table",
           "instant": true,
           "legendFormat": "",
@@ -1304,9 +1304,9 @@
               "device": 0
             },
             "renameByName": {
-              "Value #A": "Recovered this month",
-              "Value #B": "Fans this month",
-              "Value #C": "Ratio this month",
+              "Value #A": "Recovered in range",
+              "Value #B": "Fans in range",
+              "Value #C": "Ratio in range",
               "Value #D": "Recovered lifetime",
               "Value #E": "Fans lifetime",
               "device": "Unit"
@@ -1375,7 +1375,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(breezyd_energy_heating_today_kwh{device=~\"$device\"} + breezyd_energy_cooling_today_kwh{device=~\"$device\"})",
+          "expr": "sum(increase(breezyd_energy_heating_lifetime_kwh{device=~\"$device\"}[$__range]) + increase(breezyd_energy_cooling_lifetime_kwh{device=~\"$device\"}[$__range]))",
           "instant": true,
           "legendFormat": "recovered",
           "range": false,
@@ -1386,7 +1386,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(breezyd_energy_consumed_today_kwh{device=~\"$device\"})",
+          "expr": "sum(increase(breezyd_energy_consumed_lifetime_kwh{device=~\"$device\"}[$__range]))",
           "instant": true,
           "legendFormat": "fans",
           "range": false,
@@ -1404,6 +1404,7 @@
           "refId": "C"
         }
       ],
+      "timeFrom": "now/d",
       "title": "Today (all units)",
       "type": "stat"
     },

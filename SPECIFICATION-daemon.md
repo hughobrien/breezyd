@@ -429,12 +429,14 @@ Temperature sentinels (`±32767`, "not measured") are silently skipped.
 `breezy_up`, `breezy_info` (constant-1 gauge with `firmware` and
 `build_date` labels).
 
-**Energy** — eight gauges labelled by `device` only (no `id`, since
+**Energy** — five gauges labelled by `device` only (no `id`, since
 energy is a daemon-side construct, not a per-firmware-version series):
 `breezyd_energy_recovered_watts` (signed: positive=heating,
 negative=cooling), `breezyd_energy_consumed_watts` (fan electric draw,
 magnitude), and
-`breezyd_energy_{heating,cooling,consumed}_{today,month,lifetime}_kwh`.
+`breezyd_energy_{heating,cooling,consumed}_lifetime_kwh` (cumulative; use
+`increase(...[$__range])` for any period; the today/month figures stay on the
+JSON snapshot and the web UI only).
 When `EnergyTracker.Error` is non-empty (unsupported UnitType — no
 calibration data), every previously-emitted sample for that device is
 dropped via `DeleteLabelValues` so `/metrics` doesn't expose phantom
@@ -470,7 +472,7 @@ is always accumulated; (8) persist via atomic temp+rename (mode 0600).
 The model-curve calibration table is `pkg/breezy/energy.go::modelCurves`;
 adding a new model is a one-line table edit. Devices whose UnitType
 isn't in the table surface their error string in `service.energy.error`
-on the dashboard, and the eight `breezyd_energy_*` gauges drop from
+on the dashboard, and the five `breezyd_energy_*` gauges drop from
 `/metrics` for that device. Malformed state file at `Load` → starts
 fresh + `slog.Warn` (a hand-edited file can never corrupt the running
 daemon).
