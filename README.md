@@ -107,7 +107,13 @@ module, rebuild and use it.
 
 ```nix
 {
-  inputs.breezyd.url = "github:hughobrien/breezyd";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    breezyd = {
+      url = "github:hughobrien/breezyd";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs = { self, nixpkgs, breezyd, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
@@ -630,6 +636,11 @@ window as the HTTP handlers. The standalone-CLI concurrency caveat is
 unrelated; the HomeKit bridge never opens its own UDP socket.
 
 ## Prometheus
+
+`grafana/breezyd.json` is an importable Grafana dashboard built on these
+metrics (device names replaced):
+
+![Grafana dashboard: attention strip, what each unit is doing, humidity, eCO2 and VOC, heat recovered, recovery efficiency, fan speed, per-unit temperatures, and energy recovered against energy spent on the fans](docs/img/grafana.png)
 
 The daemon exposes `/metrics` in Prometheus exposition format. Scrape it like
 any other target:

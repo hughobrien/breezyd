@@ -1,0 +1,2109 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Failed or stale polls, device faults, filter soiled or due within 7 days, RTC battery under 2.7 V, frost protection.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "orange",
+            "mode": "fixed"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "All clear"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "label_replace(max by (device) (breezy_up{device=~\"$device\"}) == 0, \"issue\", \"last poll failed\", \"\", \"\")\nor label_replace(max by (device) (time() - breezy_last_poll_timestamp{device=~\"$device\"}) > 300, \"issue\", \"no poll for 5m+\", \"\", \"\")\nor label_replace(max by (device) (breezy_fault_level{device=~\"$device\"}) == 1, \"issue\", \"fault: alarm\", \"\", \"\")\nor label_replace(max by (device) (breezy_fault_level{device=~\"$device\"}) == 2, \"issue\", \"fault: warning\", \"\", \"\")\nor label_replace(max by (device) (breezy_filter_status{device=~\"$device\"}) == 1, \"issue\", \"filter soiled — replace\", \"\", \"\")\nor label_replace((max by (device) (breezy_filter_remaining_seconds{device=~\"$device\"}) < 7*86400 > 0) unless on (device) (max by (device) (breezy_filter_status{device=~\"$device\"}) == 1), \"issue\", \"filter due within a week\", \"\", \"\")\nor label_replace(max by (device) (breezy_rtc_battery_volts{device=~\"$device\"}) < 2.7, \"issue\", \"clock battery low\", \"\", \"\")\nor label_replace(max by (device) (breezy_frost_protection_active{device=~\"$device\"}) == 1, \"issue\", \"frost protection active\", \"\", \"\")",
+          "instant": true,
+          "legendFormat": "{{device}}: {{issue}}",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "absent(\nlabel_replace(max by (device) (breezy_up{device=~\"$device\"}) == 0, \"issue\", \"last poll failed\", \"\", \"\")\nor label_replace(max by (device) (time() - breezy_last_poll_timestamp{device=~\"$device\"}) > 300, \"issue\", \"no poll for 5m+\", \"\", \"\")\nor label_replace(max by (device) (breezy_fault_level{device=~\"$device\"}) == 1, \"issue\", \"fault: alarm\", \"\", \"\")\nor label_replace(max by (device) (breezy_fault_level{device=~\"$device\"}) == 2, \"issue\", \"fault: warning\", \"\", \"\")\nor label_replace(max by (device) (breezy_filter_status{device=~\"$device\"}) == 1, \"issue\", \"filter soiled — replace\", \"\", \"\")\nor label_replace((max by (device) (breezy_filter_remaining_seconds{device=~\"$device\"}) < 7*86400 > 0) unless on (device) (max by (device) (breezy_filter_status{device=~\"$device\"}) == 1), \"issue\", \"filter due within a week\", \"\", \"\")\nor label_replace(max by (device) (breezy_rtc_battery_volts{device=~\"$device\"}) < 2.7, \"issue\", \"clock battery low\", \"\", \"\")\nor label_replace(max by (device) (breezy_frost_protection_active{device=~\"$device\"}) == 1, \"issue\", \"frost protection active\", \"\", \"\")\n)",
+          "instant": true,
+          "legendFormat": "All clear",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Needs attention",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Off, airflow mode, or what has taken over: night/turbo timer, or an override (sensor over threshold, frost protection).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "#808080",
+                  "index": 0,
+                  "text": "Off"
+                },
+                "1": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "Ventilation"
+                },
+                "10": {
+                  "color": "yellow",
+                  "index": 5,
+                  "text": "Override (sensor/frost)"
+                },
+                "11": {
+                  "color": "dark-blue",
+                  "index": 6,
+                  "text": "Night"
+                },
+                "12": {
+                  "color": "dark-orange",
+                  "index": 7,
+                  "text": "Turbo"
+                },
+                "2": {
+                  "color": "purple",
+                  "index": 2,
+                  "text": "Heat recovery"
+                },
+                "3": {
+                  "color": "light-blue",
+                  "index": 3,
+                  "text": "Supply only"
+                },
+                "4": {
+                  "color": "light-orange",
+                  "index": 4,
+                  "text": "Extract only"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#808080",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 3
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (\n    (max by (device) (breezy_power{device=~\"$device\"}) == 0) * 0\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 2) * 0 + 12\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 1) * 0 + 11\n  or (max by (device) (breezy_in_user_control{device=~\"$device\"}) == 0) * 0 + 10\n  or max by (device) (breezy_airflow_mode{device=~\"$device\"}) + 1\n)",
+          "instant": true,
+          "legendFormat": "{{device}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Doing now",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Coloured outside 30–60 %RH; red above 70.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "text",
+                "value": 30
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 70
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 3
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezy_humidity_percent{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Humidity",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "CO₂-equivalent estimated from the VOC sensor (not a real NDIR CO₂ reading). Orange ≥ 1000, red ≥ 1400 ppm.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 1400
+              }
+            ]
+          },
+          "unit": "ppm"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 3
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezy_eco2_ppm{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "eCO₂",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Sensirion VOC index: 100 is the sensor's rolling average; orange ≥ 150, red ≥ 250.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 150
+              },
+              {
+                "color": "red",
+                "value": 250
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 3
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezy_voc_index{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "VOC index",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#808080",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "#808080",
+                  "index": 0,
+                  "text": "Off"
+                },
+                "1": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "Ventilation"
+                },
+                "10": {
+                  "color": "yellow",
+                  "index": 5,
+                  "text": "Override (sensor/frost)"
+                },
+                "11": {
+                  "color": "dark-blue",
+                  "index": 6,
+                  "text": "Night"
+                },
+                "12": {
+                  "color": "dark-orange",
+                  "index": 7,
+                  "text": "Turbo"
+                },
+                "2": {
+                  "color": "purple",
+                  "index": 2,
+                  "text": "Heat recovery"
+                },
+                "3": {
+                  "color": "light-blue",
+                  "index": 3,
+                  "text": "Supply only"
+                },
+                "4": {
+                  "color": "light-orange",
+                  "index": 4,
+                  "text": "Extract only"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 6,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (\n    (max by (device) (breezy_power{device=~\"$device\"}) == 0) * 0\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 2) * 0 + 12\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 1) * 0 + 11\n  or (max by (device) (breezy_in_user_control{device=~\"$device\"}) == 0) * 0 + 10\n  or max by (device) (breezy_airflow_mode{device=~\"$device\"}) + 1\n)",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "What each unit was doing",
+      "type": "state-timeline"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 7,
+      "panels": [],
+      "title": "Air quality",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Dashed lines at 60 % and 70 %RH.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": 300000,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 70
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezy_humidity_percent{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Humidity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Estimated from the VOC sensor. Dashed lines at 1000 and 1400 ppm.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": 300000,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 1400
+              }
+            ]
+          },
+          "unit": "ppm"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 14
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezy_eco2_ppm{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "eCO₂",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "100 = the sensor's rolling average. Dashed lines at 150 and 250.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": 300000,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 150
+              },
+              {
+                "color": "red",
+                "value": 250
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 14
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezy_voc_index{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "VOC index",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 11,
+      "panels": [],
+      "title": "Heat recovery",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Heat moved across the exchanger. Positive = heat kept indoors (winter); negative = cooling kept (summer).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": 300000
+          },
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 23
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezyd_energy_recovered_watts{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Heat recovered",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Only plotted while the unit is on and in heat-recovery mode; it reads 0 otherwise.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": 300000
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 23
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezy_recovery_efficiency_pct{device=~\"$device\"}) and on (device) (max by (device) (breezy_power{device=~\"$device\"}) == 1) and on (device) (max by (device) (breezy_airflow_mode{device=~\"$device\"}) == 1)",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Recovery efficiency (while recovering)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Mean of the supply and extract fan RPM.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "fillOpacity": 0,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": 300000
+          },
+          "min": 0,
+          "unit": "suffix: rpm"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 23
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "avg by (device) (breezy_fan_rpm{device=~\"$device\"})",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Fan speed",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Sensors sit in the wall unit: when it's off they drift toward outdoor temperature, so 'room' is only trustworthy while it runs. In heat-recovery mode the airflow reverses every minute or so, which makes the lines saw-tooth.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": 300000
+          },
+          "decimals": 1,
+          "unit": "celsius"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "outdoor"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "room (exhaust in)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "text",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "supply to room"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "exhaust out"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    6,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 31
+      },
+      "id": 15,
+      "maxPerRow": 3,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "repeat": "device",
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (position) (breezy_temperature_celsius{device=~\"$device\",position=\"outdoor\"})",
+          "instant": false,
+          "legendFormat": "outdoor",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (position) (breezy_temperature_celsius{device=~\"$device\",position=\"exhaust_inlet\"})",
+          "instant": false,
+          "legendFormat": "room (exhaust in)",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (position) (breezy_temperature_celsius{device=~\"$device\",position=\"supply\"})",
+          "instant": false,
+          "legendFormat": "supply to room",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (position) (breezy_temperature_celsius{device=~\"$device\",position=\"exhaust_outlet\"})",
+          "instant": false,
+          "legendFormat": "exhaust out",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Temperatures — $device",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "id": 16,
+      "panels": [],
+      "title": "Energy",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Recovered = heating + cooling energy kept by the exchanger. Ratio = kWh recovered per kWh of fan electricity.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "decimals": 1,
+          "unit": "suffix: kWh"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ratio this month"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "x"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "gauge",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Unit"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 16,
+        "x": 0,
+        "y": 40
+      },
+      "id": 17,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "fields": [
+            "Value #A",
+            "Value #B",
+            "Value #D",
+            "Value #E",
+            "Recovered this month",
+            "Fans this month",
+            "Recovered lifetime",
+            "Fans lifetime"
+          ],
+          "reducer": [
+            "sum"
+          ],
+          "show": true
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezyd_energy_heating_month_kwh{device=~\"$device\"} + breezyd_energy_cooling_month_kwh{device=~\"$device\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezyd_energy_consumed_month_kwh{device=~\"$device\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) ((breezyd_energy_heating_month_kwh{device=~\"$device\"} + breezyd_energy_cooling_month_kwh{device=~\"$device\"}) / (breezyd_energy_consumed_month_kwh{device=~\"$device\"}))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezyd_energy_heating_lifetime_kwh{device=~\"$device\"} + breezyd_energy_cooling_lifetime_kwh{device=~\"$device\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (device) (breezyd_energy_consumed_lifetime_kwh{device=~\"$device\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "range": false,
+          "refId": "E"
+        }
+      ],
+      "title": "Energy: recovered vs spent on fans",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5,
+              "device": 0
+            },
+            "renameByName": {
+              "Value #A": "Recovered this month",
+              "Value #B": "Fans this month",
+              "Value #C": "Ratio this month",
+              "Value #D": "Recovered lifetime",
+              "Value #E": "Fans lifetime",
+              "device": "Unit"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Since local midnight.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "unit": "kwatth"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fan draw now"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "watt"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 40
+      },
+      "id": 18,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(breezyd_energy_heating_today_kwh{device=~\"$device\"} + breezyd_energy_cooling_today_kwh{device=~\"$device\"})",
+          "instant": true,
+          "legendFormat": "recovered",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(breezyd_energy_consumed_today_kwh{device=~\"$device\"})",
+          "instant": true,
+          "legendFormat": "fans",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(breezyd_energy_consumed_watts{device=~\"$device\"})",
+          "instant": true,
+          "legendFormat": "fan draw now",
+          "range": false,
+          "refId": "C"
+        }
+      ],
+      "title": "Today (all units)",
+      "type": "stat"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 47
+      },
+      "id": 23,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Days until the filter-change countdown hits zero (90-day interval).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "decimals": 0,
+              "max": 90,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 7
+                  },
+                  {
+                    "color": "blue",
+                    "value": 21
+                  }
+                ]
+              },
+              "unit": "d"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 48
+          },
+          "id": 19,
+          "options": {
+            "displayMode": "basic",
+            "namePlacement": "left",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showUnfilled": true,
+            "valueMode": "text"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_filter_remaining_seconds{device=~\"$device\"}) / 86400",
+              "instant": true,
+              "legendFormat": "{{device}}",
+              "range": false,
+              "refId": "A"
+            }
+          ],
+          "title": "Filter life left",
+          "type": "bargauge"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Motor hours"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "h"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Clock battery"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "volt"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last poll"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Poll errors (range)"
+                },
+                "properties": [
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 16,
+            "x": 8,
+            "y": 48
+          },
+          "id": 20,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device, firmware, build_date) (breezy_info{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_motor_lifetime_seconds{device=~\"$device\"}) / 3600",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_rtc_battery_volts{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (time() - breezy_last_poll_timestamp{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "sum by (device) (increase(breezy_poll_errors_total{device=~\"$device\"}[$__range])) or max by (device) (breezy_up{device=~\"$device\"}) * 0",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "E"
+            }
+          ],
+          "title": "Units",
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value #A": true
+                },
+                "renameByName": {
+                  "Value #B": "Motor hours",
+                  "Value #C": "Clock battery",
+                  "Value #D": "Last poll",
+                  "Value #E": "Poll errors (range)",
+                  "build_date": "Build",
+                  "device": "Unit",
+                  "firmware": "Firmware"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic-by-name"
+              },
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "lineWidth": 0,
+                "showPoints": "never",
+                "spanNulls": 300000,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "decimals": 0,
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 54
+          },
+          "id": 21,
+          "interval": "10m",
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "sum by (device, kind) (increase(breezy_poll_errors_total{device=~\"$device\"}[$__interval]))",
+              "instant": false,
+              "legendFormat": "{{device}} {{kind}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Poll errors",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "What each unit is set to. 'ctl' = whether that sensor is allowed to boost the fan when over its limit.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Speed preset"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "255": {
+                            "index": 0,
+                            "text": "manual"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Heater"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "index": 0,
+                            "text": "off"
+                          },
+                          "1": {
+                            "index": 1,
+                            "text": "on"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "RH ctl"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "index": 0,
+                            "text": "off"
+                          },
+                          "1": {
+                            "index": 1,
+                            "text": "on"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "CO₂ ctl"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "index": 0,
+                            "text": "off"
+                          },
+                          "1": {
+                            "index": 1,
+                            "text": "on"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "VOC ctl"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "index": 0,
+                            "text": "off"
+                          },
+                          "1": {
+                            "index": 1,
+                            "text": "on"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "RH limit"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "CO₂ limit"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ppm"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Manual %"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 16,
+            "x": 8,
+            "y": 54
+          },
+          "id": 22,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_speed_mode{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_speed_manual_pct{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_heater_enabled{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_humidity_sensor_enabled{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_humidity_threshold_pct{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "E"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_co2_sensor_enabled{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "F"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_co2_threshold_ppm{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "G"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_voc_sensor_enabled{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "H"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "max by (device) (breezy_voc_threshold_index{device=~\"$device\"})",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "range": false,
+              "refId": "I"
+            }
+          ],
+          "title": "Configured settings",
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "Value #A": "Speed preset",
+                  "Value #B": "Manual %",
+                  "Value #C": "Heater",
+                  "Value #D": "RH ctl",
+                  "Value #E": "RH limit",
+                  "Value #F": "CO₂ ctl",
+                  "Value #G": "CO₂ limit",
+                  "Value #H": "VOC ctl",
+                  "Value #I": "VOC limit",
+                  "device": "Unit"
+                }
+              }
+            }
+          ],
+          "type": "table"
+        }
+      ],
+      "title": "Service & daemon",
+      "type": "row"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "breezyd",
+    "ventilation"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "includeAll": true,
+        "label": "Unit",
+        "multi": true,
+        "name": "device",
+        "options": [],
+        "query": {
+          "query": "label_values(breezy_up, device)",
+          "refId": "d"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "breezyd",
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ]
+}
