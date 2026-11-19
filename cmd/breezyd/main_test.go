@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -585,4 +586,57 @@ func mustGet(t *testing.T, url string) string {
 		t.Fatalf("read body %s: %v", url, err)
 	}
 	return string(body)
+}
+
+// TestMain_PushesWithPrometheusURL runs the daemon with [daemon].prometheus_url
+// set and checks a poll reaches the receiver. It guards main's wiring: the
+// first version registered the gauges twice and panicked on start.
+func TestMain_PushesWithPrometheusURL(t *testing.T) {
+	writes := make(chan struct{}, 16)
+	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/write" {
+			select {
+			case writes <- struct{}{}:
+			default:
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(prom.Close)
+
+	listen := freeListenAddr(t)
+	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", "TESTID0000000005", "1111")
+	// [daemon] can appear only once in TOML, so add the key inside it.
+	body, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte(strings.Replace(string(body), "[daemon]\n", "[daemon]\nprometheus_url = \""+prom.URL+"\"\n", 1))
+	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	setRunFlags(t, cfgPath)
+	*flagBackend = "memory"
+	*flagSeed = mainSnapshotPath(t)
+	t.Cleanup(func() {
+		*flagBackend = "udp"
+		*flagSeed = ""
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	runErr := make(chan error, 1)
+	go func() { runErr <- run(ctx) }()
+
+	select {
+	case <-writes:
+	case err := <-runErr:
+		t.Fatalf("run returned before pushing: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no remote write within 5s")
+	}
+	cancel()
+	if err := <-runErr; err != nil {
+		t.Errorf("run returned error: %v", err)
+	}
 }

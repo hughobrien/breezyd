@@ -234,9 +234,16 @@ services.breezyd.prometheus.enable = true;
 # services.breezyd.prometheus.jobName = "breezyd";
 ```
 
-Injects an entry into `services.prometheus.scrapeConfigs` only when
-both `services.breezyd.enable` and `services.prometheus.enable` are
-true.
+Only when both `services.breezyd.enable` and `services.prometheus.enable`
+are true: pushes every successful poll to Prometheus with remote write
+(`daemon.prometheus_url` in the generated config, from
+`services.breezyd.prometheus.url`), and adds a scrape job for `/metrics`,
+which then carries the health. Prometheus needs the receiver flag, set
+once for every exporter that pushes (it refuses the flag twice):
+
+```nix
+services.prometheus.extraFlags = [ "--web.enable-remote-write-receiver" ];
+```
 
 ### HomeKit (optional)
 
@@ -642,8 +649,11 @@ metrics (device names replaced):
 
 ![Grafana dashboard: attention strip, what each unit is doing, humidity, eCO2 and VOC, heat recovered, recovery efficiency, fan speed, per-unit temperatures, and energy recovered against energy spent on the fans](docs/img/grafana.png)
 
-The daemon exposes `/metrics` in Prometheus exposition format. Scrape it like
-any other target:
+With `prometheus_url` set in `[daemon]`, every successful poll is pushed to
+that Prometheus with remote write, at the time it was taken, and `/metrics`
+keeps the health (`breezy_up`, `breezy_last_poll_timestamp`, `breezy_info`,
+error counters). Without it, the daemon serves everything on `/metrics` in
+Prometheus exposition format. Scrape it like any other target:
 
 ```yaml
 # prometheus.yml

@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/hughobrien/breezyd/internal/config"
+	"github.com/hughobrien/breezyd/internal/promwrite"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -161,7 +162,20 @@ func run(parent context.Context) error {
 
 	state := NewState()
 	reg := prometheus.NewRegistry()
-	metrics := NewMetrics(reg)
+	// With prometheus_url set, the device gauges go to their own registry,
+	// gathered and pushed after every poll; /metrics keeps the health.
+	var dataReg *prometheus.Registry
+	if cfg.Daemon.PrometheusURL != "" {
+		dataReg = prometheus.NewRegistry()
+	}
+	// Pass dataReg only when set: a nil *Registry in a Registerer is a
+	// non-nil interface, and NewMetrics would register into it.
+	var metrics *Metrics
+	if dataReg != nil {
+		metrics = NewMetrics(reg, dataReg)
+	} else {
+		metrics = NewMetrics(reg)
+	}
 
 	rootCtx, rootCancel := context.WithCancel(parent)
 	defer rootCancel()
@@ -190,6 +204,20 @@ func run(parent context.Context) error {
 	// Compose poll-side fan-out: HomeKit characteristics first, then the
 	// browser push hub. Both are independent and idempotent; either firing
 	// in isolation is safe.
+	var pusher *metricPusher
+	if dataReg != nil {
+		pusher = newMetricPusher(metrics, dataReg, &promwrite.Client{Base: cfg.Daemon.PrometheusURL},
+			cfg.Daemon.PrometheusJob, devices, func(name string) (breezy.EnergyValues, bool) {
+				// handler.Pollers is set before the pollers start.
+				if p := handler.Pollers[name]; p != nil && p.Energy != nil {
+					return p.Energy.Snapshot(), true
+				}
+				return breezy.EnergyValues{}, false
+			})
+		reg.MustRegister(pusher.Collectors()...)
+		go pusher.Run(rootCtx)
+		slog.Info("pushing polls", "prometheus", cfg.Daemon.PrometheusURL)
+	}
 	onPoll := func(name string, snap Snapshot) {
 		// testOnPollHook is the run-level test seam: when a test sets it,
 		// it fires synchronously on every successful poll tick (with handler
@@ -199,6 +227,9 @@ func run(parent context.Context) error {
 			hook(handler, name, snap)
 		}
 		handler.SyncHomekit(name, snap)
+		if pusher != nil {
+			pusher.Notify(name, snap)
+		}
 	}
 	onTick := func(name string, snap Snapshot) {
 		// PushHub.Notify must fire on EVERY tick (success or failure) so

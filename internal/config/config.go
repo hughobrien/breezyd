@@ -64,6 +64,12 @@ type Daemon struct {
 	// "1111", and devices without their own password are treated as
 	// "no password set" (which the firmware will reject at poll time).
 	Password string
+	// PrometheusURL, when set, is a Prometheus (remote write receiver on)
+	// that every successful poll is pushed to, at its poll time; the
+	// device gauges then leave /metrics, which keeps the health.
+	PrometheusURL string
+	// PrometheusJob is the job label on pushed series. Default "breezyd".
+	PrometheusJob string
 }
 
 // Homekit holds HomeKit bridge settings. The bridge is opt-in via
@@ -114,6 +120,8 @@ type rawDaemon struct {
 	PollInterval string `toml:"poll_interval"`
 	Discovery    string `toml:"discovery"`
 	Password     string `toml:"password"`
+	PromURL      string `toml:"prometheus_url"`
+	PromJob      string `toml:"prometheus_job"`
 }
 
 type rawDevice struct {
@@ -160,9 +168,11 @@ func Load(path string) (*Config, error) {
 
 	cfg := &Config{
 		Daemon: Daemon{
-			Listen:    raw.Daemon.Listen,
-			Discovery: raw.Daemon.Discovery,
-			Password:  raw.Daemon.Password,
+			Listen:        raw.Daemon.Listen,
+			Discovery:     raw.Daemon.Discovery,
+			Password:      raw.Daemon.Password,
+			PrometheusURL: raw.Daemon.PromURL,
+			PrometheusJob: raw.Daemon.PromJob,
 		},
 		Devices: make(map[string]Device, len(raw.Devices)),
 	}
@@ -196,6 +206,9 @@ func Load(path string) (*Config, error) {
 	// mode". The daemon applies its own default after Load returns.
 	if cfg.Daemon.Discovery == "" {
 		cfg.Daemon.Discovery = "on-start"
+	}
+	if cfg.Daemon.PrometheusJob == "" {
+		cfg.Daemon.PrometheusJob = "breezyd"
 	}
 
 	// poll_interval: parse raw string, default to 30s if absent.

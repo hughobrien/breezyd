@@ -102,6 +102,8 @@ listen        = "127.0.0.1:9876"
 poll_interval = "30s"
 discovery     = "on-start"          # "on-start" | "off" | "periodic:<go-duration>"
 password      = ""                  # optional fleet-wide protocol password
+prometheus_url = ""                 # optional: push every poll here (remote write)
+prometheus_job = "breezyd"          # job label on pushed series
 
 [homekit]
 enabled     = false
@@ -367,6 +369,21 @@ populated lazily before each scrape (`metricsHandler` walks the cache
 and the per-device energy trackers, calling `Update` and `SetEnergy`
 once per device). No Go runtime metrics, no collectors leaking in from
 imported libraries.
+
+**Push (`[daemon].prometheus_url`).** When set, every device gauge except
+`breezy_up`, `breezy_last_poll_timestamp` and `breezy_info` moves to a
+second registry, and `cmd/breezyd/pushmetrics.go` pushes it with remote
+write after each successful poll, stamped with that poll's
+`LastPoll` (each sample strictly after the device's previous one). A
+30 s poll scraped every 60 s kept one poll in two, and two independent
+timers can read one twice or skip one; pushing keeps each poll exactly
+once. The poller's `OnPoll` only queues (it runs under the device's UDP
+lock); a goroutine gathers and writes. A failed write is kept and resent
+with the next poll (`internal/promwrite.Queue`), anything older than 50
+minutes is dropped, and a refused write is dropped. `/metrics` keeps the
+health gauges, `breezy_poll_errors_total`, `breezyd_push_errors_total`
+and `breezyd_push_queued_samples`. A failed poll pushes nothing, so the
+graph shows a gap.
 
 Per-device gauges are labelled `device="<name>", id="<16-byte ID>"`
 unless noted otherwise. Missing params are silently skipped — gauges

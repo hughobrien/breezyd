@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[daemon].prometheus_url` (and `prometheus_job`): push every successful
+  poll to Prometheus with remote write, stamped with its poll time, instead
+  of serving the device gauges for a scrape. A 30 s poll scraped every 60 s
+  kept one poll in two. `/metrics` keeps the health and adds
+  `breezyd_push_errors_total` and `breezyd_push_queued_samples`. The NixOS
+  module sets it when `prometheus.enable` is on (new `prometheus.url`) and
+  asserts Prometheus has `--web.enable-remote-write-receiver`.
+
 ## [2.1.0] - 2026-05-12
 
 Minor release: two UX features (inline-edit schedule, optimistic-UI cascades) plus dashboard polish + correctness fixes uncovered while exercising v2.0.2 against the three production devices. No `/v1` API or CLI surface change.
