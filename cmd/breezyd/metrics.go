@@ -112,7 +112,12 @@ func withExtra(extras ...string) []string {
 // NewMetrics constructs every collector and registers it with reg.
 // reg may be nil for tests that don't care about scraping; in that
 // case the metrics are usable but not registered.
-func NewMetrics(reg prometheus.Registerer) *Metrics {
+//
+// data, when non-nil, takes the device gauges instead (everything but
+// breezy_up, breezy_last_poll_timestamp, breezy_info and
+// breezy_poll_errors_total): the pusher gathers it after each poll and
+// sends the samples with remote write, so they leave /metrics.
+func NewMetrics(reg prometheus.Registerer, data ...prometheus.Registerer) *Metrics {
 	m := &Metrics{}
 
 	gauges := []gaugeDef{
@@ -172,11 +177,23 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		{"breezyd_energy_consumed_lifetime_kwh", "Electric energy consumed by the fans cumulative (persists across daemon restart).", []string{"device"}, func(m *Metrics, g *prometheus.GaugeVec) { m.EnergyConsumedLifetimeKWh = g }},
 	}
 
-	gaugeCollectors := make([]prometheus.Collector, 0, len(gauges))
+	pushTo := reg
+	if len(data) > 0 && data[0] != nil {
+		pushTo = data[0]
+	}
+	type placed struct {
+		c   prometheus.Collector
+		reg prometheus.Registerer
+	}
+	gaugeCollectors := make([]placed, 0, len(gauges))
 	for _, d := range gauges {
 		g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: d.name, Help: d.help}, d.labels)
 		d.assign(m, g)
-		gaugeCollectors = append(gaugeCollectors, g)
+		to := pushTo
+		if healthGauges[d.name] {
+			to = reg
+		}
+		gaugeCollectors = append(gaugeCollectors, placed{g, to})
 	}
 
 	m.pollErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -184,13 +201,23 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		Help: "Total number of poll errors, by classification.",
 	}, withExtra("kind"))
 
-	if reg != nil {
-		for _, c := range gaugeCollectors {
-			reg.MustRegister(c)
+	for _, p := range gaugeCollectors {
+		if p.reg != nil {
+			p.reg.MustRegister(p.c)
 		}
+	}
+	if reg != nil {
 		reg.MustRegister(m.pollErrorsTotal)
 	}
 	return m
+}
+
+// healthGauges stay on /metrics when the rest is pushed: they say whether
+// the pushed data is current.
+var healthGauges = map[string]bool{
+	"breezy_up":                  true,
+	"breezy_last_poll_timestamp": true,
+	"breezy_info":                true,
 }
 
 // Update writes every gauge derivable from snap. Missing params are

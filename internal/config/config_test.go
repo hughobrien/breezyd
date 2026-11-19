@@ -458,3 +458,22 @@ state_dir = "~/.config/breezyd/homekit"
 	want := filepath.Join(home, ".config", "breezyd", "homekit")
 	is.Equal(cfg.Homekit.StateDir, want)
 }
+
+func TestLoad_PrometheusPush(t *testing.T) {
+	is := is.New(t)
+	cfg, err := Load(writeConfig(t, `
+[daemon]
+prometheus_url = "http://[::1]:9090"
+`))
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.PrometheusURL, "http://[::1]:9090") // pushes there
+	is.Equal(cfg.Daemon.PrometheusJob, "breezyd")           // job defaults
+
+	cfg, err = Load(writeConfig(t, `
+[daemon]
+prometheus_job = "vents"
+`))
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.PrometheusURL, "") // no URL: nothing pushed
+	is.Equal(cfg.Daemon.PrometheusJob, "vents")
+}

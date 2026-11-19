@@ -24,6 +24,7 @@
 
 let
   cfg = config.services.breezyd;
+  pushing = cfg.prometheus.enable && config.services.prometheus.enable;
   tomlFormat = pkgs.formats.toml { };
   generatedConfig = tomlFormat.generate "breezyd.toml" cfg.settings;
 in {
@@ -98,9 +99,22 @@ in {
         type = lib.types.bool;
         default = false;
         description = ''
-          When true and `services.prometheus.enable` is also true, register
-          a scrape job for breezyd's `/metrics` endpoint automatically.
+          When true and `services.prometheus.enable` is also true, push
+          every successful poll to Prometheus with remote write (by setting
+          `daemon.prometheus_url` in the generated config) and register a
+          scrape job for breezyd's `/metrics` endpoint (health). Prometheus
+          needs `--web.enable-remote-write-receiver` in its `extraFlags`.
+          With `configFile`, set `prometheus_url` there yourself.
         '';
+      };
+
+      url = lib.mkOption {
+        type = lib.types.str;
+        default =
+          let p = config.services.prometheus;
+          in "http://${if p.listenAddress == "0.0.0.0" || p.listenAddress == "" then "127.0.0.1" else p.listenAddress}:${toString p.port}";
+        defaultText = lib.literalExpression ''"http://''${services.prometheus.listenAddress}:''${toString services.prometheus.port}"'';
+        description = "Prometheus base URL; polls go to `<url>/api/v1/write`.";
       };
 
       jobName = lib.mkOption {
@@ -194,7 +208,19 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
+    services.breezyd.settings.daemon = lib.mkIf pushing {
+      prometheus_url = lib.mkDefault cfg.prometheus.url;
+      prometheus_job = lib.mkDefault cfg.prometheus.jobName;
+    };
+
     assertions = [
+      # breezyd pushes with remote write. The receiver flag is set once by
+      # the host (Prometheus refuses a repeated flag, and several exporters
+      # push), so only check it is there.
+      {
+        assertion = !pushing || lib.elem "--web.enable-remote-write-receiver" config.services.prometheus.extraFlags;
+        message = "services.breezyd.prometheus.enable pushes polls: add \"--web.enable-remote-write-receiver\" to services.prometheus.extraFlags.";
+      }
       {
         assertion = !cfg.nginx.enable || cfg.nginx.virtualHost != null;
         message = "services.breezyd.nginx.enable requires services.breezyd.nginx.virtualHost to be set (e.g. \"breezy.home.lan\").";
