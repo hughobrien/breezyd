@@ -234,15 +234,17 @@ services.breezyd.prometheus.enable = true;
 # services.breezyd.prometheus.jobName = "breezyd";
 ```
 
-Only when both `services.breezyd.enable` and `services.prometheus.enable`
-are true: pushes every successful poll to Prometheus with remote write
-(`daemon.prometheus_url` in the generated config, from
-`services.breezyd.prometheus.url`), and adds a scrape job for `/metrics`,
-which then carries the health. Prometheus needs the receiver flag, set
-once for every exporter that pushes (it refuses the flag twice):
+With a local `services.victoriametrics` (or else `services.prometheus`)
+enabled: pushes every successful poll to it with remote write (as
+`[daemon.push]` in the generated config, named after the host), and adds a
+scrape job for `/metrics` that drops the copies it was pushed. More targets
+go in `services.breezyd.push.<name>.url`. Prometheus needs the receiver
+flag, set once for every exporter that pushes (it refuses the flag twice):
 
 ```nix
-services.prometheus.extraFlags = [ "--web.enable-remote-write-receiver" ];
+services.victoriametrics.enable = true;
+# or:
+# services.prometheus.extraFlags = [ "--web.enable-remote-write-receiver" ];
 ```
 
 ### HomeKit (optional)
@@ -649,11 +651,12 @@ metrics (device names replaced):
 
 ![Grafana dashboard: attention strip, what each unit is doing, humidity, eCO2 and VOC, heat recovered, recovery efficiency, fan speed, per-unit temperatures, and energy recovered against energy spent on the fans](docs/img/grafana.png)
 
-With `prometheus_url` set in `[daemon]`, every successful poll is pushed to
-that Prometheus with remote write, at the time it was taken, and `/metrics`
-keeps the health (`breezy_up`, `breezy_last_poll_timestamp`, `breezy_info`,
-error counters). Without it, the daemon serves everything on `/metrics` in
-Prometheus exposition format. Scrape it like any other target:
+`/metrics` serves everything in Prometheus exposition format. With targets
+in `[daemon.push]` (`name = "url"`), every successful poll is also pushed to
+each with remote write, at the time it was taken, and the pushed gauges on
+`/metrics` carry `pushed_<name>="true"`; the target's own scrape should drop
+those (below), any other scraper keeps them. Scrape it like any other
+target:
 
 ```yaml
 # prometheus.yml
@@ -661,6 +664,11 @@ scrape_configs:
   - job_name: breezy
     static_configs:
       - targets: ['localhost:9876']
+    # only on a host breezyd pushes to, as target "mytarget":
+    metric_relabel_configs:
+      - source_labels: [pushed_mytarget]
+        regex: "true"
+        action: drop
 ```
 
 Each metric is labelled with `device="<name>"` and `id="<16-char id>"`. A few

@@ -123,6 +123,43 @@
       formatter = pkgs.nixpkgs-fmt;
     });
 
+    moduleSystem = extra: nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        self.nixosModules.default
+        {
+          boot.isContainer = true;
+          system.stateVersion = "26.05";
+          networking.hostName = "my-host";
+          services.breezyd = {
+            enable = true;
+            settings.daemon.listen = "127.0.0.1:9876";
+            prometheus.enable = true;
+            push.offsite.url = "http://offsite:8428";
+          };
+        }
+        extra
+      ];
+    };
+    # Evaluation fails (so the check does) if the options stop doing their job.
+    moduleCheck =
+      let
+        vm = (moduleSystem { services.victoriametrics.enable = true; }).config;
+        prom = (moduleSystem {
+          services.prometheus.enable = true;
+          services.prometheus.extraFlags = [ "--web.enable-remote-write-receiver" ];
+        }).config;
+        lib = nixpkgs.lib;
+        job = jobs: lib.findFirst (j: j.job_name == "breezyd") null jobs;
+        drops = j: lib.any (r: r.source_labels == [ "pushed_my_host" ] && r.regex == "true" && r.action == "drop") j.metric_relabel_configs;
+      in
+      assert (vm.services.breezyd.settings.daemon.push).my_host == "http://127.0.0.1:8428";
+      assert (vm.services.breezyd.settings.daemon.push).offsite == "http://offsite:8428";
+      assert drops (job vm.services.victoriametrics.prometheusConfig.scrape_configs);
+      assert vm.services.prometheus.scrapeConfigs == [ ];
+      assert (prom.services.breezyd.settings.daemon.push).my_host == "http://127.0.0.1:9090";
+      assert drops (job prom.services.prometheus.scrapeConfigs);
+      vm.systemd.units."breezyd.service".unit;
     # Wrap the bare module so it defaults services.breezyd.package to the
     # flake's own build for the host's system. Without this wrapper, the
     # module falls back to pkgs.breezyd — which doesn't exist in nixpkgs
@@ -138,7 +175,9 @@
 
     packages   = forEachSystem (system: perSystem.${system}.packages);
     apps       = forEachSystem (system: perSystem.${system}.apps);
-    checks     = forEachSystem (system: perSystem.${system}.checks);
+    checks     = forEachSystem (system: perSystem.${system}.checks // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+      module = moduleCheck;
+    });
     devShells  = forEachSystem (system: perSystem.${system}.devShells);
     formatter  = forEachSystem (system: perSystem.${system}.formatter);
   };

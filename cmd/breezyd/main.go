@@ -162,20 +162,10 @@ func run(parent context.Context) error {
 
 	state := NewState()
 	reg := prometheus.NewRegistry()
-	// With prometheus_url set, the device gauges go to their own registry,
-	// gathered and pushed after every poll; /metrics keeps the health.
-	var dataReg *prometheus.Registry
-	if cfg.Daemon.PrometheusURL != "" {
-		dataReg = prometheus.NewRegistry()
-	}
-	// Pass dataReg only when set: a nil *Registry in a Registerer is a
-	// non-nil interface, and NewMetrics would register into it.
-	var metrics *Metrics
-	if dataReg != nil {
-		metrics = NewMetrics(reg, dataReg)
-	} else {
-		metrics = NewMetrics(reg)
-	}
+	// The device gauges go in their own registry, gathered and pushed after
+	// every poll when [daemon.push] has targets; /metrics serves both.
+	dataReg := prometheus.NewRegistry()
+	metrics := NewPushedMetrics(reg, dataReg, cfg.Daemon.Push.Labels())
 
 	rootCtx, rootCancel := context.WithCancel(parent)
 	defer rootCancel()
@@ -205,8 +195,8 @@ func run(parent context.Context) error {
 	// browser push hub. Both are independent and idempotent; either firing
 	// in isolation is safe.
 	var pusher *metricPusher
-	if dataReg != nil {
-		pusher = newMetricPusher(metrics, dataReg, &promwrite.Client{Base: cfg.Daemon.PrometheusURL},
+	if len(cfg.Daemon.Push) > 0 {
+		pusher = newMetricPusher(metrics, dataReg, promwrite.NewPushers(cfg.Daemon.Push, nil),
 			cfg.Daemon.PrometheusJob, devices, func(name string) (breezy.EnergyValues, bool) {
 				// handler.Pollers is set before the pollers start.
 				if p := handler.Pollers[name]; p != nil && p.Energy != nil {
@@ -216,7 +206,7 @@ func run(parent context.Context) error {
 			})
 		reg.MustRegister(pusher.Collectors()...)
 		go pusher.Run(rootCtx)
-		slog.Info("pushing polls", "prometheus", cfg.Daemon.PrometheusURL)
+		slog.Info("pushing polls", "targets", cfg.Daemon.Push.String())
 	}
 	onPoll := func(name string, snap Snapshot) {
 		// testOnPollHook is the run-level test seam: when a test sets it,
@@ -267,7 +257,7 @@ func run(parent context.Context) error {
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", handler)
 	mux.Handle("/v1/", handler)
-	mux.Handle("/metrics", metricsHandler(reg, metrics, state, devices, pollers))
+	mux.Handle("/metrics", metricsHandler(prometheus.Gatherers{reg, dataReg}, metrics, state, devices, pollers))
 	mux.Handle("/", handler)
 
 	srv := &http.Server{
@@ -522,7 +512,7 @@ func makeClientFactory(devices *DeviceRegistry, memClients map[string]*breezy.Me
 // This is deliberately cheap: Update() is a few map lookups and gauge
 // sets per device, dwarfed by the protobuf encode promhttp does
 // afterward.
-func metricsHandler(reg *prometheus.Registry, m *Metrics, state *State, devices *DeviceRegistry, pollers map[string]*Poller) http.Handler {
+func metricsHandler(reg prometheus.Gatherer, m *Metrics, state *State, devices *DeviceRegistry, pollers map[string]*Poller) http.Handler {
 	inner := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, name := range state.Devices() {
