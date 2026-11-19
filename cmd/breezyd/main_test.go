@@ -588,10 +588,10 @@ func mustGet(t *testing.T, url string) string {
 	return string(body)
 }
 
-// TestMain_PushesWithPrometheusURL runs the daemon with [daemon].prometheus_url
-// set and checks a poll reaches the receiver. It guards main's wiring: the
+// TestMain_PushesToTargets runs the daemon with a [daemon.push] target and
+// checks a poll reaches the receiver. It guards main's wiring: the
 // first version registered the gauges twice and panicked on start.
-func TestMain_PushesWithPrometheusURL(t *testing.T) {
+func TestMain_PushesToTargets(t *testing.T) {
 	writes := make(chan struct{}, 16)
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/write" {
@@ -606,12 +606,11 @@ func TestMain_PushesWithPrometheusURL(t *testing.T) {
 
 	listen := freeListenAddr(t)
 	cfgPath := writeTempConfig(t, listen, "127.0.0.1:4000", "TESTID0000000005", "1111")
-	// [daemon] can appear only once in TOML, so add the key inside it.
 	body, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body = []byte(strings.Replace(string(body), "[daemon]\n", "[daemon]\nprometheus_url = \""+prom.URL+"\"\n", 1))
+	body = append(body, []byte("\n[daemon.push]\nlocal = \""+prom.URL+"\"\n")...)
 	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -22,13 +22,16 @@ func (w *fakeWriter) Write(_ context.Context, s []promwrite.Series) error {
 
 func TestPushEachPoll(t *testing.T) {
 	reg, data := prometheus.NewRegistry(), prometheus.NewRegistry()
-	m := NewMetrics(reg, data)
+	targets := promwrite.Targets{{Name: "vm", URL: "http://vm"}}
+	m := NewPushedMetrics(reg, data, targets.Labels())
 	devices := NewDeviceRegistry(map[string]DeviceConfig{
 		"office":  {ID: "0123456789abcdef"},
 		"bedroom": {ID: "fedcba9876543210"},
 	})
 	w := &fakeWriter{}
-	p := newMetricPusher(m, data, w, "breezyd", devices, nil)
+	push := promwrite.NewPushers(targets, nil)
+	push[0].Queue.W = w
+	p := newMetricPusher(m, data, push, "breezyd", devices, nil)
 	ctx := context.Background()
 
 	snap := representativeSnapshot()
@@ -40,7 +43,7 @@ func TestPushEachPoll(t *testing.T) {
 	}
 	names := map[string]bool{}
 	for _, s := range w.got[1] {
-		if s.Labels["device"] != "office" || s.Labels["job"] != "breezyd" || len(s.Samples) != 1 || !s.Samples[0].T.Equal(snap.LastPoll) {
+		if s.Labels["device"] != "office" || s.Labels["job"] != "breezyd" || s.Labels["pushed_vm"] != "" || len(s.Samples) != 1 || !s.Samples[0].T.Equal(snap.LastPoll) {
 			t.Fatalf("series %v: want office only, job breezyd, one sample at the poll time", s)
 		}
 		names[s.Labels["__name__"]] = true
@@ -59,12 +62,19 @@ func TestPushEachPoll(t *testing.T) {
 
 	reg.MustRegister(p.Collectors()...)
 	rec := httptest.NewRecorder()
-	metricsHandler(reg, m, NewState(), devices, nil).ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	state := NewState()
+	state.Set("office", snap)
+	metricsHandler(prometheus.Gatherers{reg, data}, m, state, devices, nil).ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	body := rec.Body.String()
-	if strings.Contains(body, "breezy_power{") || strings.Contains(body, "breezy_fan_rpm{") {
-		t.Errorf("pushed gauges should not be on /metrics:\n%s", body)
-	}
-	for _, want := range []string{`breezy_up{device="office"`, "breezyd_push_errors_total 0", "breezyd_push_queued_samples 0"} {
+	// The device gauges stay on /metrics for any scraper, marked so vm's own
+	// scrape can drop them; health is not marked.
+	for _, want := range []string{
+		`breezy_power{device="office",id="0123456789abcdef",pushed_vm="true"}`,
+		`breezy_fan_rpm{device="office",fan=`,
+		`breezy_up{device="office",id="0123456789abcdef"}`,
+		`breezyd_push_errors_total{target="vm"} 0`,
+		`breezyd_push_queued_samples{target="vm"} 0`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %s on /metrics:\n%s", want, body)
 		}
@@ -72,7 +82,7 @@ func TestPushEachPoll(t *testing.T) {
 }
 
 func TestNotifyNeverBlocks(t *testing.T) {
-	p := newMetricPusher(NewMetrics(nil, prometheus.NewRegistry()), prometheus.NewRegistry(), &fakeWriter{}, "breezyd",
+	p := newMetricPusher(NewPushedMetrics(nil, prometheus.NewRegistry(), nil), prometheus.NewRegistry(), nil, "breezyd",
 		NewDeviceRegistry(nil), nil)
 	done := make(chan struct{})
 	go func() {

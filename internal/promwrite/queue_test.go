@@ -67,7 +67,7 @@ func TestQueueMergesAndRetries(t *testing.T) {
 
 	w.err = nil
 	q.Add(one("a", 5, 5))
-	now = at(5 + 3600)
+	now = at(5 + 7*3600)
 	_ = q.Flush(ctx)
 	if len(w.got) != 1 {
 		t.Error("samples older than MaxAge should be dropped, not sent")
@@ -76,7 +76,7 @@ func TestQueueMergesAndRetries(t *testing.T) {
 
 func TestFromFamilies(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "room_celsius"}, []string{"unit"})
+	g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "room_celsius", ConstLabels: Targets{{"vm", "http://vm"}}.Labels()}, []string{"unit"})
 	h := prometheus.NewHistogram(prometheus.HistogramOpts{Name: "latency_seconds"})
 	reg.MustRegister(g, h)
 	g.WithLabelValues("office").Set(21.5)
@@ -91,7 +91,7 @@ func TestFromFamilies(t *testing.T) {
 		t.Fatalf("want only office's gauge (no histogram), got %v", s)
 	}
 	l := s[0].Labels
-	if l["__name__"] != "room_celsius" || l["unit"] != "office" || l["job"] != "comfortd" || s[0].Samples[0] != (Sample{at(7), 21.5}) {
+	if l["__name__"] != "room_celsius" || l["unit"] != "office" || l["job"] != "comfortd" || len(l) != 3 || s[0].Samples[0] != (Sample{at(7), 21.5}) {
 		t.Errorf("got %v", s[0])
 	}
 }

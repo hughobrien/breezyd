@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package promwrite sends samples to Prometheus with remote write 1.0 and asks
-// it for the newest sample of a series, so a poller that pushes past data can
-// carry on where it stopped.
+// Package promwrite sends samples with remote write 1.0 to named targets
+// (VictoriaMetrics, Prometheus, or anything else that takes it) and asks a
+// target for the newest sample of a series, so a poller that pushes past data
+// can carry on where it stopped.
 //
 // The wire format is small enough to write by hand: a protobuf WriteRequest
 // (https://prometheus.io/docs/specs/prw/remote_write_spec/) in a snappy block.
@@ -10,8 +11,8 @@
 // decoder reads; the payloads are a few hundred samples, so compression does
 // not matter.
 //
-// promwrite.go is the same in emporiad, kasad, comfortd and breezyd; change
-// them together.
+// This package is the same in emporiad, kasad, comfortd and breezyd; change
+// the copies together.
 package promwrite
 
 import (
@@ -45,13 +46,13 @@ type Sample struct {
 	V float64
 }
 
-// Client talks to one Prometheus.
+// Client talks to one receiver.
 type Client struct {
-	Base string // e.g. http://[::1]:9090
+	Base string // e.g. http://127.0.0.1:8428
 	HTTP *http.Client
 }
 
-// RefusedError is a write Prometheus answered with a 4xx other than 429:
+// RefusedError is a write the receiver answered with a 4xx other than 429:
 // sending the same data again will fail the same way.
 type RefusedError struct {
 	Status int
@@ -59,7 +60,7 @@ type RefusedError struct {
 }
 
 func (e *RefusedError) Error() string {
-	return fmt.Sprintf("prometheus refused the write: HTTP %d: %s", e.Status, e.Body)
+	return fmt.Sprintf("remote write refused: HTTP %d: %s", e.Status, e.Body)
 }
 
 func (c *Client) http() *http.Client {
@@ -71,7 +72,7 @@ func (c *Client) http() *http.Client {
 
 // Write sends the series in one request. A *RefusedError means the data will
 // never be accepted; any other error may succeed on a retry. Resending samples
-// Prometheus already has (same time, same value) is harmless.
+// the receiver already has (same time, same value) is harmless.
 func (c *Client) Write(ctx context.Context, series []Series) error {
 	body := snappyLiterals(Encode(series))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.Base, "/")+"/api/v1/write", bytes.NewReader(body))
@@ -93,7 +94,7 @@ func (c *Client) Write(ctx context.Context, series []Series) error {
 	case resp.StatusCode/100 == 4 && resp.StatusCode != http.StatusTooManyRequests:
 		return &RefusedError{Status: resp.StatusCode, Body: strings.TrimSpace(string(msg))}
 	default:
-		return fmt.Errorf("prometheus write: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		return fmt.Errorf("remote write: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 }
 

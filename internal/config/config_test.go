@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hughobrien/breezyd/internal/promwrite"
 	"github.com/matryer/is"
 )
 
@@ -459,21 +460,28 @@ state_dir = "~/.config/breezyd/homekit"
 	is.Equal(cfg.Homekit.StateDir, want)
 }
 
-func TestLoad_PrometheusPush(t *testing.T) {
+func TestLoad_Push(t *testing.T) {
 	is := is.New(t)
 	cfg, err := Load(writeConfig(t, `
-[daemon]
-prometheus_url = "http://[::1]:9090"
+[daemon.push]
+offsite = "https://vm.example"
+bigthink = "http://127.0.0.1:8428"
 `))
 	is.NoErr(err)
-	is.Equal(cfg.Daemon.PrometheusURL, "http://[::1]:9090") // pushes there
-	is.Equal(cfg.Daemon.PrometheusJob, "breezyd")           // job defaults
+	is.Equal(cfg.Daemon.Push, promwrite.Targets{{Name: "bigthink", URL: "http://127.0.0.1:8428"}, {Name: "offsite", URL: "https://vm.example"}}) // sorted
+	is.Equal(cfg.Daemon.PrometheusJob, "breezyd")                                                                                                // job defaults
 
 	cfg, err = Load(writeConfig(t, `
 [daemon]
 prometheus_job = "vents"
 `))
 	is.NoErr(err)
-	is.Equal(cfg.Daemon.PrometheusURL, "") // no URL: nothing pushed
+	is.Equal(len(cfg.Daemon.Push), 0) // no targets: nothing pushed
 	is.Equal(cfg.Daemon.PrometheusJob, "vents")
+
+	_, err = Load(writeConfig(t, `
+[daemon.push]
+"my-host" = "http://127.0.0.1:8428"
+`))
+	is.True(err != nil) // not a label name
 }

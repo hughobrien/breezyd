@@ -112,12 +112,15 @@ func withExtra(extras ...string) []string {
 // NewMetrics constructs every collector and registers it with reg.
 // reg may be nil for tests that don't care about scraping; in that
 // case the metrics are usable but not registered.
-//
-// data, when non-nil, takes the device gauges instead (everything but
+func NewMetrics(reg prometheus.Registerer) *Metrics { return NewPushedMetrics(reg, nil, nil) }
+
+// NewPushedMetrics is NewMetrics with the device gauges (everything but
 // breezy_up, breezy_last_poll_timestamp, breezy_info and
-// breezy_poll_errors_total): the pusher gathers it after each poll and
-// sends the samples with remote write, so they leave /metrics.
-func NewMetrics(reg prometheus.Registerer, data ...prometheus.Registerer) *Metrics {
+// breezy_poll_errors_total) in data, when non-nil: the pusher gathers it
+// after each poll and sends the samples with remote write. /metrics serves
+// data too; pushed (from promwrite.Targets.Labels) goes on every device
+// gauge, so each target's own scrape can drop the copies it was pushed.
+func NewPushedMetrics(reg, data prometheus.Registerer, pushed map[string]string) *Metrics {
 	m := &Metrics{}
 
 	gauges := []gaugeDef{
@@ -178,8 +181,8 @@ func NewMetrics(reg prometheus.Registerer, data ...prometheus.Registerer) *Metri
 	}
 
 	pushTo := reg
-	if len(data) > 0 && data[0] != nil {
-		pushTo = data[0]
+	if data != nil {
+		pushTo = data
 	}
 	type placed struct {
 		c   prometheus.Collector
@@ -187,12 +190,12 @@ func NewMetrics(reg prometheus.Registerer, data ...prometheus.Registerer) *Metri
 	}
 	gaugeCollectors := make([]placed, 0, len(gauges))
 	for _, d := range gauges {
-		g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: d.name, Help: d.help}, d.labels)
-		d.assign(m, g)
-		to := pushTo
+		to, constLabels := pushTo, pushed
 		if healthGauges[d.name] {
-			to = reg
+			to, constLabels = reg, nil
 		}
+		g := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: d.name, Help: d.help, ConstLabels: constLabels}, d.labels)
+		d.assign(m, g)
 		gaugeCollectors = append(gaugeCollectors, placed{g, to})
 	}
 
@@ -212,8 +215,8 @@ func NewMetrics(reg prometheus.Registerer, data ...prometheus.Registerer) *Metri
 	return m
 }
 
-// healthGauges stay on /metrics when the rest is pushed: they say whether
-// the pushed data is current.
+// healthGauges are never pushed: they say whether the pushed data is
+// current.
 var healthGauges = map[string]bool{
 	"breezy_up":                  true,
 	"breezy_last_poll_timestamp": true,

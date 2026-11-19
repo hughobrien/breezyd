@@ -18,14 +18,15 @@ type Writer interface {
 	Write(ctx context.Context, series []Series) error
 }
 
-// Queue holds samples until Prometheus takes them. Add from anywhere; Flush
-// sends everything queued in one write. After a failure Prometheus may get
+// Queue holds samples until the receiver takes them. Add from anywhere; Flush
+// sends everything queued in one write. After a failure the receiver may get
 // over, the samples stay for the next Flush; a write it refused is dropped,
-// as is anything older than MaxAge (Prometheus refuses samples older than
-// about an hour).
+// as is anything older than MaxAge, which bounds the backlog while a receiver
+// is down. (VictoriaMetrics takes any sample inside its retention; Prometheus
+// without an out-of-order window refuses ones older than about an hour.)
 type Queue struct {
 	W      Writer
-	MaxAge time.Duration // 50m if zero
+	MaxAge time.Duration // 6h if zero
 	Now    func() time.Time
 
 	flush sync.Mutex // one Flush at a time keeps each series in time order
@@ -52,8 +53,8 @@ func key(labels map[string]string) string {
 	return b.String()
 }
 
-// Add queues series. Samples for a series must come in time order across
-// calls; Prometheus refuses older ones, and the whole write with them.
+// Add queues series. Keep each series' samples in time order across calls:
+// Prometheus refuses older ones, and the whole write with them.
 func (q *Queue) Add(series ...Series) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -100,7 +101,7 @@ func (q *Queue) Flush(ctx context.Context) error {
 	}
 	maxAge := q.MaxAge
 	if maxAge == 0 {
-		maxAge = 50 * time.Minute
+		maxAge = 6 * time.Hour
 	}
 	cutoff := now().Add(-maxAge)
 
@@ -154,7 +155,8 @@ func (q *Queue) Flush(ctx context.Context) error {
 
 // FromFamilies turns gathered gauges, counters and untyped metrics into
 // series with one sample at t. keep (nil keeps all) sees each metric's labels;
-// extra labels are added to every series.
+// extra labels are added to every series. pushed_<target> labels, which mark
+// scraped copies (see Target.Label), are left off.
 func FromFamilies(fams []*dto.MetricFamily, t time.Time, keep func(labels map[string]string) bool, extra map[string]string) []Series {
 	var out []Series
 	for _, f := range fams {
@@ -172,7 +174,9 @@ func FromFamilies(fams []*dto.MetricFamily, t time.Time, keep func(labels map[st
 			}
 			labels := map[string]string{}
 			for _, l := range m.GetLabel() {
-				labels[l.GetName()] = l.GetValue()
+				if !strings.HasPrefix(l.GetName(), "pushed_") {
+					labels[l.GetName()] = l.GetValue()
+				}
 			}
 			if keep != nil && !keep(labels) {
 				continue

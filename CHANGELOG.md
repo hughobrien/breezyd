@@ -9,13 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `[daemon].prometheus_url` (and `prometheus_job`): push every successful
-  poll to Prometheus with remote write, stamped with its poll time, instead
-  of serving the device gauges for a scrape. A 30 s poll scraped every 60 s
-  kept one poll in two. `/metrics` keeps the health and adds
-  `breezyd_push_errors_total` and `breezyd_push_queued_samples`. The NixOS
-  module sets it when `prometheus.enable` is on (new `prometheus.url`) and
-  asserts Prometheus has `--web.enable-remote-write-receiver`.
+- `[daemon.push]` (`name = "url"`, any number) and `[daemon].prometheus_job`:
+  push every successful poll with remote write, stamped with its poll time,
+  to each target (VictoriaMetrics, or Prometheus with its receiver on). A
+  30 s poll scraped every 60 s kept one poll in two. `/metrics` still serves
+  every gauge; the pushed ones carry `pushed_<name>="true"` so a target's own
+  scrape can drop its copies. Each target has its own queue:
+  `breezyd_push_errors_total{target}`, `breezyd_push_queued_samples{target}`.
+  The NixOS module pushes to the local `services.victoriametrics` (else
+  `services.prometheus`) when `prometheus.enable` is on, registers the scrape
+  job there with the drop rule, and takes more targets in `push.<name>.url`.
 
 ## [2.1.0] - 2026-05-12
 

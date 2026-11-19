@@ -17,10 +17,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/hughobrien/breezyd/internal/promwrite"
 )
 
 // reservedNames are global CLI verbs that cannot be used as device names,
@@ -64,10 +66,12 @@ type Daemon struct {
 	// "1111", and devices without their own password are treated as
 	// "no password set" (which the firmware will reject at poll time).
 	Password string
-	// PrometheusURL, when set, is a Prometheus (remote write receiver on)
-	// that every successful poll is pushed to, at its poll time; the
-	// device gauges then leave /metrics, which keeps the health.
-	PrometheusURL string
+	// Push lists remote write receivers (VictoriaMetrics, or Prometheus
+	// with its receiver on), from [daemon.push] name = "url", sorted by
+	// name. Every successful poll is pushed to each, at its poll time; the
+	// device gauges on /metrics then carry pushed_<name>="true" so each
+	// receiver's own scrape can drop its copies.
+	Push promwrite.Targets
 	// PrometheusJob is the job label on pushed series. Default "breezyd".
 	PrometheusJob string
 }
@@ -116,12 +120,12 @@ type rawHomekit struct {
 }
 
 type rawDaemon struct {
-	Listen       string `toml:"listen"`
-	PollInterval string `toml:"poll_interval"`
-	Discovery    string `toml:"discovery"`
-	Password     string `toml:"password"`
-	PromURL      string `toml:"prometheus_url"`
-	PromJob      string `toml:"prometheus_job"`
+	Listen       string            `toml:"listen"`
+	PollInterval string            `toml:"poll_interval"`
+	Discovery    string            `toml:"discovery"`
+	Password     string            `toml:"password"`
+	Push         map[string]string `toml:"push"`
+	PromJob      string            `toml:"prometheus_job"`
 }
 
 type rawDevice struct {
@@ -171,7 +175,6 @@ func Load(path string) (*Config, error) {
 			Listen:        raw.Daemon.Listen,
 			Discovery:     raw.Daemon.Discovery,
 			Password:      raw.Daemon.Password,
-			PrometheusURL: raw.Daemon.PromURL,
 			PrometheusJob: raw.Daemon.PromJob,
 		},
 		Devices: make(map[string]Device, len(raw.Devices)),
@@ -209,6 +212,16 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Daemon.PrometheusJob == "" {
 		cfg.Daemon.PrometheusJob = "breezyd"
+	}
+	names := make([]string, 0, len(raw.Daemon.Push))
+	for n := range raw.Daemon.Push {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		if err := cfg.Daemon.Push.Set(n + "=" + raw.Daemon.Push[n]); err != nil {
+			return nil, fmt.Errorf("config: [daemon.push]: %w", err)
+		}
 	}
 
 	// poll_interval: parse raw string, default to 30s if absent.
