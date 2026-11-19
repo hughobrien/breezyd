@@ -9,6 +9,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/hughobrien/breezyd/internal/promwrite"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // The Grafana dashboard in grafana/breezyd.json queries these metrics. If a metric
@@ -43,6 +46,16 @@ func TestDashboardMatchesMetrics(t *testing.T) {
 	}
 	if len(have) == 0 {
 		t.Fatal("found no metric declarations; the pattern is stale")
+	}
+	// The push metrics are built from a prefix in promwrite, not written out here.
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(promwrite.NewPushers(promwrite.Targets{{Name: "t", URL: "http://t"}}, nil).Collectors("breezyd")...)
+	fams, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fams {
+		have[f.GetName()] = true
 	}
 
 	used := map[string]bool{}
