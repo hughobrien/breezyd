@@ -13,8 +13,27 @@
     systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
     forEachSystem = f: nixpkgs.lib.genAttrs systems f;
 
+    # nixpkgs lags templ; keep this in step with the templ version in go.mod
+    # (the *_templ.go files and the drift check use it). Drop when nixpkgs catches up.
+    templOverlay = final: prev: {
+      templ =
+        if prev.lib.versionAtLeast prev.templ.version "0.3.1118" then
+          throw "nixpkgs now ships templ ${prev.templ.version}: delete templOverlay from flake.nix"
+        else
+          prev.templ.overrideAttrs (old: rec {
+            version = "0.3.1118";
+            src = prev.fetchFromGitHub {
+              owner = "a-h";
+              repo = "templ";
+              rev = "v${version}";
+              hash = "sha256-4ARBfwLD37FSCC3pgYWomsXRThl8NkHLte8awD0/Ddo=";
+            };
+            vendorHash = "sha256-SI3Y7eqw+sLvBmRi7r4Oc30ovIKvFRGxdXF8fyKog9g=";
+          });
+    };
+
     perSystem = forEachSystem (system: let
-      pkgs = import nixpkgs { inherit system; };
+      pkgs = import nixpkgs { inherit system; overlays = [ templOverlay ]; };
 
       version = "2.0.2";
       commitOrDirty = if self ? rev then self.rev else "dirty";
@@ -23,7 +42,7 @@
         pname = "breezyd";
         inherit version;
         src = ./.;
-        vendorHash = "sha256-GlETv7Dza4XC56Ll/vJmsn4ChZIlVffRSBJl5ebS7fc=";
+        vendorHash = "sha256-o9F35I8Zz2lT6dPDnTA2BRPcWL9hHU9giYm4YDsf5Ug=";
         subPackages = [ "cmd/breezyd" "cmd/breezy" ];
         # Reproducible: omit `-X main.date=…` so two builds of the same
         # commit produce identical binaries.
