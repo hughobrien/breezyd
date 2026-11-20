@@ -2,8 +2,8 @@
 
 // Package promwrite sends samples with remote write 1.0 to named targets
 // (VictoriaMetrics, Prometheus, or anything else that takes it) and asks a
-// target for the newest sample of a series, so a poller that pushes past data
-// can carry on where it stopped.
+// target for the newest or oldest sample of a series, so a poller that pushes
+// past data can carry on where it stopped, forwards or back.
 //
 // The wire format is small enough to write by hand: a protobuf WriteRequest
 // (https://prometheus.io/docs/specs/prw/remote_write_spec/) in a snappy block.
@@ -154,6 +154,20 @@ func (c *Client) Newest(ctx context.Context, selector string, lookback time.Dura
 	// timestamp() of a plain selector is the sample's own time; the subquery
 	// steps every minute, inside the 5m lookback, so no sample is skipped.
 	q := fmt.Sprintf("max(max_over_time(timestamp(%s)[%ds:1m]))", selector, int(lookback.Seconds()))
+	return c.instant(ctx, q)
+}
+
+// Oldest returns the oldest sample time of the series the selector matches,
+// looking back over lookback. ok is false when there is none. The subquery
+// steps every hour, so it only sees samples sitting on the hour (each falls
+// inside one step's 5m lookback): it is for hourly series.
+func (c *Client) Oldest(ctx context.Context, selector string, lookback time.Duration) (t time.Time, ok bool, err error) {
+	q := fmt.Sprintf("min(min_over_time(timestamp(%s)[%ds:1h]))", selector, int(lookback.Seconds()))
+	return c.instant(ctx, q)
+}
+
+// instant runs an instant query whose answer is a Unix time.
+func (c *Client) instant(ctx context.Context, q string) (t time.Time, ok bool, err error) {
 	u := strings.TrimRight(c.Base, "/") + "/api/v1/query?query=" + url.QueryEscape(q)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
