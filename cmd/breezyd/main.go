@@ -271,9 +271,10 @@ func run(parent context.Context) error {
 	mux.Handle("/metrics", metricsHandler(prometheus.Gatherers{reg, dataReg}, metrics, state, devices, pollers))
 	mux.Handle("/", handler)
 
+	hostname, _ := os.Hostname()
 	srv := &http.Server{
 		Addr:    listen,
-		Handler: guard(mux, cfg.Daemon.AllowedHosts),
+		Handler: guard(mux, implicitHosts(cfg.Daemon.AllowedHosts, listen, hostname)),
 		// Bound every phase of the request lifecycle. Every endpoint we
 		// serve is short-lived (cache-backed JSON, a small HTML page, or
 		// a small Prometheus dump), so generous-but-finite timeouts both

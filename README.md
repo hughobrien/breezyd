@@ -570,16 +570,23 @@ reverse proxy serving the dashboard over plain HTTP must forward `Host` or
 origins), otherwise dashboard writes get 403; the NixOS module does this
 itself. Requests with
 neither header (the `breezy` CLI, curl, Prometheus) are unaffected. Request
-bodies are capped at 64 KiB (413 beyond that). DNS rebinding is **not**
-blocked by default; to block it, list the names you reach the daemon by:
+bodies are capped at 64 KiB (413 beyond that). DNS rebinding is blocked by
+checking the `Host` header: a request is accepted only if its `Host` (port
+ignored, case-insensitive) is an IP literal, `localhost`, this machine's
+hostname (also its short form and `<short>.local`), the host part of
+`[daemon].listen`, or listed in `allowed_hosts`. Anything else gets 403
+(the message names the rejected host; it is also logged once at warn). If
+you reach the daemon under another name, such as a DNS alias or a reverse
+proxy's public name, list it:
 
 ```toml
 [daemon]
-allowed_hosts = ["breezy.example.com"]   # empty/absent = no Host check
+allowed_hosts = ["breezy.example.com"]   # "*" disables the Host check
 ```
 
-Once set, a request whose `Host` (port ignored) is not listed, not an IP
-literal and not `localhost` gets 403.
+`X-Forwarded-Host` is not trusted for this check. The NixOS module adds
+`services.breezyd.nginx.virtualHost` automatically when you use `settings`
+(not when you supply your own `configFile`).
 
 **Security implication:** the HTTP API has no authentication. Binding
 to a LAN-reachable address exposes every `/v1/...` endpoint to anyone

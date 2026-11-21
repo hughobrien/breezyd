@@ -166,7 +166,7 @@ func (c *Client) newest(ctx context.Context, selector string, lookback time.Dura
 	// timestamp() of a plain selector is the sample's own time; with a step
 	// inside the 5m lookback (or on the sample grid) no sample is skipped.
 	q := fmt.Sprintf("max(max_over_time(timestamp(%s)[%ds:%s]))", selector, int(lookback.Seconds()), step)
-	return c.instant(ctx, q)
+	return c.instant(ctx, q, time.Time{})
 }
 
 // Oldest returns the oldest sample time of the series the selector matches,
@@ -175,12 +175,33 @@ func (c *Client) newest(ctx context.Context, selector string, lookback time.Dura
 // inside one step's 5m lookback): it is for hourly series.
 func (c *Client) Oldest(ctx context.Context, selector string, lookback time.Duration) (t time.Time, ok bool, err error) {
 	q := fmt.Sprintf("min(min_over_time(timestamp(%s)[%ds:1h]))", selector, int(lookback.Seconds()))
-	return c.instant(ctx, q)
+	return c.instant(ctx, q, time.Time{})
 }
 
-// instant runs an instant query whose answer is a Unix time.
-func (c *Client) instant(ctx context.Context, q string) (t time.Time, ok bool, err error) {
+// RunStart returns the newest hour at which a run of hourly samples starts:
+// a sample with none an hour before it. With one unbroken run that is its
+// oldest sample; with a hole in the series, the first sample after the
+// newest hole. Like Oldest, it is for hourly series sitting on the hour.
+func (c *Client) RunStart(ctx context.Context, selector string, lookback time.Duration) (t time.Time, ok bool, err error) {
+	q := fmt.Sprintf("max(max_over_time((timestamp(%[1]s) unless %[1]s offset 1h)[%[2]ds:1h]))", selector, int(lookback.Seconds()))
+	return c.instant(ctx, q, time.Time{})
+}
+
+// NewestHourlyBefore is NewestHourly as the store saw it at the given time:
+// the newest sample at or before it, so the series' newest end below a hole.
+// The time should sit on the hour.
+func (c *Client) NewestHourlyBefore(ctx context.Context, selector string, before time.Time, lookback time.Duration) (t time.Time, ok bool, err error) {
+	q := fmt.Sprintf("max(max_over_time(timestamp(%s)[%ds:1h]))", selector, int(lookback.Seconds()))
+	return c.instant(ctx, q, before)
+}
+
+// instant runs an instant query whose answer is a Unix time, evaluated at at
+// (the store's now if zero).
+func (c *Client) instant(ctx context.Context, q string, at time.Time) (t time.Time, ok bool, err error) {
 	u := strings.TrimRight(c.Base, "/") + "/api/v1/query?query=" + url.QueryEscape(q)
+	if !at.IsZero() {
+		u += "&time=" + strconv.FormatInt(at.Unix(), 10)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return time.Time{}, false, err

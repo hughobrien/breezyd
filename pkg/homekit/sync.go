@@ -191,9 +191,8 @@ func syncSensors(a *Accessory, s breezy.Status) {
 		a.CO2.CarbonDioxideDetected.SetValue(0) //nolint:errcheck
 	}
 
-	// VOC: raw density + AirQuality enum.
+	// VOC: AirQuality enum bucketed from the index (no VOCDensity; the index is not µg/m³).
 	if vocIdx, ok := intField(s.Sensors, "voc_index"); ok {
-		a.VOCDensity.SetValue(float64(vocIdx))
 		a.AirQualitySvc.AirQuality.SetValue(int(AirQuality(vocIdx))) //nolint:errcheck
 	}
 

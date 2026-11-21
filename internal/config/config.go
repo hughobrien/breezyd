@@ -62,9 +62,10 @@ type Config struct {
 type Daemon struct {
 	// Listen is the host:port the HTTP server binds to.
 	Listen string
-	// AllowedHosts is an opt-in Host-header allowlist (DNS-rebinding
-	// defence). Empty disables the check; IP literals and localhost are
-	// always accepted when it is set.
+	// AllowedHosts extends the Host-header allowlist (DNS-rebinding
+	// defence), which is always on. IP literals, localhost, the machine
+	// hostname and the host part of Listen are accepted implicitly; "*"
+	// disables the check.
 	AllowedHosts []string
 	// PollInterval is how often the poller refreshes device state.
 	PollInterval time.Duration

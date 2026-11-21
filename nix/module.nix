@@ -264,6 +264,10 @@ in {
   config = lib.mkIf cfg.enable {
     services.breezyd.settings.daemon = {
       prometheus_job = lib.mkDefault cfg.prometheus.jobName;
+      # The daemon rejects Host names it does not know (DNS-rebinding
+      # defence); the proxied vhost name must be one of them.
+      allowed_hosts = lib.mkIf (cfg.nginx.enable && cfg.nginx.virtualHost != null)
+        [ cfg.nginx.virtualHost ];
       push = lib.mkIf (targets != { }) (lib.mapAttrs (_: t: lib.mkDefault t.url) targets);
     };
 
