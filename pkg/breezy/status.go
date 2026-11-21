@@ -27,6 +27,26 @@ type Status struct {
 	Firmware   map[string]any `json:"firmware,omitempty"`
 }
 
+// EffectivePower reports whether the unit is effectively on: the power
+// param (0x0001) is 1 OR a special-mode timer (0x0007 != 0) is running.
+// Turbo started from the IR remote runs the fans without touching 0x0001,
+// so the power param alone under-reports. ok is false when neither param
+// is present in values. The dashboard and the HomeKit bridge both derive
+// their power state from this one rule.
+func EffectivePower(values map[ParamID][]byte) (on, ok bool) {
+	if b, has := Uint8At(values, 0x0001); has {
+		ok = true
+		on = b == 1
+	}
+	if b, has := Uint8At(values, 0x0007); has {
+		ok = true
+		if b != 0 {
+			on = true
+		}
+	}
+	return on, ok
+}
+
 // BuildStatus decodes raw parameter bytes into the Status shape. Decode
 // failures fall back to a missing/zero value rather than producing an
 // error — an unfamiliar firmware shouldn't take down the API. lastPoll
@@ -136,6 +156,9 @@ func BuildStatus(values map[ParamID][]byte, name, id, ip string, lastPoll *time.
 	}
 	if b, ok := Uint8At(values, 0x0081); ok {
 		resp.Live["heater_running"] = b == 1
+	}
+	if on, ok := EffectivePower(values); ok {
+		resp.Live["effective_power"] = on
 	}
 	resp.Live["in_user_control"] = ComputeInUserControl(values)
 	resp.Live["sensor_alerts"] = DecodeAlerts(values)

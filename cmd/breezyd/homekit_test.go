@@ -228,6 +228,8 @@ func TestHomekit_SyncRoundTripFull(t *testing.T) {
 
 	// AirPurifier active = 1 (powered on).
 	is.Equal(a.AirPurifier.Active.Value(), 1)
+	// Model comes from unit_type (0x00B9 = 17).
+	is.Equal(a.A.Info.Model.Value(), "Breezy 160")
 	// Heater switch on.
 	is.Equal(a.Heater.On.Value(), true)
 	// Night timer on, Turbo off (mutually exclusive).
@@ -526,6 +528,7 @@ func TestHomekit_WriteCallbacks(t *testing.T) {
 		cb.turbo(true)
 		snap, _ := h.State.Get(name)
 		is.Equal(snap.Values[0x0007], []byte{0x02}) // turbo = 2
+		is.Equal(snap.Values[0x0001], []byte{0x01}) // timer start powers the unit on
 	})
 
 	t.Run("turbo=false → SetTimer(off)", func(t *testing.T) {

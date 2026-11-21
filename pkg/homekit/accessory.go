@@ -236,3 +236,13 @@ func newNamedTemp(name string) *TemperatureSensor {
 	attachName(ts.S, name)
 	return &TemperatureSensor{TemperatureSensor: ts, Name: name}
 }
+
+// SetModel updates the Model shown in AccessoryInformation (and Info.Model)
+// once the device's unit type is known. Empty names are ignored.
+func (a *Accessory) SetModel(model string) {
+	if model == "" || a.Info.Model == model {
+		return
+	}
+	a.Info.Model = model
+	a.A.Info.Model.SetValue(model)
+}

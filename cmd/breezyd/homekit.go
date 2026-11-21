@@ -160,6 +160,10 @@ func (h *Handler) SyncHomekit(name string, snap Snapshot) {
 		lastPoll = &t
 	}
 
+	if t, ok := breezy.Uint16At(snap.Values, 0x00B9); ok {
+		a.SetModel(breezy.UnitTypeName(t))
+	}
+
 	status := breezy.BuildStatus(snap.Values, name, cfg.ID, cfg.IP, lastPoll)
 	homekit.Sync(a, status)
 }

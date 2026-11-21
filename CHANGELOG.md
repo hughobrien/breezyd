@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HomeKit: the accessory no longer flips to "Idle" for ~12 s after a fan
+  change (missing RPMs during the fan-settle window now leave the state
+  alone); Active follows the dashboard's rule (power on OR a timer running);
+  starting Night/Turbo from HomeKit, `/v1/.../timer` or the CLI now powers
+  the unit on first (moved into `breezy.SetTimer`); the accessory Model comes
+  from the device's unit type. `/v1/devices/{name}` gains `live.effective_power`.
 - Config validation: `poll_interval` and `periodic:` discovery under 1 s,
   passwords over 8 bytes, non-ASCII device ids and device names `help` /
   `version` are now rejected at load; push URLs are redacted in the startup

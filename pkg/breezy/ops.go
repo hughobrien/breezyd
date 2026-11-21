@@ -39,9 +39,8 @@ var ErrInvalidArg = errors.New("breezy: invalid argument")
 // *MemClient* (in-process) backend's behavior so Playwright tests see
 // the same effect as production.
 //
-// Powering on is unconditional — no implicit cascade. Activating a
-// timer via SetTimer requires power=on as a prerequisite, but that
-// coupling lives in the caller (the /timer handler) rather than here.
+// Powering on is unconditional — no implicit cascade. (SetTimer calls
+// Power(true) itself before starting a timer.)
 func Power(ctx context.Context, c DeviceClient, on bool) error {
 	if on {
 		return c.WriteParams(ctx, []ParamWrite{{ID: 0x0001, Value: []byte{1}}})
@@ -152,6 +151,11 @@ func SetHeater(ctx context.Context, c DeviceClient, on bool) error {
 // quiet/low-fan mode, "turbo" enters the configured-duration boost mode.
 // The active duration is the device-side configured value (0x0302/0x0303);
 // this op only flips the mode byte. Mode strings are case-insensitive.
+//
+// Starting a timer (night/turbo) writes power=on first, in its own packet,
+// so the unit is genuinely on and the cache's power param agrees with the
+// dashboard. Every caller (HTTP, dashboard, HomeKit, CLI) therefore gets the
+// same behaviour. "off" only clears the timer; it never powers anything.
 func SetTimer(ctx context.Context, c DeviceClient, mode string) error {
 	var val byte
 	switch strings.ToLower(mode) {
@@ -163,6 +167,11 @@ func SetTimer(ctx context.Context, c DeviceClient, mode string) error {
 		val = 2
 	default:
 		return fmt.Errorf("%w: timer mode must be one of off/night/turbo, got %q", ErrInvalidArg, mode)
+	}
+	if val != 0 {
+		if err := Power(ctx, c, true); err != nil {
+			return err
+		}
 	}
 	return c.WriteParams(ctx, []ParamWrite{{ID: 0x0007, Value: []byte{val}}})
 }
