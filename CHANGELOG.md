@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rebinding: empty (default) means no Host check, so rebinding is blocked only
   once it is set; IP literals and `localhost` are always accepted. In the
   NixOS module set it via `services.breezyd.settings.daemon.allowed_hosts`.
+  A hand-written reverse proxy serving the dashboard over plain HTTP must
+  forward `Host` or `X-Forwarded-Host`, otherwise dashboard writes are
+  rejected with 403 (browsers omit `Sec-Fetch-Site` on plain-HTTP LAN
+  origins). The NixOS nginx integration now sets `X-Forwarded-Host` itself.
 
 ### Removed
 

@@ -51,10 +51,19 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 		// while the browser's Origin is the public vhost; accept an Origin
 		// that matches X-Forwarded-Host when the browser sent no
 		// Sec-Fetch-Site verdict of its own.
-		if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" && r.Header.Get("Sec-Fetch-Site") == "" {
-			if u, err := url.Parse(r.Header.Get("Origin")); err == nil && u.Host != "" && u.Host == xfh {
-				body.ServeHTTP(w, r)
-				return
+		// The header may appear more than once (module's $http_host plus
+		// recommendedProxySettings' $host) and each may be comma-joined,
+		// so any value matching is enough.
+		if r.Header.Get("Sec-Fetch-Site") == "" {
+			if u, err := url.Parse(r.Header.Get("Origin")); err == nil && u.Host != "" {
+				for _, v := range r.Header.Values("X-Forwarded-Host") {
+					for _, xfh := range strings.Split(v, ",") {
+						if strings.EqualFold(strings.TrimSpace(xfh), u.Host) {
+							body.ServeHTTP(w, r)
+							return
+						}
+					}
+				}
 			}
 		}
 		checked.ServeHTTP(w, r)

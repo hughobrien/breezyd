@@ -562,7 +562,11 @@ interface.) Restart `breezyd` after changing the config.
 rejects cross-site browser writes (403): any non-GET/HEAD/OPTIONS request
 whose `Sec-Fetch-Site` is `cross-site`/`same-site`, or whose `Origin` does
 not match `Host` (or `X-Forwarded-Host` behind a proxy), is refused, so a
-web page you happen to have open cannot drive the API. Requests with
+web page you happen to have open cannot drive the API. A hand-written
+reverse proxy serving the dashboard over plain HTTP must forward `Host` or
+`X-Forwarded-Host` (browsers omit `Sec-Fetch-Site` on plain-HTTP LAN
+origins), otherwise dashboard writes get 403; the NixOS module does this
+itself. Requests with
 neither header (the `breezy` CLI, curl, Prometheus) are unaffected. Request
 bodies are capped at 64 KiB (413 beyond that). DNS rebinding is **not**
 blocked by default; to block it, list the names you reach the daemon by:

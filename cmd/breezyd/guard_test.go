@@ -82,6 +82,37 @@ func TestGuard_CrossOrigin(t *testing.T) {
 	}
 }
 
+func TestGuard_ForwardedHostMultiValue(t *testing.T) {
+	post := func(xfh ...string) int {
+		var reached bool
+		g := guard(guardedOK(&reached), nil)
+		req := httptest.NewRequest("POST", "/v1/devices/a/power", strings.NewReader("{}"))
+		req.Host = "127.0.0.1:9876"
+		req.Header.Set("Origin", "http://breezy.home.lan")
+		for _, v := range xfh {
+			req.Header.Add("X-Forwarded-Host", v)
+		}
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if c := post("breezy.home.lan"); c != 200 {
+		t.Errorf("matching XFH: %d", c)
+	}
+	if c := post("other.example", "breezy.home.lan"); c != 200 {
+		t.Errorf("second header value: %d", c)
+	}
+	if c := post("other.example, breezy.home.lan"); c != 200 {
+		t.Errorf("comma-joined value: %d", c)
+	}
+	if c := post(); c != 403 {
+		t.Errorf("no XFH: %d, want 403", c)
+	}
+	if c := post("other.example"); c != 403 {
+		t.Errorf("non-matching XFH: %d, want 403", c)
+	}
+}
+
 func TestGuard_BodyCap(t *testing.T) {
 	big := strings.Repeat("a", maxBodyBytes+1)
 	rec, reached := doGuard(t, nil, "POST", "/v1/devices/a/power", big, nil)
