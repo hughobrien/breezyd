@@ -20,6 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `services.prometheus`) when `prometheus.enable` is on, registers the scrape
   job there with the drop rule, and takes more targets in `push.<name>.url`.
 
+### Security
+
+- The HTTP API no longer accepts cross-site browser writes (#259). A request
+  guard around the whole mux (`cmd/breezyd/guard.go`) rejects with 403 every
+  non-GET/HEAD/OPTIONS request that `net/http.CrossOriginProtection` deems
+  cross-origin (`Sec-Fetch-Site`, else `Origin` vs `Host`, also accepting
+  `X-Forwarded-Host` behind the NixOS nginx proxy). Requests with neither
+  header (CLI, curl, Prometheus) pass. Request bodies are capped at 64 KiB
+  (413). New opt-in `[daemon].allowed_hosts` Host allowlist closes DNS
+  rebinding: empty (default) means no Host check, so rebinding is blocked only
+  once it is set; IP literals and `localhost` are always accepted. In the
+  NixOS module set it via `services.breezyd.settings.daemon.allowed_hosts`.
+  A hand-written reverse proxy serving the dashboard over plain HTTP must
+  forward `Host` or `X-Forwarded-Host`, otherwise dashboard writes are
+  rejected with 403 (browsers omit `Sec-Fetch-Site` on plain-HTTP LAN
+  origins). The NixOS nginx integration now sets `X-Forwarded-Host` itself.
+
 ### Removed
 
 - The six resetting Prometheus gauges `breezyd_energy_{heating,cooling,consumed}_{today,month}_kwh`

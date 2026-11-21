@@ -271,7 +271,7 @@ func run(parent context.Context) error {
 
 	srv := &http.Server{
 		Addr:    listen,
-		Handler: mux,
+		Handler: guard(mux, cfg.Daemon.AllowedHosts),
 		// Bound every phase of the request lifecycle. Every endpoint we
 		// serve is short-lived (cache-backed JSON, a small HTML page, or
 		// a small Prometheus dump), so generous-but-finite timeouts both

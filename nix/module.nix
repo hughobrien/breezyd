@@ -423,6 +423,12 @@ EOF
     #   - proxy_read_timeout 1d: SSE connections idle for the full
     #     keepalive interval (30s); upstream send-loop must not be
     #     terminated by nginx's default 60s read timeout.
+    #   - proxy_set_header X-Forwarded-Host $http_host: browsers omit
+    #     Sec-Fetch-Site on plain-HTTP LAN origins, so the daemon's
+    #     cross-origin check falls back to Origin vs Host; the proxied Host
+    #     is the loopback upstream, so the public host:port is forwarded
+    #     here. ($http_host keeps a non-default port; Host is deliberately
+    #     not set, recommendedProxySettings would send it twice.)
     services.nginx.virtualHosts = lib.mkIf cfg.nginx.enable {
       ${cfg.nginx.virtualHost} = {
         locations."/" = {
@@ -434,6 +440,7 @@ EOF
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_read_timeout 1d;
+            proxy_set_header X-Forwarded-Host $http_host;
           '';
         };
       };
