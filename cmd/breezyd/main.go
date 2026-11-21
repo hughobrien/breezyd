@@ -56,8 +56,8 @@ var (
 	flagSeed     = flag.String("seed", "", "fakedevice JSON snapshot for --backend=memory")
 )
 
-// Build metadata. These are populated by goreleaser via -ldflags at build
-// time; an unbuilt local binary reports "dev" / "none" / "unknown" so
+// Build metadata. These are set via -ldflags at build time (the
+// Nix build sets version and commit); an unbuilt local binary reports "dev" / "none" / "unknown" so
 // `breezyd --version` is always meaningful.
 var (
 	version = "dev"

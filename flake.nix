@@ -96,7 +96,6 @@
           gopls
           gotools
           go-tools
-          goreleaser
           just
           templ
         ];

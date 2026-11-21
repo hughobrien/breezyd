@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- GitHub release plumbing (`.github/workflows/release.yml`, `.goreleaser.yml`,
+  `just release-snapshot`, goreleaser in the dev shell). No pre-built release
+  archives are published; build from the flake or from source.
+
 ### Added
 
 - `[daemon.push]` (`name = "url"`, any number) and `[daemon].prometheus_job`:

@@ -145,10 +145,6 @@ run-daemon *ARGS:
 run-cli *ARGS:
 	go run ./cmd/breezy {{ARGS}}
 
-# build release archives locally (no publish)
-release-snapshot:
-	goreleaser release --snapshot --clean
-
 # print the steps to recompute flake.nix vendorHash after go.sum changes
 nix-vendor-hash:
 	@echo "1. In flake.nix, set: vendorHash = pkgs.lib.fakeHash;"
