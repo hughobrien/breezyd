@@ -65,6 +65,9 @@ templ ScheduleBlock(name string, s ui.ScheduleView, stale bool) {
 					>+ add row</button>
 				</div>
 			</form>
+			if s.LoadWarning != "" {
+				<div class="warn">{ "⚠ " + s.LoadWarning }</div>
+			}
 			if s.Alert && s.LastApply != nil {
 				<div class="warn">
 					{ fmt.Sprintf("⚠ last apply %s failed: %s", s.LastApply.At, s.LastApply.Err) }

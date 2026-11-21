@@ -160,6 +160,13 @@ func (h *Handler) SyncHomekit(name string, snap Snapshot) {
 		lastPoll = &t
 	}
 
+	// Unknown unit types keep the constructor's fallback model string.
+	if t, ok := breezy.Uint16At(snap.Values, 0x00B9); ok {
+		if n := breezy.UnitTypeName(t); !strings.HasPrefix(n, "unknown") {
+			a.SetModel("Twinfresh " + n)
+		}
+	}
+
 	status := breezy.BuildStatus(snap.Values, name, cfg.ID, cfg.IP, lastPoll)
 	homekit.Sync(a, status)
 }

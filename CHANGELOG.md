@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HomeKit: the accessory no longer flips to "Idle" for ~12 s after a fan
+  change (missing RPMs during the fan-settle window now leave the state
+  alone); Active follows the dashboard's rule (power on OR a timer running);
+  starting Night/Turbo from HomeKit, `/v1/.../timer` or the CLI now powers
+  the unit on first (moved into `breezy.SetTimer`); the accessory Model comes
+  from the device's unit type. `/v1/devices/{name}` gains `live.effective_power`.
 - Config validation: `poll_interval` and `periodic:` discovery under 1 s,
   passwords over 8 bytes, non-ASCII device ids and device names `help` /
   `version` are now rejected at load; push URLs are redacted in the startup
@@ -32,6 +38,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evaluated on the one-minute tick, so a failed fire was retried once a
   minute (10 attempts in the 10-minute window instead of 20). `Run` now also
   wakes at a pending retry's due time.
+- A partly failed poll (one of the two read packets times out) no longer drops
+  the failed packet's parameters from the cache (#265). Their previous values
+  are carried forward, the tick is still recorded as an error (`LastErr`, the
+  error metric) with `LastPoll` held, so the device shows as stale rather than
+  half blank. Energy accumulation, remote-write push and HomeKit sync still
+  skip such a tick, as they skip any failed one.
+- One hanging push target no longer delays and then drops pushes to every
+  target (#266). Each target now has its own flusher goroutine with a 20 s
+  per-flush timeout; the pusher only enqueues, so a stuck target keeps its
+  backlog in its own queue.
+- State files (#267): the per-device energy and schedule files are now fsynced
+  (temp file before the rename, directory after it), so a power cut leaves the
+  old or the new file, never an empty one. A state file that exists but cannot
+  be read, parsed or validated is renamed to `<name>.corrupt-<unix time>`
+  instead of being silently replaced by an empty one on the next save; the
+  error is logged and shown in the ENERGY block (`service.energy.state_warning`)
+  or the SCHEDULE block (`service.schedule.load_warning`, which also raises the
+  alert). The daemon now refuses to start when no state directory can be found
+  or created, instead of writing state files into the working directory.
 
 ### Security
 

@@ -35,7 +35,7 @@
     perSystem = forEachSystem (system: let
       pkgs = import nixpkgs { inherit system; overlays = [ templOverlay ]; };
 
-      version = "2.0.2";
+      version = "2.1.0";
       commitOrDirty = if self ? rev then self.rev else "dirty";
 
       breezyd-pkg = pkgs.buildGoModule {

@@ -119,6 +119,8 @@ type Scheduler struct {
 
 	lastApply *LastApply
 	retry     *retryState
+	// loadWarning is set by Load when the state file was unusable; cleared by Replace.
+	loadWarning string
 	// firedAt records the timestamp of the most recent successful fire
 	// for each entry's At-time. Used to suppress re-fires of the same
 	// entry within the same local calendar day — the case that matters
@@ -177,6 +179,8 @@ type ScheduleSnapshot struct {
 	Enabled   bool
 	Entries   []ScheduleEntry
 	LastApply *LastApply
+	// LoadWarning is non-empty when Load moved an unusable state file aside.
+	LoadWarning string
 }
 
 // persistedSchedule is the on-disk JSON shape.
@@ -200,8 +204,9 @@ func (s *Scheduler) Snapshot() ScheduleSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := ScheduleSnapshot{
-		Enabled: s.enabled,
-		Entries: append([]ScheduleEntry(nil), s.entries...),
+		Enabled:     s.enabled,
+		Entries:     append([]ScheduleEntry(nil), s.entries...),
+		LoadWarning: s.loadWarning,
 	}
 	if s.lastApply != nil {
 		la := *s.lastApply
@@ -210,33 +215,31 @@ func (s *Scheduler) Snapshot() ScheduleSnapshot {
 	return out
 }
 
-// Load reads the persisted state file. Missing file → empty state;
-// malformed or invalid file → empty state + slog.Warn (so a hand-edited
-// file can never corrupt the running daemon). All errors are handled
-// internally; the caller has nothing to check, hence no return value.
-// Mirrors EnergyTracker.Load semantics. Caller must guarantee no
-// concurrent access — Load is called before the scheduler's Run goroutine
-// starts, so no mutex is needed (and acquiring it here would imply a
-// false guarantee about safety against concurrent Loads).
+// Load reads the persisted state file. A missing file starts empty. A file
+// that exists but cannot be read, parsed or validated is renamed aside to
+// "<name>.corrupt-<unix ts>" (never overwritten by the next save), logged
+// at error level and surfaced via loadWarning, and the schedule starts
+// empty. All errors are handled internally; the caller has nothing to
+// check, hence no return value. Mirrors EnergyTracker.Load semantics.
+// Caller must guarantee no concurrent access — Load is called before the
+// scheduler's Run goroutine starts, so no mutex is needed.
 func (s *Scheduler) Load() {
-	data, err := os.ReadFile(s.statePath())
+	path := s.statePath()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			slog.Warn("schedule: failed to read state file; starting empty",
-				"device", s.Device, "err", err)
+			s.quarantine(path, "read", err)
 		}
 		return
 	}
 	// version is read but not yet checked; extend here if the schema changes.
 	var p persistedSchedule
 	if err := json.Unmarshal(data, &p); err != nil {
-		slog.Warn("schedule: failed to unmarshal state file; starting empty",
-			"device", s.Device, "err", err)
+		s.quarantine(path, "parse", err)
 		return
 	}
 	if err := s.validate(p.Entries); err != nil {
-		slog.Warn("schedule: persisted file failed validation; starting empty",
-			"device", s.Device, "err", err)
+		s.quarantine(path, "validate", err)
 		return
 	}
 	sortEntries(p.Entries)
@@ -244,6 +247,21 @@ func (s *Scheduler) Load() {
 	s.entries = p.Entries
 	s.lastApply = p.LastApply
 	s.firedAt = p.FiredAt
+}
+
+// quarantine moves an unusable state file aside and records a warning for
+// the dashboard. Called only from Load.
+func (s *Scheduler) quarantine(path, what string, cause error) {
+	aside, qerr := quarantineStateFile(path)
+	if qerr != nil {
+		s.loadWarning = fmt.Sprintf("schedule state file %s unusable (%s: %v) and could not be moved aside (%v); the schedule was reset and the file will be overwritten", path, what, cause, qerr)
+		slog.Error("schedule: state file unusable and could not be moved aside; starting empty",
+			"device", s.Device, "path", path, "op", what, "err", cause, "rename_err", qerr)
+		return
+	}
+	s.loadWarning = fmt.Sprintf("saved schedule was unusable (%s: %v); moved to %s and the schedule was reset", what, cause, aside)
+	slog.Error("schedule: state file unusable; moved aside and starting empty",
+		"device", s.Device, "path", path, "moved_to", aside, "op", what, "err", cause)
 }
 
 // save writes the current state atomically. Caller MUST hold s.mu.
@@ -303,6 +321,7 @@ func (s *Scheduler) Replace(enabled bool, entries []ScheduleEntry) error {
 	s.enabled = enabled
 	s.entries = cp
 	s.lastApply = nil
+	s.loadWarning = ""
 	s.retry = nil
 	s.firedAt = nil
 	if err := s.save(); err != nil {

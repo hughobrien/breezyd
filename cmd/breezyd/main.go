@@ -189,7 +189,9 @@ func run(parent context.Context) error {
 
 	stateDir, err := daemonStateDir()
 	if err != nil {
-		slog.Warn("energy: could not create state dir; energy tracking will not persist", "err", err)
+		// Never fall back to the working directory: energy and schedule
+		// files must live in a known, durable place.
+		return fmt.Errorf("state directory unavailable (set STATE_DIRECTORY or XDG_STATE_HOME to a writable path): %w", err)
 	}
 	// Compose poll-side fan-out: HomeKit characteristics first, then the
 	// browser push hub. Both are independent and idempotent; either firing
@@ -350,8 +352,9 @@ func run(parent context.Context) error {
 //     unset.
 //
 // The directory is created (mode 0700) if it does not exist. On error
-// the path is returned alongside the error so callers can decide whether
-// to abort or continue without persistence.
+// the returned path is always "" and the caller must abort: there is no
+// persistence-off mode, and an empty path would put state files in the
+// working directory.
 func daemonStateDir() (string, error) {
 	// Systemd-managed deployments (the NixOS module is the canonical
 	// example) set STATE_DIRECTORY to the writable path that survives
@@ -359,7 +362,7 @@ func daemonStateDir() (string, error) {
 	// XDG_STATE_HOME for direct-run / development cases.
 	if dir := os.Getenv("STATE_DIRECTORY"); dir != "" {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return dir, fmt.Errorf("daemonStateDir: mkdir %s: %w", dir, err)
+			return "", fmt.Errorf("daemonStateDir: mkdir %s: %w", dir, err)
 		}
 		return dir, nil
 	}
@@ -373,7 +376,7 @@ func daemonStateDir() (string, error) {
 	}
 	dir = filepath.Join(dir, "breezyd")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return dir, fmt.Errorf("daemonStateDir: mkdir %s: %w", dir, err)
+		return "", fmt.Errorf("daemonStateDir: mkdir %s: %w", dir, err)
 	}
 	return dir, nil
 }

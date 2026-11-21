@@ -102,6 +102,9 @@ type SensorsView struct {
 // EnergyView carries energy accounting data ready for templating.
 type EnergyView struct {
 	Error string // non-empty → show warn div instead of grid
+	// StateWarning is non-empty when the persisted counters were unusable
+	// and moved aside; shown above the grid, which still renders.
+	StateWarning string
 
 	InstantW  float64
 	ConsumedW float64
@@ -123,7 +126,9 @@ type ScheduleView struct {
 	Present bool
 	Enabled bool
 	Entries []ScheduleEntryView
-	Alert   bool // last fire failed
+	Alert   bool // last fire failed, or the persisted schedule was unusable
+	// LoadWarning is non-empty when the persisted schedule was moved aside.
+	LoadWarning string
 	// NextEvent is the "HH:MM" of the next entry's At-time after the
 	// current local-wall-clock minute (wrapping to the earliest entry
 	// when all of today's are past). Empty when there are no entries.

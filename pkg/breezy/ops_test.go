@@ -255,6 +255,13 @@ func TestOps_SetTimer(t *testing.T) {
 	for in, want := range cases {
 		c := &recordingClient{}
 		is.NoErr(SetTimer(context.Background(), c, in))
+		if want != 0 {
+			// Starting a timer powers the unit on first (separate packet).
+			is.Equal(len(c.writes), 2)
+			is.Equal(c.writes[0][0].ID, ParamID(0x0001))
+			is.Equal(c.writes[0][0].Value[0], byte(1))
+			c.writes = c.writes[1:]
+		}
 		is.Equal(len(c.writes), 1)    // one packet
 		is.Equal(len(c.writes[0]), 1) // one write in packet
 		got := c.writes[0][0]

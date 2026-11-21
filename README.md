@@ -436,7 +436,9 @@ For Ubuntu / Debian / Arch / Fedora / etc. without Nix.
 Pre-built binaries for Linux (amd64/arm64), macOS (amd64/arm64), and Windows
 (amd64) are published on the [GitHub Releases
 page](https://github.com/hughobrien/breezyd/releases). Download the archive
-for your platform and extract `breezyd` and `breezy` somewhere on `$PATH`:
+for your platform and extract `breezyd` and `breezy` somewhere on `$PATH`.
+Release archives are built and published from GitHub only (tag pushes to
+the Forgejo origin alone do not produce them):
 
 ```sh
 # Linux amd64 example

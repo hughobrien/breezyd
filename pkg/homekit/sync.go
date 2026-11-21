@@ -25,7 +25,13 @@ func Sync(a *Accessory, s breezy.Status) {
 }
 
 func syncAirPurifier(a *Accessory, s breezy.Status) {
-	power, powerOK := boolField(s.Configured, "power")
+	// effective_power folds in a running timer (see breezy.EffectivePower),
+	// matching the dashboard. Fall back to configured.power for statuses
+	// built without it.
+	power, powerOK := boolField(s.Live, "effective_power")
+	if !powerOK {
+		power, powerOK = boolField(s.Configured, "power")
+	}
 	if powerOK {
 		val := 0
 		if power {
@@ -38,14 +44,17 @@ func syncAirPurifier(a *Accessory, s breezy.Status) {
 		//   0 = Inactive (not powered)
 		//   1 = Idle     (powered but no fan motion)
 		//   2 = Purifying (fan is moving air)
-		supplyRPM, _ := intField(s.Live, "fan_supply_rpm")
-		extractRPM, _ := intField(s.Live, "fan_extract_rpm")
+		// The poller omits the RPM reads for 12 s after a fan write (the
+		// fan-settle window); with no RPM data we cannot tell Idle from
+		// Purifying, so a powered unit keeps its previous state.
+		supplyRPM, hasSupply := intField(s.Live, "fan_supply_rpm")
+		extractRPM, hasExtract := intField(s.Live, "fan_extract_rpm")
 		switch {
 		case !power:
 			a.AirPurifier.CurrentAirPurifierState.SetValue(0) //nolint:errcheck
 		case supplyRPM > 0 || extractRPM > 0:
 			a.AirPurifier.CurrentAirPurifierState.SetValue(2) //nolint:errcheck
-		default:
+		case hasSupply || hasExtract:
 			a.AirPurifier.CurrentAirPurifierState.SetValue(1) //nolint:errcheck
 		}
 	}

@@ -53,10 +53,9 @@ coverage:
 	@echo ""
 	@go tool cover -func=coverage.out | tail -1
 
-# match what CI runs on every PR: vet + race + lint + asan + msan + UI.
-# Slower than check-all (~3 min sequential locally; CI runs the same set in
-# parallel jobs). Use this when you want to reproduce a CI failure locally
-# without waiting for the next push.
+# superset of what CI gates: vet + race + lint + templ drift + test-admin
+# (all in the flake's checks.gate) PLUS asan, msan and Playwright, which CI
+# does NOT run. Run this locally before pushing; ~3 min sequential.
 ci: lint test test-race test-staticcheck test-asan test-msan test-ui test-templ-drift test-test-admin
 
 # heavy gate: ci + race-flake. Slow (~5 min); run before tagging a release

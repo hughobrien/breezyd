@@ -456,21 +456,14 @@ func (h *Handler) postUIHeater(w http.ResponseWriter, r *http.Request) {
 // currently-active special_mode, the button sends mode=off instead.
 // This handler does not need to inspect current state.
 //
-// Activating a timer (mode != off) also writes power=on first, so the
-// cache reflects the on-state immediately and the dashboard's power
-// button flips with the timer click. The firmware runs the fans on
-// timer regardless of 0x0001, but our view-derived Power needs the
-// param-side to be consistent for the cache-driven render path.
+// Activating a timer (mode != off) also writes power=on first (done by
+// breezy.SetTimer), so the cache reflects the on-state immediately and the
+// dashboard's power button flips with the timer click.
 func (h *Handler) postUITimer(w http.ResponseWriter, r *http.Request) {
 	type req struct {
 		Mode string `json:"mode"`
 	}
 	postUIWriteJSON(h, w, r, nil, func(ctx context.Context, rc *recordingClient, q *req) error {
-		if strings.ToLower(q.Mode) != "off" {
-			if err := breezy.Power(ctx, rc, true); err != nil {
-				return err
-			}
-		}
 		return breezy.SetTimer(ctx, rc, q.Mode)
 	})
 }

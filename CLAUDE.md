@@ -33,9 +33,11 @@ just nix-check       # parse-check nix/module.nix
 
 `just test-race` (and `-msan` / `-asan` / `test-race-flake`) bake in `CGO_ENABLED=1 CC=clang` because the default `gcc` on this host lacks the TSan / MSan / ASan runtimes.
 
-When in doubt about which gate to run: `check` is the fast pre-commit; `check-all` is the comprehensive pre-push (adds race + Playwright); `ci` reproduces what GitHub Actions runs on every PR (adds golangci-lint, asan, msan); `check-deep` is the slow paranoid sweep before tagging a release or after risky concurrency / cgo / unsafe edits. When editing `nix/module.nix`, `nix-check` is the fast syntax probe — `nix build` is the heavy alternative.
+When in doubt about which gate to run: `check` is the fast pre-commit; `check-all` is the comprehensive pre-push (adds race + Playwright); `ci` is a superset of what CI gates (adds Playwright, asan, msan; see below); `check-deep` is the slow paranoid sweep before tagging a release or after risky concurrency / cgo / unsafe edits. When editing `nix/module.nix`, `nix-check` is the fast syntax probe — `nix build` is the heavy alternative.
 
-GitHub Actions runs the `ci` set as parallel jobs on every PR: `vet + race + build`, `golangci-lint`, `asan tests`, `msan tests`, and `Playwright`. The workflow definition is `.github/workflows/test.yml`.
+**What CI gates today.** The repo lives on a self-hosted Forgejo. `.forgejo/workflows/test.yml` runs one job on a nix-only runner, on PRs to `main` and pushes to `main`: a pure `nix build` of `checks.x86_64-linux.gate` from `flake.nix`. That gate runs, in the nix sandbox: `go vet ./...`, gofmt drift, `go test ./...`, `go test -race ./...` (clang), `golangci-lint run ./...`, `go test -tags breezyd_test_admin ./cmd/breezyd/ -run TestAdmin`, and the templ drift check. The workflow does not build the flake's other check (`checks.<system>.module`, the NixOS module evaluation assertions).
+
+**Not gated by CI; run locally before pushing.** Playwright (`just test-ui`, the only end-to-end dashboard coverage), `just test-asan`, `just test-msan`, and `just test-race-flake`. `just ci` runs all of these plus the gated checks, so it is a superset of CI, not a reproduction of it. `just check-all` already covers Playwright; run `just ci` after cgo/unsafe edits or dashboard changes. `.github/workflows/` only contains `release.yml`; there is no GitHub test workflow.
 
 **Project rule:** when running a check / lint / test combo more than once, add it as a recipe to `justfile` rather than re-typing — improve the file *as you go*.
 
@@ -97,7 +99,7 @@ When enabled, the daemon runs a brutella/hap HAP server that exposes each config
 
 After every successful poll, each device's `EnergyTracker` (in `cmd/breezyd/energy_tracker.go`) computes instantaneous heat-recovery W and fan-electric-draw W, accumulating heating/cooling/consumed kWh per day and lifetime. Tracking is gated on **both** regeneration airflow_mode AND power=on — manual, supply-only, extract-only, and ventilation modes are no-ops for the accumulator, as are powered-off units (fans aren't moving air, so no energy is actually being recovered or consumed regardless of the airflow_mode setting).
 
-Per-device state lives at `<state_dir>/energy_<device>.json` and survives daemon restarts. Lifetime counters carry over; today counters reset at local midnight. The state directory is `$STATE_DIRECTORY` if systemd sets it (NixOS / production) or `$XDG_STATE_HOME/breezyd` otherwise.
+Per-device state lives at `<state_dir>/energy_<device>.json` and survives daemon restarts. Lifetime counters carry over; today counters reset at local midnight. The state directory is `$STATE_DIRECTORY` if systemd sets it (NixOS / production) or `$XDG_STATE_HOME/breezyd` (else `~/.local/state/breezyd`) otherwise; if none can be determined or created, the daemon refuses to start rather than writing into the cwd. Files are written via temp file + fsync + rename + dir fsync (`atomic_json.go`). A file that exists but cannot be read/parsed is renamed to `<name>.corrupt-<unix ts>`, logged, and shown as `state_warning` in the ENERGY block (counters restart from zero); the same applies to the schedule file (`load_warning`, raises the SCHEDULE alert, cleared when a new schedule is saved).
 
 The instantaneous calculation needs a per-model airflow + fan-power calibration table (`pkg/breezy/energy.go::modelCurves`). Adding a new device model is a one-line table edit. Devices whose UnitType isn't in the table surface an error in `service.energy.error`; the dashboard's ENERGY block shows the error string and `/metrics` drops the eight `breezyd_energy_*` gauges for that device.
 
@@ -148,6 +150,8 @@ After a write to `0x02` (speed_mode), `0x44` (manual %), or `0xB7` (fan rotation
 ### Failed-poll cache semantics
 
 When a poll tick has every read fail (e.g. the in-process backend with `SetTimeoutMode(true)` returns `ErrTimeout` instantly), the poller preserves the previous tick's `Values` map rather than overwriting the cache with empty. The dashboard then renders "stale" with last-known data instead of dropping to the `unreachable` placeholder. Real-UDP timeouts are slow enough that this branch rarely fires in production.
+
+A partly failed tick (one of the two read batches fails) keeps the good batch's fresh values and carries the failed batch's IDs forward from the previous snapshot, so nothing vanishes from the cache. Fan-settle-suppressed IDs are not failures and are not carried (they stay dropped for the window). Either way the snapshot has `LastErr` set and `LastPoll` held at the last fully successful poll, so `OnPoll` (HomeKit sync, remote-write push) and the energy tracker, which are success-only, never see carried-forward values as a fresh reading; `OnTick` (dashboard push) and the error metric do fire.
 
 ### Sensor override (a user-visible firmware quirk)
 
@@ -207,5 +211,7 @@ No schedule editing, no WiFi reconfig, no MQTT bridge, no Home Assistant compone
 
 ## Release plumbing
 
-- `goreleaser` builds cross-platform archives on tag pushes. Build metadata (`version`, `commit`, `date`) is injected via `-ldflags` into both binaries' `main` package. The Nix derivation deliberately omits `-X main.date=…` for reproducibility.
+- Release archives are built by `goreleaser` from `.github/workflows/release.yml`, which triggers on `v*` tag pushes **on GitHub only**; `.goreleaser.yml` publishes to github.com/hughobrien/breezyd. Pushing a tag to Forgejo alone produces no release archives (no Forgejo release workflow exists yet); the tag must reach GitHub (or run `just release-snapshot` locally to build archives without publishing). The README's release badge and download links point at GitHub Releases.
+- **Release checklist:** bump `version` in `flake.nix` to match the new tag (Nix-built binaries report that string), then tag and push. The flake version is not derived from git tags.
+- `goreleaser` build details: Build metadata (`version`, `commit`, `date`) is injected via `-ldflags` into both binaries' `main` package. The Nix derivation deliberately omits `-X main.date=…` for reproducibility.
 - `nix/module.nix` exposes a NixOS service with hardened systemd settings; inline `settings` end up in the world-readable Nix store, so production deployments must use `configFile` with sops-nix/agenix for real device passwords. The module has three opt-in integrations that mirror each other in shape: `services.breezyd.prometheus.{enable,jobName}` auto-registers a Prometheus scrape job when both services are enabled; `services.breezyd.nginx.{enable,virtualHost,basicAuthFile}` attaches a `proxy_pass` location to a named virtual host so the dashboard can be exposed on the LAN while the daemon stays loopback-bound; `services.breezyd.homekit.{enable,port,bridgeName,stateDir}` enables the HomeKit bridge and manages the state directory and optional firewall port.
