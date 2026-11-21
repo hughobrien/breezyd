@@ -228,7 +228,7 @@ func run(parent context.Context) error {
 		handler.PushHub.Notify(name, snap)
 	}
 	pollers, schedulers, pollersWg, startPollerGoroutines := startPollers(
-		rootCtx, devices.Snapshot(), cfg.Daemon.PollInterval,
+		rootCtx, devices, cfg.Daemon.PollInterval,
 		stateDir, state, metrics, onPoll, onTick,
 		handler.scheduleDial, memClients,
 	)
@@ -245,7 +245,16 @@ func run(parent context.Context) error {
 	// already done above; off is a no-op; anything else has been validated
 	// by the config loader.
 	if d, ok := parsePeriodicDiscovery(cfg.Daemon.Discovery); ok {
-		go runPeriodicDiscovery(rootCtx, devices, d, cfg.Daemon.Password)
+		go func() {
+			// One probe right away so devices configured without an ip
+			// don't wait a full interval for their first address. The
+			// pollers are already running and pick the address up from the
+			// registry on their next tick.
+			if err := runDiscovery(rootCtx, devices, cfg.Daemon.Password); err != nil {
+				slog.Warn("startup discovery probe failed", "err", err)
+			}
+			runPeriodicDiscovery(rootCtx, devices, d, cfg.Daemon.Password)
+		}()
 	}
 
 	homekitStop, err := handler.StartHomekit(rootCtx, cfg.Homekit, devices.Snapshot())
@@ -382,11 +391,13 @@ func buildDeviceMap(cfg *config.Config) map[string]DeviceConfig {
 	return devices
 }
 
-// startPollers launches one goroutine per configured device with an
-// IP, returning a name->Poller map and a name->Scheduler map for the
-// HTTP handler's plumbing, plus a *sync.WaitGroup the caller blocks
-// on at shutdown. Devices without an IP are logged and skipped —
-// they'll come online when (and if) periodic discovery finds them.
+// startPollers launches a poller, scheduler and RTC syncer for every
+// configured device, returning a name->Poller map and a name->Scheduler
+// map for the HTTP handler's plumbing, plus a *sync.WaitGroup the caller
+// blocks on at shutdown. Devices without an IP yet are included: their
+// poller resolves the address from the registry on every tick, records
+// an error snapshot (unreachable) until discovery supplies one, and the
+// scheduler / RTC syncer dial through the registry-backed ClientFactory.
 //
 // onPoll, when non-nil, is set on each Poller and called after every
 // successful tick. Pass h.SyncHomekit to push fresh snapshots into the
@@ -400,7 +411,7 @@ func buildDeviceMap(cfg *config.Config) map[string]DeviceConfig {
 // scheduler.
 func startPollers(
 	parent context.Context,
-	devices map[string]DeviceConfig,
+	devices *DeviceRegistry,
 	interval time.Duration,
 	stateDir string,
 	state *State,
@@ -415,10 +426,9 @@ func startPollers(
 	wg := &sync.WaitGroup{}
 	var startFns []func()
 
-	for name, d := range devices {
+	for name, d := range devices.Snapshot() {
 		if d.IP == "" {
-			slog.Warn("no IP for device; skipping until discovery succeeds", "name", name)
-			continue
+			slog.Warn("no IP for device yet; it shows as unreachable until discovery finds it", "name", name)
 		}
 		devName := name
 		devID := d.ID
@@ -432,6 +442,7 @@ func startPollers(
 		p := &Poller{
 			Name:     devName,
 			IP:       d.IP,
+			Devices:  devices,
 			DeviceID: d.ID,
 			Password: d.Password,
 			Interval: interval,

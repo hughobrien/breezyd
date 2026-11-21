@@ -51,6 +51,10 @@ var fanSensitiveReads = map[breezy.ParamID]bool{
 	0x0084: true, // air_quality_status (sensors react to flow)
 }
 
+// errNoIPYet is the tick error for a device whose address is not known yet
+// (configured without ip and not found by discovery so far).
+var errNoIPYet = errors.New("no IP yet (waiting for discovery)")
+
 // PollerClient is the subset of breezy.Client the Poller needs. Tests
 // inject an in-process fake; production code injects a real *breezy.Client.
 type PollerClient interface {
@@ -71,6 +75,12 @@ type Poller struct {
 	// It's recorded in each Snapshot so consumers know where the data came
 	// from after a discovery-driven IP move.
 	IP string
+	// Devices, when non-nil, is the registry the poller re-reads at the start
+	// of every tick for the device's current IP, ID and password, so a
+	// discovery-driven address change (or a first address for a device that
+	// had none at startup) takes effect on the next tick. The IP/DeviceID/
+	// Password fields then only hold the last resolved values.
+	Devices *DeviceRegistry
 	// DeviceID is the 16-byte FDFD/02 device ID.
 	DeviceID string
 	// Password is the device protocol password (<=8 bytes).
@@ -192,6 +202,13 @@ func (p *Poller) tick(ctx context.Context) {
 	// carry-forward source for failed-tick branches below.
 	prev, _ := p.State.Get(p.Name)
 
+	// Resolve the current address (only this goroutine touches p.IP etc.).
+	if p.Devices != nil {
+		if d, ok := p.Devices.Get(p.Name); ok {
+			p.IP, p.DeviceID, p.Password = d.IP, d.ID, d.Password
+		}
+	}
+
 	client, err := p.dial()
 	if err != nil {
 		p.recordErr(err)
@@ -273,6 +290,8 @@ func (p *Poller) dial() (PollerClient, error) {
 	)
 	if p.NewClient != nil {
 		c, err = p.NewClient()
+	} else if p.IP == "" {
+		err = errNoIPYet
 	} else {
 		c, err = breezy.NewClient(p.IP, p.DeviceID, p.Password)
 	}

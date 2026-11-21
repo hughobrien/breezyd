@@ -83,7 +83,7 @@ Push wiring: `push_hub.go::PushHub` owns subscribers and renders templ DeviceCar
 breezyd --config <some-config.toml> --backend=memory --seed pkg/breezy/fakedevice/snapshot_148.json
 ```
 
-Add a `[devices.<name>]` block per card you want to render; `ip` is required by config validation but ignored in memory mode (e.g., `ip = "127.0.0.1:0"`). Build with `-tags breezyd_test_admin` if you want the `/test/devices/{name}/...` admin surface for runtime mutation; without the tag the surface returns 404. Production binaries don't ship the tag.
+Add a `[devices.<name>]` block per card you want to render; `ip` is optional in daemon mode (discovery fills it in) and ignored in memory mode. Build with `-tags breezyd_test_admin` if you want the `/test/devices/{name}/...` admin surface for runtime mutation; without the tag the surface returns 404. Production binaries don't ship the tag.
 
 ### Standalone CLI mode and why the daemon owns UDP
 

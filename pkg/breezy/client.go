@@ -93,8 +93,8 @@ func NewClient(addr, deviceID, password string, opts ...Option) (*Client, error)
 	if len(deviceID) != 16 {
 		return nil, fmt.Errorf("breezy: deviceID must be 16 bytes, got %d", len(deviceID))
 	}
-	if len(password) > 8 {
-		return nil, fmt.Errorf("breezy: password must be <= 8 bytes, got %d", len(password))
+	if err := ValidatePassword(password); err != nil {
+		return nil, err
 	}
 
 	full := addr
@@ -165,6 +165,9 @@ func (c *Client) ReadParams(ctx context.Context, ids []ParamID) (map[ParamID][]b
 	if len(ids) == 0 {
 		return map[ParamID][]byte{}, nil
 	}
+	if err := ValidateReadIDs(ids); err != nil {
+		return nil, err
+	}
 	body, err := c.exchange(ctx, FuncRead, BuildReadDataBlock(ids), ids)
 	if err != nil {
 		return nil, err
@@ -205,6 +208,9 @@ func (c *Client) WriteParams(ctx context.Context, writes []ParamWrite) error {
 	if len(writes) == 0 {
 		return nil
 	}
+	if err := ValidateWrites(writes); err != nil {
+		return err
+	}
 	for _, w := range writes {
 		if p, ok := LookupByID(w.ID); ok && !p.Caps.CanWrite() {
 			return fmt.Errorf("%w: %s (0x%04X)", ErrReadOnly, p.Name, uint16(w.ID))
@@ -222,11 +228,15 @@ func (c *Client) WriteParams(ctx context.Context, writes []ParamWrite) error {
 //   - operator tooling that knows the registry is wrong for a particular
 //     ID (firmware variant, custom build) and wants to override.
 //
-// Production code should prefer WriteParams. Reserved-low-byte panics still
-// fire — those are caller bugs at the protocol layer, not registry policy.
+// Production code should prefer WriteParams. Malformed input (reserved IDs,
+// oversize or empty values) is still rejected with ErrInvalidArg — those are
+// protocol-layer limits, not registry policy.
 func (c *Client) WriteParamsUnsafe(ctx context.Context, writes []ParamWrite) error {
 	if len(writes) == 0 {
 		return nil
+	}
+	if err := ValidateWrites(writes); err != nil {
+		return err
 	}
 	_, err := c.exchange(ctx, FuncWriteWithReply, BuildWriteDataBlock(writes), writeIDs(writes))
 	return err

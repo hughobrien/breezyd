@@ -151,9 +151,21 @@ func snappyLiterals(b []byte) []byte {
 // Newest returns the newest sample time of the series the selector matches,
 // looking back over lookback. ok is false when there is none.
 func (c *Client) Newest(ctx context.Context, selector string, lookback time.Duration) (t time.Time, ok bool, err error) {
-	// timestamp() of a plain selector is the sample's own time; the subquery
-	// steps every minute, inside the 5m lookback, so no sample is skipped.
-	q := fmt.Sprintf("max(max_over_time(timestamp(%s)[%ds:1m]))", selector, int(lookback.Seconds()))
+	return c.newest(ctx, selector, lookback, "1m")
+}
+
+// NewestHourly is Newest for hourly series. The subquery steps every hour, so
+// it only sees samples sitting on the hour (each falls inside one step's 5m
+// lookback), but it stays under the store's cap on subquery points however
+// long the lookback.
+func (c *Client) NewestHourly(ctx context.Context, selector string, lookback time.Duration) (t time.Time, ok bool, err error) {
+	return c.newest(ctx, selector, lookback, "1h")
+}
+
+func (c *Client) newest(ctx context.Context, selector string, lookback time.Duration, step string) (time.Time, bool, error) {
+	// timestamp() of a plain selector is the sample's own time; with a step
+	// inside the 5m lookback (or on the sample grid) no sample is skipped.
+	q := fmt.Sprintf("max(max_over_time(timestamp(%s)[%ds:%s]))", selector, int(lookback.Seconds()), step)
 	return c.instant(ctx, q)
 }
 
