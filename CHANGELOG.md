@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   starting Night/Turbo from HomeKit, `/v1/.../timer` or the CLI now powers
   the unit on first (moved into `breezy.SetTimer`); the accessory Model comes
   from the device's unit type. `/v1/devices/{name}` gains `live.effective_power`.
+- Small inconsistencies (#271): `breezy x get firmware_metadata` prints the
+  minor version zero-padded like everywhere else (`0.05`); `GET /v1/devices`
+  reports `reachable: false` for a never-polled device and only power value 1
+  as on; `PUT /v1/devices/{name}/schedule` without `entries` is a 400 instead
+  of clearing the schedule; truncated / bad-header / id-mismatch / malformed
+  replies and "no IP yet" map to `device_unreachable` (502); `breezy_info`
+  drops the old firmware series after an update; a bare IPv6 address gets the
+  default port; an already-cancelled discovery returns at once.
 - Config validation: `poll_interval` and `periodic:` discovery under 1 s,
   passwords over 8 bytes, non-ASCII device ids and device names `help` /
   `version` are now rejected at load; push URLs are redacted in the startup

@@ -291,9 +291,10 @@ type FaultCode struct {
 }
 
 // StatusParamIDs is the canonical set of parameter IDs that GetStatus
-// reads in one batched ReadParams call. Mirrors the daemon poller's
-// defaultReadIDs() in cmd/breezyd/main.go; keep them in sync until the
-// daemon migrates to this constant.
+// reads in one batched ReadParams call. The daemon poller's
+// defaultReadIDs() in cmd/breezyd/main.go is a superset: it also reads the
+// per-mode timer durations 0x0302/0x0303, which only the dashboard uses and
+// which BuildStatus does not decode.
 //
 // Do not mutate this slice. Callers that need a private copy should
 // allocate one (e.g. append([]ParamID(nil), StatusParamIDs...)).
@@ -356,11 +357,13 @@ func GetFaults(ctx context.Context, c DeviceClient) ([]FaultCode, error) {
 	if err != nil {
 		return nil, err
 	}
+	return DecodeFaults(out[0x007F]), nil
+}
+
+// DecodeFaults decodes the raw 0x007F fault list ([code, kind] pairs) into
+// FaultCodes. It returns a non-nil empty slice for empty input.
+func DecodeFaults(raw []byte) []FaultCode {
 	faults := []FaultCode{}
-	raw, ok := out[0x007F]
-	if !ok {
-		return faults, nil
-	}
 	for i := 0; i+1 < len(raw); i += 2 {
 		var kind string
 		switch raw[i+1] {
@@ -373,7 +376,7 @@ func GetFaults(ctx context.Context, c DeviceClient) ([]FaultCode, error) {
 		}
 		faults = append(faults, FaultCode{Code: int(raw[i]), Kind: kind})
 	}
-	return faults, nil
+	return faults
 }
 
 // GetStatus issues one batched ReadParams for the canonical status set

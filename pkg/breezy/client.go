@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +87,16 @@ type Client struct {
 	closeErr  error
 }
 
+// withDefaultPort appends the default port to addr when it has none. It
+// handles "host", "1.2.3.4", bare "fe80::1" and "[fe80::1]"; anything that
+// already parses as host:port is returned unchanged.
+func withDefaultPort(addr string) string {
+	if _, _, err := net.SplitHostPort(addr); err == nil {
+		return addr
+	}
+	return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(defaultPort))
+}
+
 // NewClient dials a UDP "connection" (in the connect(2) sense — UDP is
 // connectionless, but Dial fixes the peer for the socket). addr may be
 // "host" (port defaults to 4000) or "host:port".
@@ -97,11 +108,7 @@ func NewClient(addr, deviceID, password string, opts ...Option) (*Client, error)
 		return nil, err
 	}
 
-	full := addr
-	if !strings.Contains(addr, ":") || strings.HasSuffix(addr, "]") {
-		// "host" or bare "[v6addr]" without a port -> append default.
-		full = fmt.Sprintf("%s:%d", addr, defaultPort)
-	}
+	full := withDefaultPort(addr)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", full)
 	if err != nil {

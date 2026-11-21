@@ -386,3 +386,23 @@ func TestMetrics_NoResettingEnergyGauges(t *testing.T) {
 		is.True(!strings.HasPrefix(n, "breezyd_energy_") || !resetting) // no resetting energy gauge
 	}
 }
+
+// TestMetricsInfoDropsStaleFirmwareSeries pins that a firmware update
+// replaces the device's breezy_info series instead of leaving the old
+// firmware/build_date series behind until the daemon restarts.
+func TestMetricsInfoDropsStaleFirmwareSeries(t *testing.T) {
+	is := is.New(t)
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+	m.Update("dev", "ID0000000000002A", representativeSnapshot())
+
+	upd := representativeSnapshot()
+	upd.Values[0x0086] = []byte{0x00, 0x0C, 0x01, 0x04, 0xE9, 0x07} // 0.12, 2025-04-01
+	m.Update("dev", "ID0000000000002A", upd)
+
+	want := `# HELP breezy_info Per-device build/firmware diagnostics (constant 1; data is in labels).
+# TYPE breezy_info gauge
+breezy_info{build_date="2025-04-01",device="dev",firmware="0.12",id="ID0000000000002A"} 1
+`
+	is.NoErr(testutil.CollectAndCompare(m.info, strings.NewReader(want), "breezy_info"))
+}

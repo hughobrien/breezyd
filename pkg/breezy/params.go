@@ -371,7 +371,7 @@ type FirmwareMetaValue struct {
 }
 
 func (v FirmwareMetaValue) String() string {
-	return fmt.Sprintf("%d.%d (%s)", v.Major, v.Minor, v.Date.Format("2006-01-02"))
+	return fmt.Sprintf("%d.%02d (%s)", v.Major, v.Minor, v.Date.Format("2006-01-02"))
 }
 
 // AlertBitmapValue is the 5-byte per-sensor over-threshold bitmap. Bytes
