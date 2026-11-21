@@ -131,6 +131,10 @@ configuration knob — the cycle is fully derived from `time.Now()`
 and restarts cleanly on daemon restart. Failures (UDP timeout, auth)
 log a warning and continue; next 04:00 retries naturally.
 
+### Request guard (cross-origin, body cap, Host allowlist)
+
+`cmd/breezyd/guard.go::guard` wraps the whole top-level mux in `main.go`. Every non-GET/HEAD/OPTIONS request is checked by `http.CrossOriginProtection` (`Sec-Fetch-Site`, else `Origin` vs `Host`; an `Origin` equal to `X-Forwarded-Host` is also accepted when no `Sec-Fetch-Site` is sent) and rejected 403 with the JSON envelope (`code: forbidden`); requests with neither header (CLI, curl, Prometheus) pass. State-changing bodies are read up to 64 KiB (`maxBodyBytes`) and answered 413 beyond that. `[daemon].allowed_hosts` is an opt-in Host allowlist (DNS rebinding): empty means no check; when set, a Host (port stripped) that is not listed, not an IP literal and not `localhost` gets 403. No auth is added. New routes get this for free; don't register handlers outside the guarded mux.
+
 ### Cache vs. passthrough
 
 - `GET /v1/devices`, `GET /v1/devices/{name}`, `/metrics` → in-memory cache populated by the poller. Reads are cheap and never block on UDP.
