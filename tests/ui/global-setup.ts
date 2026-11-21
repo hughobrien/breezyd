@@ -43,7 +43,10 @@ export default async function globalSetup() {
   mkdirSync(logDir, { recursive: true });
 
   // Snapshot shipped with the fakedevice package — used as the memory seed.
-  const snapshotPath = join(REPO_ROOT, "pkg", "breezy", "fakedevice", "snapshot_148.json");
+  // BREEZYD_SEED overrides it (the nix flake check has no repo checkout).
+  const snapshotPath =
+    process.env.BREEZYD_SEED ??
+    join(REPO_ROOT, "pkg", "breezy", "fakedevice", "snapshot_148.json");
 
   // 1. Write a temp breezyd config.
   const tmpDir = mkdtempSync(join(tmpdir(), "breezyd-test-"));
@@ -66,18 +69,18 @@ export default async function globalSetup() {
   writeFileSync(configPath, configToml, { mode: 0o600 });
 
   // 2. Spawn breezyd with the memory backend and test-admin surface.
-  breezydProc = spawn(
-    "go",
-    [
-      "run",
-      "-tags", "breezyd_test_admin",
-      "./cmd/breezyd",
-      "--config", configPath,
-      "--backend=memory",
-      "--seed", snapshotPath,
-    ],
-    { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
-  );
+  // BREEZYD_BIN points at a prebuilt breezyd (built with
+  // -tags breezyd_test_admin) -- the nix flake check (checks.ui) uses this.
+  // Unset, build and run from source via `go run` (local `just test-ui`).
+  const daemonArgs = ["--config", configPath, "--backend=memory", "--seed", snapshotPath];
+  const bin = process.env.BREEZYD_BIN;
+  breezydProc = bin
+    ? spawn(bin, daemonArgs, { cwd: tmpDir, stdio: ["ignore", "pipe", "pipe"] })
+    : spawn(
+        "go",
+        ["run", "-tags", "breezyd_test_admin", "./cmd/breezyd", ...daemonArgs],
+        { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
+      );
 
   const bdLog = createWriteStream(join(logDir, "breezyd.log"));
   breezydProc.stdout?.pipe(bdLog);

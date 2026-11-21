@@ -127,6 +127,66 @@
         '';
       });
 
+      # Playwright dashboard suite (tests/ui), hermetic in the nix sandbox.
+      # nix build .#checks.<system>.ui
+      #
+      # VERSION PIN: tests/ui/package.json pins @playwright/test to EXACTLY the
+      # version of nixpkgs' playwright-driver (the browsers below), because
+      # Playwright refuses a browser build it was not released with. nixpkgs
+      # (flake.lock) pins playwright-driver; package.json + pnpm-lock.yaml pin
+      # the npm side. The assert below fails evaluation when they drift:
+      # bump package.json to the new version, regenerate pnpm-lock.yaml and
+      # run `just nix-pnpm-hash`.
+      checks.ui = let
+        uiPkg = builtins.fromJSON (builtins.readFile ./tests/ui/package.json);
+        pwVersion = pkgs.playwright-driver.version;
+        # Test-admin build of the daemon (adds the /test/... mutation surface).
+        breezyd-test = breezyd-pkg.overrideAttrs (_: {
+          pname = "breezyd-test-admin";
+          tags = [ "breezyd_test_admin" ];
+          subPackages = [ "cmd/breezyd" ];
+          doCheck = false;
+        });
+        uiSrc = ./tests/ui;
+      in
+      assert pkgs.lib.assertMsg (uiPkg.devDependencies."@playwright/test" == pwVersion)
+        "tests/ui/package.json pins @playwright/test ${uiPkg.devDependencies."@playwright/test"} but nixpkgs playwright-driver is ${pwVersion}; pin them to the same version (see flake.nix checks.ui)";
+      pkgs.stdenv.mkDerivation {
+        pname = "breezyd-ui-tests";
+        version = "0";
+        src = uiSrc;
+        nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm_10 pkgs.pnpmConfigHook ];
+        # Fixed-output fetch of the pnpm store from pnpm-lock.yaml. The hash
+        # changes whenever tests/ui/pnpm-lock.yaml does: `just nix-pnpm-hash`.
+        pnpmDeps = pkgs.fetchPnpmDeps {
+          pname = "breezyd-ui-tests";
+          version = "0";
+          src = uiSrc;
+          pnpm = pkgs.pnpm_10;
+          fetcherVersion = 3;
+          hash = "sha256-/OcZoeid9aVFxeoYgUynHKh8NC0yxBB5tDZ4IFQAE1g=";
+        };
+        env = {
+          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+          # Without a fontconfig + a font, Chromium lays text out at zero size
+          # and the sandbox sees every heading/summary as "hidden".
+          FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
+          BREEZYD_BIN = "${breezyd-test}/bin/breezyd";
+          BREEZYD_SEED = "${./pkg/breezy/fakedevice/snapshot_148.json}";
+          CI = "1";
+        };
+        dontBuild = true;
+        doCheck = true;
+        checkPhase = ''
+          runHook preCheck
+          export HOME="$TMPDIR"
+          pnpm exec playwright test
+          runHook postCheck
+        '';
+        installPhase = "touch $out";
+      };
+
       formatter = pkgs.nixpkgs-fmt;
     });
 

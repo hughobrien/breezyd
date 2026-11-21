@@ -54,8 +54,8 @@ coverage:
 	@go tool cover -func=coverage.out | tail -1
 
 # superset of what CI gates: vet + race + asan + msan + lint + templ drift +
-# test-admin (all in the flake's checks.gate) PLUS Playwright, which CI does
-# NOT run. Run this locally before pushing; ~3 min sequential.
+# test-admin (the flake's checks.gate) and Playwright (checks.ui). Everything
+# here is gated by CI; run it locally before pushing; ~3 min sequential.
 ci: lint test test-race test-staticcheck test-asan test-msan test-ui test-templ-drift test-test-admin
 
 # heavy gate: ci + race-flake. Slow (~5 min); run before tagging a release
@@ -154,3 +154,14 @@ nix-vendor-hash:
 	@echo "1. In flake.nix, set: vendorHash = pkgs.lib.fakeHash;"
 	@echo "2. Run: nix build"
 	@echo "3. Copy the 'got: sha256-...' value into vendorHash."
+
+# print the steps to recompute the tests/ui pnpm-deps hash (flake.nix checks.ui)
+# after tests/ui/pnpm-lock.yaml changes, and to bump the Playwright pin
+nix-pnpm-hash:
+	@echo "tests/ui/package.json pins @playwright/test to nixpkgs' playwright-driver version"
+	@echo "(flake.nix checks.ui asserts they match). To bump:"
+	@echo "0. Set \"@playwright/test\": \"<that version>\" in tests/ui/package.json."
+	@echo "1. cd tests/ui && nix shell nixpkgs#pnpm_10 -c pnpm install --lockfile-only"
+	@echo "2. In flake.nix checks.ui pnpmDeps, set: hash = pkgs.lib.fakeHash;"
+	@echo "3. Run: nix build .#checks.x86_64-linux.ui  (also: just test-ui-install locally)"
+	@echo "4. Copy the 'got: sha256-...' value into pnpmDeps hash."
