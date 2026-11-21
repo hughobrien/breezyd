@@ -29,7 +29,7 @@ form: returns errors instead of calling `os.Exit`.
 
 Validation: `--seed` requires `--backend=memory`; `--backend` accepts only
 `udp` or `memory`. Build metadata (`version`, `commit`, `date`) is injected
-at link time by goreleaser.
+at link time via `-ldflags` (the Nix build sets `version` and `commit`).
 
 ### Config loading and first-run bootstrap
 

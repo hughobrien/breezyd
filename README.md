@@ -2,7 +2,6 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Go Reference](https://pkg.go.dev/badge/github.com/hughobrien/breezyd.svg)](https://pkg.go.dev/github.com/hughobrien/breezyd)
-[![Release](https://img.shields.io/github/v/release/hughobrien/breezyd)](https://github.com/hughobrien/breezyd/releases)
 
 A Go library, daemon, and CLI for controlling [Vents
 Twinfresh](https://ventilation-system.com/) Breezy ductless heat-recovery
@@ -96,7 +95,7 @@ Pick the path that matches your environment. Each one ends with a working
 
 - **NixOS host** → [NixOS](#nixos) — 4 steps; daemon + CLI + dashboard, all module-managed.
 - **macOS or non-NixOS Linux with Nix installed** → [Nix anywhere](#nix-anywhere) — `nix profile install` lands the binaries on `$PATH`.
-- **Linux without Nix** → [Linux + systemd](#linux--systemd) — pre-built binary download + an optional hardened systemd unit.
+- **Linux without Nix** → [Linux + systemd](#linux--systemd) — build from source + an optional hardened systemd unit.
 
 ## NixOS
 
@@ -302,7 +301,7 @@ nix run github:hughobrien/breezyd#breezy -- ls       # CLI
 nix build github:hughobrien/breezyd
 ./result/bin/breezyd --version
 
-# Drop into a dev shell with Go, gopls, goreleaser, etc.
+# Drop into a dev shell with Go, gopls, templ, etc.
 nix develop github:hughobrien/breezyd
 ```
 
@@ -425,26 +424,19 @@ standalone immediately) and exits with an "edit it" message.
 If you want the daemon to run on boot under systemd, see
 [Linux + systemd](#linux--systemd) — that section's unit file works
 unchanged whether you got the binary from `nix profile install` or
-from a release archive.
+built it from source.
 
 ## Linux + systemd
 
 For Ubuntu / Debian / Arch / Fedora / etc. without Nix.
 
-### 1. Download the binary
+### 1. Build the binary
 
-Pre-built binaries for Linux (amd64/arm64), macOS (amd64/arm64), and Windows
-(amd64) are published on the [GitHub Releases
-page](https://github.com/hughobrien/breezyd/releases). Download the archive
-for your platform and extract `breezyd` and `breezy` somewhere on `$PATH`.
-Release archives are built and published from GitHub only (tag pushes to
-the Forgejo origin alone do not produce them):
+No pre-built release archives are published. Build from source (needs Go
+and `templ`; see [Build from source](#build-from-source)):
 
 ```sh
-# Linux amd64 example
-curl -sSL -o breezyd.tar.gz \
-  https://github.com/hughobrien/breezyd/releases/latest/download/breezyd_Linux_x86_64.tar.gz
-tar -xzf breezyd.tar.gz breezyd breezy
+just build
 sudo install -m 0755 breezyd breezy /usr/local/bin/
 breezyd --version
 ```

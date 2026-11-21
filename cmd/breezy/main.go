@@ -48,8 +48,8 @@ import (
 // discoverTimeout bounds the LAN broadcast in `breezy discover`.
 const discoverTimeout = 3 * time.Second
 
-// Build metadata. These are populated by goreleaser via -ldflags at build
-// time; an unbuilt local binary reports "dev" / "none" / "unknown" so
+// Build metadata. These are set via -ldflags at build time (the
+// Nix build sets version and commit); an unbuilt local binary reports "dev" / "none" / "unknown" so
 // `breezy --version` is always meaningful.
 var (
 	version = "dev"
