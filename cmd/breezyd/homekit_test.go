@@ -217,7 +217,7 @@ func TestHomekit_SyncRoundTripFull(t *testing.T) {
 			0x0083: {0x01},                   // fault_level = warning (any non-"none")
 			0x0088: {0x00},                   // filter clean (FilterChangeIndication)
 			0x00B7: {0x02},                   // airflow_mode = supply
-			0x00B9: {17, 0},                  // unit_type = Breezy 160
+			0x00B9: {22, 0},                  // unit_type = Breezy 200
 		},
 	}
 
@@ -228,8 +228,8 @@ func TestHomekit_SyncRoundTripFull(t *testing.T) {
 
 	// AirPurifier active = 1 (powered on).
 	is.Equal(a.AirPurifier.Active.Value(), 1)
-	// Model comes from unit_type (0x00B9 = 17).
-	is.Equal(a.A.Info.Model.Value(), "Breezy 160")
+	// Model comes from unit_type (0x00B9 = 22).
+	is.Equal(a.A.Info.Model.Value(), "Twinfresh Breezy 200")
 	// Heater switch on.
 	is.Equal(a.Heater.On.Value(), true)
 	// Night timer on, Turbo off (mutually exclusive).
