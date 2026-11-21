@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -151,4 +152,30 @@ func TestPushHub_UnsubscribeIsIdempotent(t *testing.T) {
 	hub.Unsubscribe(sub)
 	// Second call must not panic on already-closed channel.
 	hub.Unsubscribe(sub)
+}
+
+// TestPushHub_UnsubscribeReleasesSubscribers asserts that after many
+// subscribe/unsubscribe cycles the hub holds no reference to any
+// subscriber (issue #262: a write-only "closed" map retained every one).
+// It walks every map/slice field of the hub by reflection so the check
+// also catches any future bookkeeping container added to PushHub.
+func TestPushHub_UnsubscribeReleasesSubscribers(t *testing.T) {
+	hub := newTestHub(t)
+	for range 100 {
+		sub := hub.Subscribe()
+		hub.Unsubscribe(sub)
+		hub.Unsubscribe(sub) // idempotent, still safe
+	}
+	hub.Notify("bedroom", Snapshot{}) // must not send on a closed channel
+
+	v := reflect.ValueOf(hub).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		switch f.Kind() {
+		case reflect.Map, reflect.Slice:
+			if f.Len() != 0 {
+				t.Errorf("PushHub.%s retains %d entries after all subscribers unsubscribed", v.Type().Field(i).Name, f.Len())
+			}
+		}
+	}
 }
