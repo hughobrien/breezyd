@@ -24,6 +24,17 @@ const (
 
 // snapshotPath is the absolute path to the snapshot the fakedevice tests
 // share. We resolve it via filepath.Abs so failures point at a real path.
+// TestNewClient_BareIPv6 pins that an address with colons but no brackets
+// or port ("::1") gets the default port instead of failing to resolve.
+func TestNewClient_BareIPv6(t *testing.T) {
+	is := is.New(t)
+	for _, addr := range []string{"::1", "[::1]", "[::1]:4000"} {
+		c, err := breezy.NewClient(addr, testDeviceID, testPassword)
+		is.NoErr(err)
+		_ = c.Close()
+	}
+}
+
 func snapshotPath(t *testing.T) string {
 	t.Helper()
 	p, err := filepath.Abs("fakedevice/snapshot_148.json")

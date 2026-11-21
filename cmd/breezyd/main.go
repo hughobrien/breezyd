@@ -514,7 +514,7 @@ func makeClientFactory(devices *DeviceRegistry, memClients map[string]*breezy.Me
 			return nil, fmt.Errorf("unknown device %q", name)
 		}
 		if d.IP == "" {
-			return nil, fmt.Errorf("device %q has no IP yet", name)
+			return nil, fmt.Errorf("device %q: %w", name, errNoIPYet)
 		}
 		return breezy.NewClient(d.IP, d.ID, d.Password)
 	}
@@ -668,7 +668,8 @@ func runPeriodicDiscovery(ctx context.Context, devices *DeviceRegistry, interval
 
 // defaultReadIDs is the set of params each poller reads on every
 // tick. Drawn from the spec's metric list plus the structured
-// snapshot fields (`/v1/devices/{name}` reads from the cache).
+// snapshot fields (`/v1/devices/{name}` reads from the cache). It is a
+// superset of breezy.StatusParamIDs (adds 0x0302/0x0303 for the dashboard).
 //
 // The order matters: the poller batches in groups of pollBatchSize,
 // and the FDFD/02 protocol switches "page" via 0xFF markers when

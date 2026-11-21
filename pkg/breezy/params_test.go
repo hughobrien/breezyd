@@ -425,3 +425,11 @@ func TestRegistry_NoStaleNames(t *testing.T) {
 		}
 	}
 }
+
+// TestFirmwareMetaValue_StringPadsMinor pins that the minor version is
+// zero-padded like every other firmware rendering (0.5 prints as 0.05).
+func TestFirmwareMetaValue_StringPadsMinor(t *testing.T) {
+	is := is.New(t)
+	v := FirmwareMetaValue{Major: 0, Minor: 5, Date: time.Date(2025, 3, 21, 0, 0, 0, 0, time.UTC)}
+	is.Equal(v.String(), "0.05 (2025-03-21)")
+}

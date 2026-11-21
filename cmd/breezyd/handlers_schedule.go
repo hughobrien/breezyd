@@ -57,10 +57,15 @@ func (h *Handler) putSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Enabled bool            `json:"enabled"`
-		Entries []ScheduleEntry `json:"entries"`
+		Enabled bool             `json:"enabled"`
+		Entries *[]ScheduleEntry `json:"entries"`
 	}
 	if !readBody(w, r, &body) {
+		return
+	}
+	if body.Entries == nil {
+		// An empty body or one without "entries" must not wipe the schedule.
+		writeErr(w, "bad_request", `"entries" is required (use [] to clear the schedule)`)
 		return
 	}
 	sch, ok := h.Schedulers[name]
@@ -68,7 +73,7 @@ func (h *Handler) putSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "internal", fmt.Sprintf("device %q has no scheduler wired", name))
 		return
 	}
-	if err := sch.Replace(body.Enabled, body.Entries); err != nil {
+	if err := sch.Replace(body.Enabled, *body.Entries); err != nil {
 		if errors.Is(err, breezy.ErrInvalidArg) {
 			writeErr(w, "bad_request", err.Error())
 			return

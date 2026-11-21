@@ -236,6 +236,51 @@ func TestHandler_ListDevices(t *testing.T) {
 	is.Equal(resp.Devices[0]["name"], "playroom")
 }
 
+func TestHandler_ListDevices_NeverPolledNotReachable(t *testing.T) {
+	is := is.New(t)
+	h, _, _ := newServerHandler(t)
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices", nil)
+	is.Equal(rec.Code, http.StatusOK)
+	var resp struct {
+		Devices []map[string]any `json:"devices"`
+	}
+	is.NoErr(json.Unmarshal(rec.Body.Bytes(), &resp))
+	is.Equal(len(resp.Devices), 1)
+	is.Equal(resp.Devices[0]["reachable"], false) // no snapshot yet: not known reachable
+}
+
+// TestClassifyClientErr_DeviceSideErrors pins that wire-level and
+// not-yet-discovered failures are reported as device_unreachable (502)
+// rather than internal (500).
+func TestClassifyClientErr_DeviceSideErrors(t *testing.T) {
+	for _, e := range []error{
+		breezy.ErrTruncated, breezy.ErrBadHeader, breezy.ErrIDMismatch,
+		breezy.ErrPwdMismatch, breezy.ErrInvalidData, breezy.ErrTimeout,
+		fmt.Errorf("device %q: %w", "x", errNoIPYet),
+		fmt.Errorf("read: %w", breezy.ErrTruncated),
+	} {
+		if got := classifyClientErr(e); got != "device_unreachable" {
+			t.Errorf("classifyClientErr(%v) = %q, want device_unreachable", e, got)
+		}
+	}
+	if got := classifyClientErr(errors.New("boom")); got != "internal" {
+		t.Errorf("unknown error classified %q, want internal", got)
+	}
+}
+
+func TestHandler_ListDevices_PowerInvertIsNotOn(t *testing.T) {
+	is := is.New(t)
+	h, _, _ := newServerHandler(t)
+	seedSnapshot(t, h, "playroom", map[breezy.ParamID][]byte{0x0001: {0x02}})
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices", nil)
+	var resp struct {
+		Devices []map[string]any `json:"devices"`
+	}
+	is.NoErr(json.Unmarshal(rec.Body.Bytes(), &resp))
+	is.Equal(resp.Devices[0]["reachable"], true)
+	is.Equal(resp.Devices[0]["power"], false) // 2 = invert, only 1 is on
+}
+
 // ------------------------------------------------------------------------
 // Structured snapshot
 // ------------------------------------------------------------------------
@@ -1304,6 +1349,27 @@ func TestHandler_PutSchedule_Roundtrip(t *testing.T) {
 	is.Equal(got["enabled"], true) // enabled flag round-trips
 	entries, _ := got["entries"].([]any)
 	is.Equal(len(entries), 2) // both entries round-trip
+}
+
+func TestHandler_PutSchedule_MissingEntriesRejected(t *testing.T) {
+	is := is.New(t)
+	h, _, _, _ := newServerHandlerWithSchedule(t)
+	seed := map[string]any{
+		"enabled": true,
+		"entries": []map[string]any{{"at": "08:00", "action": "regeneration", "pct": 60}},
+	}
+	is.Equal(doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", seed).Code, http.StatusOK)
+
+	// Empty body and a body without "entries" must not wipe the schedule.
+	for _, body := range []any{nil, map[string]any{"enabled": false}} {
+		rec := doRequest(t, h, http.MethodPut, "/v1/devices/playroom/schedule", body)
+		is.Equal(rec.Code, http.StatusBadRequest)
+	}
+	rec := doRequest(t, h, http.MethodGet, "/v1/devices/playroom/schedule", nil)
+	var got map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	entries, _ := got["entries"].([]any)
+	is.Equal(len(entries), 1) // schedule untouched
 }
 
 func TestHandler_PutSchedule_Validation(t *testing.T) {
