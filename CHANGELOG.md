@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `services.prometheus`) when `prometheus.enable` is on, registers the scrape
   job there with the drop rule, and takes more targets in `push.<name>.url`.
 
+### Fixed
+
+- Config validation: `poll_interval` and `periodic:` discovery under 1 s,
+  passwords over 8 bytes, non-ASCII device ids and device names `help` /
+  `version` are now rejected at load; push URLs are redacted in the startup
+  log. The default `[homekit].state_dir` now follows `$STATE_DIRECTORY`
+  (`<it>/homekit`), but an existing pairing in the old XDG default is kept
+  when the new directory does not exist yet.
+
 ### Security
 
 - The HTTP API no longer accepts cross-site browser writes (#259). A request

@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/hughobrien/breezyd/internal/promwrite"
@@ -98,4 +100,23 @@ func (p *metricPusher) push(ctx context.Context, name string, snap Snapshot) {
 	if err := p.targets.Flush(ctx); err != nil {
 		slog.Warn("push", "err", err)
 	}
+}
+
+// redactURL returns raw as scheme://host[:port]/path, dropping userinfo, query
+// and fragment, which can carry credentials. Use it for anything logged.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "<invalid url>"
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
+}
+
+// redactedTargets formats push targets as name=url,... with every URL redacted.
+func redactedTargets(ts promwrite.Targets) string {
+	s := make([]string, 0, len(ts))
+	for _, t := range ts {
+		s = append(s, t.Name+"="+redactURL(t.URL))
+	}
+	return strings.Join(s, ",")
 }
