@@ -31,7 +31,7 @@ The schedule does not depend on the device's cloud service; all timing and write
 6. **No catch-up.** On daemon startup, schedule edit, or schedule re-enable, the daemon does NOT immediately apply the entry-in-effect. Only future transitions fire.
 7. **Manual override is permitted between transitions.** User UI/HomeKit/CLI changes are not re-asserted by the schedule until the next entry's At-time arrives.
 8. **Disable = no auto commands.** Toggling the enable checkbox off doesn't touch the unit; it only stops future entries firing.
-9. **Retry on transient write failure.** Every 30s, capped at 10 minutes, abandoned early if the next entry's At-time arrives. ErrAuth is treated as a config error: log once, no retry.
+9. **Retry on transient write failure.** Every 30s, capped at 10 minutes, abandoned early if the next entry's At-time arrives. (`Run` wakes at each retry's due time between its minute ticks; supersession by a newer entry is detected at the next minute tick.) ErrAuth is treated as a config error: log once, no retry.
 10. **Alert surfaces in UI.** When the latest fire failed (with or without retries exhausted), the SCHEDULE panel auto-expands and shows a `⚠` warning line, mirroring how SENSORS auto-expands on humidity/CO2/VOC alerts.
 
 ## Architecture
