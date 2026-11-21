@@ -29,7 +29,6 @@ func TestNewBreezyAccessory_ServiceShape(t *testing.T) {
 
 	// Optional characteristics that Task 2 (sync.go) requires typed handles for.
 	is.True(a.RotationSpeed != nil)      // RotationSpeed characteristic missing
-	is.True(a.VOCDensity != nil)         // VOCDensity characteristic missing
 	is.True(a.CarbonDioxideLevel != nil) // CarbonDioxideLevel characteristic missing
 
 	// Heater/Night/Turbo control switches.

@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HomeKit: the AirQuality sensor no longer exposes VOCDensity. The device
+  reports a dimensionless VOC index (0..500), which the Home app showed as
+  "µg/m³". The AirQuality enum derived from the index is unchanged, and the
+  index stays on the dashboard and in `/metrics`. A paired bridge picks the
+  change up without re-pairing (hap bumps its configuration number).
 - HomeKit: the accessory no longer flips to "Idle" for ~12 s after a fan
   change (missing RPMs during the fan-settle window now leave the state
   alone); Active follows the dashboard's rule (power on OR a timer running);

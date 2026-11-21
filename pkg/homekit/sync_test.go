@@ -5,6 +5,8 @@ package homekit
 import (
 	"testing"
 
+	"github.com/brutella/hap/characteristic"
+	"github.com/brutella/hap/service"
 	"github.com/hughobrien/breezyd/pkg/breezy"
 	"github.com/matryer/is"
 )
@@ -175,7 +177,7 @@ func TestSync_CO2Detection(t *testing.T) {
 	is.Equal(a3.CarbonDioxideLevel.Value(), 1500.0)   // level still tracked even without threshold
 }
 
-// TestSync_VOCToAirQuality covers VOCDensity and the AirQuality enum bucket.
+// TestSync_VOCToAirQuality covers the AirQuality enum bucket and that no VOCDensity is exposed.
 func TestSync_VOCToAirQuality(t *testing.T) {
 	is := is.New(t)
 	cases := []struct {
@@ -191,7 +193,7 @@ func TestSync_VOCToAirQuality(t *testing.T) {
 	for _, tc := range cases {
 		a := newTestAccessory()
 		Sync(a, breezy.Status{Sensors: map[string]any{"voc_index": tc.voc}})
-		is.Equal(a.VOCDensity.Value(), float64(tc.voc))
+		is.True(vocDensityPresent(a.AirQualitySvc.S) == false) // VOC index must not be shown as µg/m³
 		is.Equal(a.AirQualitySvc.AirQuality.Value(), int(tc.wantEnum))
 	}
 }
@@ -394,4 +396,13 @@ func TestSync_StatusFault(t *testing.T) {
 	is.Equal(a.StatusFault.Value(), 0)
 	Sync(a, breezy.Status{Service: map[string]any{"fault_level": "alarm"}})
 	is.Equal(a.StatusFault.Value(), 1)
+}
+
+func vocDensityPresent(s *service.S) bool {
+	for _, c := range s.Cs {
+		if c.Type == characteristic.TypeVOCDensity {
+			return true
+		}
+	}
+	return false
 }
