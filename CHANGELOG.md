@@ -35,7 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of clearing the schedule; truncated / bad-header / id-mismatch / malformed
   replies and "no IP yet" map to `device_unreachable` (502); `breezy_info`
   drops the old firmware series after an update; a bare IPv6 address gets the
-  default port; an already-cancelled discovery returns at once.
+  default port; an already-cancelled discovery returns at once; a write
+  waiting behind a poll of an unreachable device now gives up after 5 s with
+  `device_unreachable` instead of outlasting the CLI's HTTP timeout.
 - Config validation: `poll_interval` and `periodic:` discovery under 1 s,
   passwords over 8 bytes, non-ASCII device ids and device names `help` /
   `version` are now rejected at load; push URLs are redacted in the startup

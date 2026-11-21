@@ -889,6 +889,31 @@ func TestDoDeviceOp_ReleasesLockOnSuccess(t *testing.T) {
 	}
 }
 
+// TestDoDeviceOp_LockWaitBounded pins that a handler waiting behind a busy
+// poll tick gives up after udpLockWait with a device_unreachable-class error
+// instead of waiting indefinitely.
+func TestDoDeviceOp_LockWaitBounded(t *testing.T) {
+	is := is.New(t)
+	old := udpLockWait
+	udpLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { udpLockWait = old })
+
+	h, _, _ := newServerHandler(t)
+	p := &Poller{Name: "playroom"}
+	h.Pollers = map[string]*Poller{"playroom": p}
+	unlock := p.LockUDP() // simulate a long-running poll tick
+	defer unlock()
+
+	called := false
+	start := time.Now()
+	err := h.doDeviceOp(httptest.NewRequest(http.MethodPost, "/", nil), "playroom",
+		func(ctx context.Context, rc *recordingClient) error { called = true; return nil })
+	is.True(err != nil)                        // must fail, not hang
+	is.True(!called)                           // op must not run without the lock
+	is.True(time.Since(start) < 2*time.Second) // bounded wait
+	is.Equal(classifyClientErr(err), "device_unreachable")
+}
+
 func TestDoDeviceOp_ReleasesLockOnError(t *testing.T) {
 	is := is.New(t)
 	h, _, _ := newServerHandler(t)
