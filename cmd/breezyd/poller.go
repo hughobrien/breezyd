@@ -145,6 +145,31 @@ func (p *Poller) LockUDP() func() {
 	return p.udpMu.Unlock
 }
 
+// LockUDPWithin is LockUDP with a bounded wait: it returns ok=false if the
+// mutex could not be taken within d (e.g. a poll tick against an
+// unreachable device is still running). Used by HTTP handlers so a request
+// fails with the daemon's own error envelope instead of outliving the
+// client's timeout.
+func (p *Poller) LockUDPWithin(d time.Duration) (unlock func(), ok bool) {
+	if p.udpMu.TryLock() {
+		return p.udpMu.Unlock, true
+	}
+	deadline := time.NewTimer(d)
+	defer deadline.Stop()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-deadline.C:
+			return nil, false
+		case <-tick.C:
+			if p.udpMu.TryLock() {
+				return p.udpMu.Unlock, true
+			}
+		}
+	}
+}
+
 // NoticeWrite is called by the HTTP handler whenever it issues a write to
 // a fan-affecting parameter. It schedules the next fanSettleDuration of
 // ticks to skip params whose values are unstable while the fans ramp.

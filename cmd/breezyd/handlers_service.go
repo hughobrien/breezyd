@@ -67,21 +67,7 @@ func (h *Handler) getFaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snap, _ := h.State.Get(name)
-	out := []breezy.FaultCode{}
-	if raw, ok := snap.Values[0x007F]; ok {
-		for i := 0; i+1 < len(raw); i += 2 {
-			var kind string
-			switch raw[i+1] {
-			case 0:
-				kind = "alarm"
-			case 1:
-				kind = "warning"
-			default:
-				kind = fmt.Sprintf("unknown(%d)", raw[i+1])
-			}
-			out = append(out, breezy.FaultCode{Code: int(raw[i]), Kind: kind})
-		}
-	}
+	out := breezy.DecodeFaults(snap.Values[0x007F])
 	writeJSON(w, http.StatusOK, map[string]any{"faults": out})
 }
 

@@ -221,6 +221,13 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool, pas
 		deadline = d
 	}
 
+	// Set the listen deadline BEFORE starting the cancel watcher: if the
+	// watcher ran first on an already-done context, our SetReadDeadline would
+	// overwrite its "now" deadline and the read would wait the full window.
+	if err := pc.SetReadDeadline(deadline); err != nil {
+		return nil, err
+	}
+
 	// If the context is canceled mid-listen, unblock ReadFrom by closing
 	// the socket. The defer'd Close above is for the success path; this
 	// goroutine handles the cancel path. We use a stop channel so the
@@ -234,10 +241,6 @@ func discoverInternal(ctx context.Context, targets []string, broadcast bool, pas
 		}
 	}()
 	defer close(stop)
-
-	if err := pc.SetReadDeadline(deadline); err != nil {
-		return nil, err
-	}
 
 	seen := make(map[string]struct{})
 	var out []Found

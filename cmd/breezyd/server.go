@@ -321,8 +321,16 @@ func classifyClientErr(err error) string {
 	if errors.Is(err, breezy.ErrInvalidArg) {
 		return "bad_request"
 	}
-	if errors.Is(err, breezy.ErrChecksum) {
-		return "device_unreachable"
+	// Device-side / wire problems: the unit answered badly or not at all,
+	// which is the same operator-facing situation as a timeout.
+	for _, e := range []error{
+		breezy.ErrChecksum, breezy.ErrTruncated, breezy.ErrBadHeader,
+		breezy.ErrIDMismatch, breezy.ErrPwdMismatch, breezy.ErrInvalidData,
+		breezy.ErrTimeout, errNoIPYet,
+	} {
+		if errors.Is(err, e) {
+			return "device_unreachable"
+		}
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return "device_unreachable"
@@ -363,7 +371,10 @@ func (h *Handler) dial(name string) (HandlerClient, func(), error) {
 	if h.ClientFactory == nil {
 		return nil, nil, errors.New("server: ClientFactory not configured")
 	}
-	unlock := h.lockDevice(name)
+	unlock, err := h.lockDevice(name)
+	if err != nil {
+		return nil, nil, err
+	}
 	c, err := h.ClientFactory(name)
 	if err != nil {
 		unlock()
@@ -376,12 +387,24 @@ func (h *Handler) dial(name string) (HandlerClient, func(), error) {
 // is registered for name. Tests that don't wire up Pollers get a no-op
 // unlock (the test's mock client has no real UDP traffic, so serialisation
 // is moot).
-func (h *Handler) lockDevice(name string) func() {
+//
+// The wait is bounded by udpLockWait: behind a poll tick against an
+// unreachable device the lock can be held for many seconds, and the CLI's
+// own HTTP timeout would otherwise fire before the daemon could answer.
+func (h *Handler) lockDevice(name string) (func(), error) {
 	if p, ok := h.Pollers[name]; ok && p != nil {
-		return p.LockUDP()
+		unlock, ok := p.LockUDPWithin(udpLockWait)
+		if !ok {
+			return nil, fmt.Errorf("device %q busy: %w", name, breezy.ErrTimeout)
+		}
+		return unlock, nil
 	}
-	return func() {}
+	return func() {}, nil
 }
+
+// udpLockWait bounds how long a handler waits for the per-device UDP lock.
+// A var so tests can shorten it.
+var udpLockWait = handlerOpTimeout
 
 // dialRecording returns a recordingClient that wraps h.dial(name)'s
 // HandlerClient and fires h.recordWrite(name, writes) on every
@@ -614,16 +637,16 @@ func (h *Handler) listDevices(w http.ResponseWriter, r *http.Request) {
 		devices = h.Devices.Snapshot()
 	}
 	for name, cfg := range devices {
-		e := entry{Name: name, ID: cfg.ID, IP: cfg.IP, Reachable: true}
+		e := entry{Name: name, ID: cfg.ID, IP: cfg.IP}
 		if snap, ok := h.State.Get(name); ok {
 			if !snap.LastPoll.IsZero() {
 				e.LastPoll = snap.LastPoll.UTC().Format(time.RFC3339)
-			}
-			if snap.LastErr != nil {
-				e.Reachable = false
+				// Reachable only once a poll has succeeded and the latest
+				// attempt did not fail; a never-polled device is unknown.
+				e.Reachable = snap.LastErr == nil
 			}
 			if v, ok := snap.Values[0x0001]; ok && len(v) == 1 {
-				on := v[0] != 0
+				on := v[0] == 1
 				e.Power = &on
 			}
 			if v, ok := snap.Values[0x00B7]; ok && len(v) == 1 {

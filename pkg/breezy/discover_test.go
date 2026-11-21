@@ -141,6 +141,21 @@ func TestDiscoverAt_ContextCancel(t *testing.T) {
 	is.True(elapsed <= 1*time.Second)         // cancel aborted listen promptly
 }
 
+// TestDiscoverAt_AlreadyCanceled pins that a context that is already done
+// aborts the listen immediately; the watcher's "deadline = now" must not be
+// overwritten by the main path's 2s deadline (racy before the fix).
+func TestDiscoverAt_AlreadyCanceled(t *testing.T) {
+	is := is.New(t)
+	for i := 0; i < 20; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		start := time.Now()
+		_, err := breezy.DiscoverAt(ctx, []string{"127.0.0.1:1"})
+		is.True(errors.Is(err, context.Canceled)) // expected context.Canceled
+		is.True(time.Since(start) < time.Second)  // must not wait out the 2s deadline
+	}
+}
+
 // TestDiscoverAt_Concurrent calls DiscoverAt from multiple goroutines
 // against the same fake; each call must allocate its own UDP socket and
 // not interfere with the others. We check that every call gets exactly

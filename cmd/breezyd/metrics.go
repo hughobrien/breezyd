@@ -156,7 +156,7 @@ func NewPushedMetrics(reg, data prometheus.Registerer, pushed map[string]string)
 		{"breezy_fault_level", "Top-level fault severity (0=none, 1=alarm, 2=warning).", deviceLabels, func(m *Metrics, g *prometheus.GaugeVec) { m.faultLevel = g }},
 
 		// Daemon health.
-		{"breezy_last_poll_timestamp", "Unix timestamp of the most recent poll attempt.", deviceLabels, func(m *Metrics, g *prometheus.GaugeVec) { m.lastPollTimestamp = g }},
+		{"breezy_last_poll_timestamp", "Unix timestamp of the most recent successful poll.", deviceLabels, func(m *Metrics, g *prometheus.GaugeVec) { m.lastPollTimestamp = g }},
 		{"breezy_up", "1 if the most recent poll succeeded, else 0.", deviceLabels, func(m *Metrics, g *prometheus.GaugeVec) { m.up = g }},
 		{"breezy_info", "Per-device build/firmware diagnostics (constant 1; data is in labels).", []string{"device", "id", "firmware", "build_date"}, func(m *Metrics, g *prometheus.GaugeVec) { m.info = g }},
 
@@ -354,6 +354,9 @@ func (m *Metrics) Update(name, id string, snap Snapshot) {
 		fw := fmt.Sprintf("%d.%02d", raw[0], raw[1])
 		year := int(uint16(raw[4]) | uint16(raw[5])<<8)
 		bd := fmt.Sprintf("%04d-%02d-%02d", year, raw[3], raw[2])
+		// Drop any earlier firmware/build_date series for this device so a
+		// firmware update doesn't leave two series for joins to match.
+		m.info.DeletePartialMatch(prometheus.Labels{"device": name})
 		m.info.With(prometheus.Labels{
 			"device": name, "id": id, "firmware": fw, "build_date": bd,
 		}).Set(1)
