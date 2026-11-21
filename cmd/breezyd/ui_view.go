@@ -267,6 +267,7 @@ func sensorsViewFrom(values map[breezy.ParamID][]byte) ui.SensorsView {
 func energyViewFrom(ev breezy.EnergyValues) *ui.EnergyView {
 	return &ui.EnergyView{
 		Error:               ev.Error,
+		StateWarning:        ev.StateWarning,
 		InstantW:            ev.InstantW,
 		ConsumedW:           ev.ConsumedW,
 		HeatingTodayKWh:     ev.HeatingTodayKWh,
@@ -284,10 +285,11 @@ func energyViewFrom(ev breezy.EnergyValues) *ui.EnergyView {
 // scheduleViewFrom converts a ScheduleSnapshot into a ScheduleView.
 func scheduleViewFrom(ss ScheduleSnapshot) ui.ScheduleView {
 	sv := ui.ScheduleView{
-		Present:   true,
-		Enabled:   ss.Enabled,
-		Alert:     ss.LastApply != nil && !ss.LastApply.OK,
-		NextEvent: nextScheduleEvent(ss.Entries, time.Now()),
+		Present:     true,
+		Enabled:     ss.Enabled,
+		Alert:       ss.LastApply != nil && !ss.LastApply.OK || ss.LoadWarning != "",
+		LoadWarning: ss.LoadWarning,
+		NextEvent:   nextScheduleEvent(ss.Entries, time.Now()),
 	}
 	for _, e := range ss.Entries {
 		sv.Entries = append(sv.Entries, ui.ScheduleEntryView{

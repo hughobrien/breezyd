@@ -107,4 +107,5 @@ type EnergyValues struct {
 	CoolingLifetimeKWh  float64 `json:"cooling_lifetime_kwh"`
 	ConsumedLifetimeKWh float64 `json:"consumed_lifetime_kwh"`
 	Error               string  `json:"error,omitempty"`
+	StateWarning        string  `json:"state_warning,omitempty"`
 }

@@ -81,6 +81,10 @@ type EnergyTracker struct {
 	LastTick time.Time
 	// Error is non-empty when the device's UnitType has no calibration data.
 	Error string
+	// StateWarning is non-empty when Load found an unusable state file and
+	// moved it aside. Kept apart from Error because a non-empty Error
+	// marks the device unsupported and drops its metrics.
+	StateWarning string
 }
 
 // statePath returns the path of the JSON state file for this device.
@@ -89,32 +93,35 @@ func (e *EnergyTracker) statePath() string {
 }
 
 // Load reads the persisted state file and restores counters. A missing
-// file starts fresh; a corrupt file is warned and discarded. On any
-// successful or fresh load, LastTick is zeroed so the first Tick (Task 3)
-// primes without accumulating a spurious interval. If the persisted
-// today_date differs from today, the today counters are zeroed (lifetime
-// carries over). All errors are handled internally — the caller has
-// nothing to check, hence no return value.
+// file starts fresh. A file that exists but cannot be read or parsed is
+// renamed aside to "<name>.corrupt-<unix ts>" (so the next save cannot
+// overwrite it), logged at error level, surfaced as StateWarning, and the
+// tracker starts fresh. On any successful or fresh load, LastTick is
+// zeroed so the first Tick primes without accumulating a spurious
+// interval. If the persisted today_date differs from today, the today
+// counters are zeroed (lifetime carries over). All errors are handled
+// internally — the caller has nothing to check, hence no return value.
 func (e *EnergyTracker) Load() {
 	today := time.Now().Local().Format("2006-01-02")
-
-	data, err := os.ReadFile(e.statePath())
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			slog.Warn("energy: failed to read state file; starting fresh",
-				"device", e.Device, "err", err)
-		}
+	fresh := func() {
 		e.Today = today
 		e.LastTick = time.Time{}
+	}
+
+	path := e.statePath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			e.quarantine(path, "read", err)
+		}
+		fresh()
 		return
 	}
 
 	var p persistedEnergy
 	if err := json.Unmarshal(data, &p); err != nil {
-		slog.Warn("energy: failed to unmarshal state file; starting fresh",
-			"device", e.Device, "err", err)
-		e.Today = today
-		e.LastTick = time.Time{}
+		e.quarantine(path, "parse", err)
+		fresh()
 		return
 	}
 
@@ -156,6 +163,21 @@ func (e *EnergyTracker) Load() {
 	// Always zero LastTick so the first Tick after Load primes without
 	// accumulating a spurious interval from the previous daemon run.
 	e.LastTick = time.Time{}
+}
+
+// quarantine moves an unusable state file aside and records a warning for
+// the dashboard. Called only from Load (single-threaded, before Run).
+func (e *EnergyTracker) quarantine(path, what string, cause error) {
+	aside, qerr := quarantineStateFile(path)
+	if qerr != nil {
+		e.StateWarning = fmt.Sprintf("energy state file %s unusable (%s: %v) and could not be moved aside (%v); lifetime counters restarted and the file will be overwritten", path, what, cause, qerr)
+		slog.Error("energy: state file unusable and could not be moved aside; starting fresh",
+			"device", e.Device, "path", path, "op", what, "err", cause, "rename_err", qerr)
+		return
+	}
+	e.StateWarning = fmt.Sprintf("energy state file was unreadable (%s: %v); moved to %s and counters restarted from zero", what, cause, aside)
+	slog.Error("energy: state file unusable; moved aside and starting fresh",
+		"device", e.Device, "path", path, "moved_to", aside, "op", what, "err", cause)
 }
 
 // save writes the current state atomically to statePath. The caller must
@@ -200,6 +222,7 @@ func (e *EnergyTracker) Snapshot() breezy.EnergyValues {
 		CoolingLifetimeKWh:  e.CoolingLifetimeKWh,
 		ConsumedLifetimeKWh: e.ConsumedLifetimeKWh,
 		Error:               e.Error,
+		StateWarning:        e.StateWarning,
 	}
 }
 

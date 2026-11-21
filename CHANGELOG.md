@@ -44,6 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target (#266). Each target now has its own flusher goroutine with a 20 s
   per-flush timeout; the pusher only enqueues, so a stuck target keeps its
   backlog in its own queue.
+- State files (#267): the per-device energy and schedule files are now fsynced
+  (temp file before the rename, directory after it), so a power cut leaves the
+  old or the new file, never an empty one. A state file that exists but cannot
+  be read, parsed or validated is renamed to `<name>.corrupt-<unix time>`
+  instead of being silently replaced by an empty one on the next save; the
+  error is logged and shown in the ENERGY block (`service.energy.state_warning`)
+  or the SCHEDULE block (`service.schedule.load_warning`, which also raises the
+  alert). The daemon now refuses to start when no state directory can be found
+  or created, instead of writing state files into the working directory.
 
 ### Security
 

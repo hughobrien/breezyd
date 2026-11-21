@@ -20,16 +20,20 @@ type scheduleResponse struct {
 	Entries   []ScheduleEntry `json:"entries"`
 	Alert     bool            `json:"alert"`
 	LastApply *LastApply      `json:"last_apply,omitempty"`
+	// LoadWarning is set when the persisted schedule was unusable and was
+	// moved aside at startup; cleared when the user saves a new schedule.
+	LoadWarning string `json:"load_warning,omitempty"`
 }
 
 // scheduleResponseFrom builds a scheduleResponse from a ScheduleSnapshot,
 // computing the derived alert flag.
 func scheduleResponseFrom(s ScheduleSnapshot) scheduleResponse {
 	return scheduleResponse{
-		Enabled:   s.Enabled,
-		Entries:   nilToEmpty(s.Entries),
-		Alert:     s.LastApply != nil && !s.LastApply.OK,
-		LastApply: s.LastApply,
+		Enabled:     s.Enabled,
+		Entries:     nilToEmpty(s.Entries),
+		Alert:       s.LastApply != nil && !s.LastApply.OK || s.LoadWarning != "",
+		LastApply:   s.LastApply,
+		LoadWarning: s.LoadWarning,
 	}
 }
 
