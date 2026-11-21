@@ -55,6 +55,11 @@
         # network access, but the integration tests need a real device
         # behind a build tag. Run only the default test set.
         doCheck = true;
+        # The daemon tests resolve a state dir from HOME/XDG_STATE_HOME; the
+        # nix sandbox sets HOME=/homeless-shelter (unwritable).
+        preCheck = ''
+          export HOME="$TMPDIR"
+        '';
         meta = with pkgs.lib; {
           description = "Go library, daemon, and CLI for Vents Twinfresh Breezy ERVs";
           homepage = "https://github.com/hughobrien/breezyd";
@@ -149,6 +154,11 @@
           services.prometheus.enable = true;
           services.prometheus.extraFlags = [ "--web.enable-remote-write-receiver" ];
         }).config;
+        ng = (moduleSystem {
+          services.breezyd.nginx.enable = true;
+          services.breezyd.nginx.virtualHost = "breezy.home.lan";
+        }).config;
+        ngLoc = ng.services.nginx.virtualHosts."breezy.home.lan".locations."/";
         lib = nixpkgs.lib;
         job = jobs: lib.findFirst (j: j.job_name == "breezyd") null jobs;
         drops = j: lib.any (r: r.source_labels == [ "pushed_my_host" ] && r.regex == "true" && r.action == "drop") j.metric_relabel_configs;
@@ -159,6 +169,9 @@
       assert vm.services.prometheus.scrapeConfigs == [ ];
       assert (prom.services.breezyd.settings.daemon.push).my_host == "http://127.0.0.1:9090";
       assert drops (job prom.services.prometheus.scrapeConfigs);
+      assert ngLoc.proxyPass == "http://127.0.0.1:9876";
+      assert lib.hasInfix "proxy_set_header X-Forwarded-Host $http_host;" ngLoc.extraConfig;
+      assert lib.hasInfix "proxy_buffering off;" ngLoc.extraConfig;
       vm.systemd.units."breezyd.service".unit;
     # Wrap the bare module so it defaults services.breezyd.package to the
     # flake's own build for the host's system. Without this wrapper, the
