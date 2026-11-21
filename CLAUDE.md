@@ -39,6 +39,8 @@ When in doubt about which gate to run: `check` is the fast pre-commit; `check-al
 
 **Not gated by CI; run locally before pushing.** Playwright (`just test-ui`, the only end-to-end dashboard coverage), `just test-asan`, `just test-msan`, and `just test-race-flake`. `just ci` runs all of these plus the gated checks, so it is a superset of CI, not a reproduction of it. `just check-all` already covers Playwright; run `just ci` after cgo/unsafe edits or dashboard changes. `.github/workflows/` only contains `release.yml`; there is no GitHub test workflow.
 
+**Project rule:** when running a check / lint / test combo more than once, add it as a recipe to `justfile` rather than re-typing — improve the file *as you go*.
+
 Run a single package or test:
 
 ```sh
