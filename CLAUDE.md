@@ -33,9 +33,11 @@ just nix-check       # parse-check nix/module.nix
 
 `just test-race` (and `-msan` / `-asan` / `test-race-flake`) bake in `CGO_ENABLED=1 CC=clang` because the default `gcc` on this host lacks the TSan / MSan / ASan runtimes.
 
-When in doubt about which gate to run: `check` is the fast pre-commit; `check-all` is the comprehensive pre-push (adds race + Playwright); `ci` reproduces what GitHub Actions runs on every PR (adds golangci-lint, asan, msan); `check-deep` is the slow paranoid sweep before tagging a release or after risky concurrency / cgo / unsafe edits. When editing `nix/module.nix`, `nix-check` is the fast syntax probe — `nix build` is the heavy alternative.
+When in doubt about which gate to run: `check` is the fast pre-commit; `check-all` is the comprehensive pre-push (adds race + Playwright); `ci` is a superset of what CI gates (adds Playwright, asan, msan; see below); `check-deep` is the slow paranoid sweep before tagging a release or after risky concurrency / cgo / unsafe edits. When editing `nix/module.nix`, `nix-check` is the fast syntax probe — `nix build` is the heavy alternative.
 
-GitHub Actions runs the `ci` set as parallel jobs on every PR: `vet + race + build`, `golangci-lint`, `asan tests`, `msan tests`, and `Playwright`. The workflow definition is `.github/workflows/test.yml`.
+**What CI gates today.** The repo lives on a self-hosted Forgejo. `.forgejo/workflows/test.yml` runs one job on a nix-only runner, on PRs to `main` and pushes to `main`: a pure `nix build` of `checks.x86_64-linux.gate` from `flake.nix`. That gate runs, in the nix sandbox: `go vet ./...`, gofmt drift, `go test ./...`, `go test -race ./...` (clang), `golangci-lint run ./...`, `go test -tags breezyd_test_admin ./cmd/breezyd/ -run TestAdmin`, and the templ drift check. The workflow does not build the flake's other check (`checks.<system>.module`, the NixOS module evaluation assertions).
+
+**Not gated by CI; run locally before pushing.** Playwright (`just test-ui`, the only end-to-end dashboard coverage), `just test-asan`, `just test-msan`, and `just test-race-flake`. `just ci` runs all of these plus the gated checks, so it is a superset of CI, not a reproduction of it. `just check-all` already covers Playwright; run `just ci` after cgo/unsafe edits or dashboard changes. `.github/workflows/` only contains `release.yml`; there is no GitHub test workflow.
 
 **Project rule:** when running a check / lint / test combo more than once, add it as a recipe to `justfile` rather than re-typing — improve the file *as you go*.
 
@@ -91,7 +93,7 @@ Concurrent UDP request/response with checksums isn't safe to fan out from indepe
 
 ### HomeKit bridge (opt-in via `[homekit].enabled`)
 
-When enabled, the daemon runs a brutella/hap HAP server that exposes each configured Breezy as a HomeKit accessory (AirPurifier + airflow-mode Switches + sensor services for humidity, eCO2, VOC, and four temperatures). The bridge runs in-process; writes flow through `pkg/breezy/ops` via the same `dialRecording` wrapper as the HTTP handlers, so every protocol invariant (packet ordering, fan-settle, validation) holds. PIN auto-generated on first run and persisted to `state_dir`. Pure accessory logic lives in `pkg/homekit`; daemon glue in `cmd/breezyd/homekit.go`.
+When enabled, the daemon runs a brutella/hap HAP server that exposes each configured Breezy as a HomeKit accessory (AirPurifier + airflow-mode Switches + sensor services for humidity, eCO2, VOC, and four temperatures). The bridge runs in-process; writes flow through `pkg/breezy/ops` via the same `dialRecording` wrapper as the HTTP handlers, so every protocol invariant (packet ordering, fan-settle, validation) holds. PIN auto-generated on first run and persisted to `state_dir` (default `$STATE_DIRECTORY/homekit`, else `$XDG_STATE_HOME/breezyd/homekit`; an explicit `[homekit].state_dir` always wins). Pure accessory logic lives in `pkg/homekit`; daemon glue in `cmd/breezyd/homekit.go`.
 
 ### Energy tracking (always on)
 
@@ -149,6 +151,8 @@ After a write to `0x02` (speed_mode), `0x44` (manual %), or `0xB7` (fan rotation
 
 When a poll tick has every read fail (e.g. the in-process backend with `SetTimeoutMode(true)` returns `ErrTimeout` instantly), the poller preserves the previous tick's `Values` map rather than overwriting the cache with empty. The dashboard then renders "stale" with last-known data instead of dropping to the `unreachable` placeholder. Real-UDP timeouts are slow enough that this branch rarely fires in production.
 
+A partly failed tick (one of the two read batches fails) keeps the good batch's fresh values and carries the failed batch's IDs forward from the previous snapshot, so nothing vanishes from the cache. Fan-settle-suppressed IDs are not failures and are not carried (they stay dropped for the window). Either way the snapshot has `LastErr` set and `LastPoll` held at the last fully successful poll, so `OnPoll` (HomeKit sync, remote-write push) and the energy tracker, which are success-only, never see carried-forward values as a fresh reading; `OnTick` (dashboard push) and the error metric do fire.
+
 ### Sensor override (a user-visible firmware quirk)
 
 When humidity/CO2/VOC exceed thresholds and the matching sensor is enabled, the firmware boosts the fan above the user's setting. The status output distinguishes `configured` (what the user asked for) from `live` (what's actually happening), and the `⚠` line on `breezy <name> status` only fires when `live.in_user_control` is false. Preserve that distinction in any output changes.
@@ -168,7 +172,7 @@ The vendor protocol manual (`docs/superpowers/specs/breezy-manual-vendor.pdf`) i
 
 Subject-before-verb: `breezy <device-name> <verb> [args]`. Per-device verbs (`status`, `on`/`off`, `speed`, `mode`, `heater`, `reset-filter`, `reset-faults`, `faults`, `firmware`, `efficiency`, `rtc [set]`, `get <param>`, `set <param> <val>`) and globals (`ls`, `discover`, `daemon-url`, `param`).
 
-Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config`. Device names must also be valid JS identifiers (letters/digits/underscore, starting with a non-digit) because they appear as datastar signal-path segments (e.g. `$detailsOpen.<name>.sensors`); names with hyphens or dots would silently break the dashboard's signal parsing.
+Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config` (including `help` and `version`). The loader also rejects `poll_interval` / `periodic:` durations under 1s, passwords over 8 bytes, and non-printable-ASCII device ids. Device names must also be valid JS identifiers (letters/digits/underscore, starting with a non-digit) because they appear as datastar signal-path segments (e.g. `$detailsOpen.<name>.sensors`); names with hyphens or dots would silently break the dashboard's signal parsing.
 
 CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error (including a config file that exists but fails to load, reported as `error: <path>: <reason>`; only a missing file falls through to the next location or standalone mode).
 
@@ -207,5 +211,7 @@ No schedule editing, no WiFi reconfig, no MQTT bridge, no Home Assistant compone
 
 ## Release plumbing
 
-- `goreleaser` builds cross-platform archives on tag pushes. Build metadata (`version`, `commit`, `date`) is injected via `-ldflags` into both binaries' `main` package. The Nix derivation deliberately omits `-X main.date=…` for reproducibility.
+- Release archives are built by `goreleaser` from `.github/workflows/release.yml`, which triggers on `v*` tag pushes **on GitHub only**; `.goreleaser.yml` publishes to github.com/hughobrien/breezyd. Pushing a tag to Forgejo alone produces no release archives (no Forgejo release workflow exists yet); the tag must reach GitHub (or run `just release-snapshot` locally to build archives without publishing). The README's release badge and download links point at GitHub Releases.
+- **Release checklist:** bump `version` in `flake.nix` to match the new tag (Nix-built binaries report that string), then tag and push. The flake version is not derived from git tags.
+- `goreleaser` build details: Build metadata (`version`, `commit`, `date`) is injected via `-ldflags` into both binaries' `main` package. The Nix derivation deliberately omits `-X main.date=…` for reproducibility.
 - `nix/module.nix` exposes a NixOS service with hardened systemd settings; inline `settings` end up in the world-readable Nix store, so production deployments must use `configFile` with sops-nix/agenix for real device passwords. The module has three opt-in integrations that mirror each other in shape: `services.breezyd.prometheus.{enable,jobName}` auto-registers a Prometheus scrape job when both services are enabled; `services.breezyd.nginx.{enable,virtualHost,basicAuthFile}` attaches a `proxy_pass` location to a named virtual host so the dashboard can be exposed on the LAN while the daemon stays loopback-bound; `services.breezyd.homekit.{enable,port,bridgeName,stateDir}` enables the HomeKit bridge and manages the state directory and optional firewall port.

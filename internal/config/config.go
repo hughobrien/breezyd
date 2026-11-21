@@ -23,6 +23,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/hughobrien/breezyd/internal/promwrite"
+	"github.com/hughobrien/breezyd/pkg/breezy"
 )
 
 // reservedNames are global CLI verbs that cannot be used as device names,
@@ -33,7 +34,13 @@ var reservedNames = map[string]bool{
 	"discover":   true,
 	"daemon-url": true,
 	"param":      true,
+	"help":       true,
+	"version":    true,
 }
+
+// minInterval is the floor for poll_interval and periodic discovery. Zero or
+// negative durations panic time.NewTicker; sub-second ones hammer the device.
+const minInterval = time.Second
 
 // periodicRe matches the `periodic:<duration>` discovery form.
 var periodicRe = regexp.MustCompile(`^periodic:(.+)$`)
@@ -91,7 +98,7 @@ type Homekit struct {
 	// Port is the TCP port the HAP server binds to. 0 = ephemeral.
 	Port int
 	// StateDir holds pairing keys + the generated PIN. Default
-	// $XDG_STATE_HOME/breezyd/homekit. Delete to factory-reset
+	// $STATE_DIRECTORY/homekit, else $XDG_STATE_HOME/breezyd/homekit. Delete to factory-reset
 	// pairing.
 	StateDir string
 }
@@ -209,6 +216,10 @@ func Load(path string) (*Config, error) {
 		cfg.Homekit.StateDir = expanded
 	}
 
+	if err := breezy.ValidatePassword(cfg.Daemon.Password); err != nil {
+		return nil, fmt.Errorf("config: [daemon].password: %w", err)
+	}
+
 	// Defaults.
 	// NOTE: Listen is intentionally NOT defaulted here. The CLI uses the
 	// empty-string sentinel to mean "no daemon configured → use standalone
@@ -239,6 +250,10 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: invalid poll_interval %q: %w",
 				raw.Daemon.PollInterval, err)
 		}
+		if d < minInterval {
+			return nil, fmt.Errorf("config: invalid poll_interval %q: must be at least %s",
+				raw.Daemon.PollInterval, minInterval)
+		}
 		cfg.Daemon.PollInterval = d
 	}
 
@@ -253,10 +268,15 @@ func Load(path string) (*Config, error) {
 				"must be \"on-start\", \"off\", or \"periodic:<duration>\"",
 				cfg.Daemon.Discovery)
 		}
-		if _, err := time.ParseDuration(m[1]); err != nil {
+		d, err := time.ParseDuration(m[1])
+		if err != nil {
 			return nil, fmt.Errorf("config: invalid discovery %q: "+
 				"periodic duration %q is not a valid Go duration: %w",
 				cfg.Daemon.Discovery, m[1], err)
+		}
+		if d < minInterval {
+			return nil, fmt.Errorf("config: invalid discovery %q: "+
+				"periodic duration must be at least %s", cfg.Daemon.Discovery, minInterval)
 		}
 	}
 
@@ -278,6 +298,15 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: device %q: id must be exactly 16 "+
 				"ASCII chars, got %d (%q)", name, len(rd.ID), rd.ID)
 		}
+		for i := 0; i < len(rd.ID); i++ {
+			if rd.ID[i] < 0x20 || rd.ID[i] > 0x7E {
+				return nil, fmt.Errorf("config: device %q: id %q must be printable ASCII "+
+					"(byte %d is not)", name, rd.ID, i)
+			}
+		}
+		if err := breezy.ValidatePassword(rd.Password); err != nil {
+			return nil, fmt.Errorf("config: device %q: password: %w", name, err)
+		}
 		pw := rd.Password
 		if pw == "" {
 			pw = cfg.Daemon.Password
@@ -293,19 +322,34 @@ func Load(path string) (*Config, error) {
 }
 
 // expandStateDir applies ~/$HOME and $XDG_STATE_HOME defaults for
-// the homekit state directory. An empty input returns the default
-// $XDG_STATE_HOME/breezyd/homekit (or $HOME/.local/state/... when
-// XDG_STATE_HOME is unset).
+// the homekit state directory. An empty input returns the default,
+// following the same precedence as the daemon's energy/schedule state dir:
+// $STATE_DIRECTORY/homekit, else $XDG_STATE_HOME/breezyd/homekit, else
+// $HOME/.local/state/breezyd/homekit. A non-empty input always wins. To avoid
+// orphaning an existing pairing (new PIN, lost keys), when $STATE_DIRECTORY is
+// set the legacy XDG default is kept if it exists and
+// $STATE_DIRECTORY/homekit does not.
 func expandStateDir(in string) (string, error) {
 	if in == "" {
+		var legacy string
 		if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-			return filepath.Join(x, "breezyd", "homekit"), nil
+			legacy = filepath.Join(x, "breezyd", "homekit")
+		} else {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			legacy = filepath.Join(home, ".local", "state", "breezyd", "homekit")
 		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+		if d := os.Getenv("STATE_DIRECTORY"); d != "" {
+			next := filepath.Join(d, "homekit")
+			// Don't orphan an existing pairing: keep the legacy dir when it
+			// exists and the new one does not.
+			if dirExists(next) || !dirExists(legacy) {
+				return next, nil
+			}
 		}
-		return filepath.Join(home, ".local", "state", "breezyd", "homekit"), nil
+		return legacy, nil
 	}
 	if strings.HasPrefix(in, "~/") {
 		home, err := os.UserHomeDir()
@@ -315,6 +359,11 @@ func expandStateDir(in string) (string, error) {
 		return filepath.Join(home, in[2:]), nil
 	}
 	return in, nil
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // defaultConfigTemplate is the content WriteDefault writes for a fresh

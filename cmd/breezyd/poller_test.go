@@ -1036,3 +1036,83 @@ func TestPoller_EnergyTickCalled(t *testing.T) {
 
 	is.True(!lastTick.IsZero()) // EnergyTracker.Tick must have run after a successful poll
 }
+
+// batchFailClient serves values from a map but fails any batch that contains
+// failID, modelling one of the two poll packets timing out.
+type batchFailClient struct {
+	mu     sync.Mutex
+	values map[breezy.ParamID][]byte
+	failID breezy.ParamID
+	fail   bool
+}
+
+func (c *batchFailClient) ReadParams(_ context.Context, ids []breezy.ParamID) (map[breezy.ParamID][]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[breezy.ParamID][]byte, len(ids))
+	for _, id := range ids {
+		if c.fail && id == c.failID {
+			return nil, breezy.ErrTimeout
+		}
+		out[id] = c.values[id]
+	}
+	return out, nil
+}
+func (c *batchFailClient) Close() error  { return nil }
+func (c *batchFailClient) IsLocal() bool { return false }
+
+// TestPoller_PartialFailureCarriesForwardFailedBatch pins that when one batch
+// of a tick fails and the other succeeds, the failed batch's params keep their
+// previous values, the good batch's params take the new ones, the tick is
+// recorded as an error, and OnPoll / Energy (fresh-reading consumers) skip it.
+func TestPoller_PartialFailureCarriesForwardFailedBatch(t *testing.T) {
+	is := is.New(t)
+	state := newTestState(t, nil)
+
+	// pollBatchSize+5 IDs: batch 1 = the first 30, batch 2 = the last 5.
+	var ids []breezy.ParamID
+	vals := map[breezy.ParamID][]byte{}
+	for i := 0; i < pollBatchSize+5; i++ {
+		id := breezy.ParamID(0x0001 + i)
+		ids = append(ids, id)
+		vals[id] = []byte{1}
+	}
+	lastID := ids[len(ids)-1]
+	fc := &batchFailClient{values: vals, failID: lastID}
+
+	var errKinds []string
+	polls := 0
+	clock := time.Unix(1_700_000_000, 0)
+	p := &Poller{
+		Name: "dev", IP: "127.0.0.1:0", DeviceID: pollerTestDeviceID, Password: pollerTestPassword,
+		Interval: time.Hour, State: state, ReadIDs: ids,
+		NewClient: func() (PollerClient, error) { return fc, nil },
+		OnError:   func(_, kind string) { errKinds = append(errKinds, kind) },
+		OnPoll:    func(string, Snapshot) { polls++ },
+		Now:       func() time.Time { return clock },
+	}
+
+	p.tick(context.Background())
+	first, _ := state.Get("dev")
+	is.NoErr(first.LastErr)
+	is.Equal(polls, 1)
+
+	// Second tick: values change, but the second batch times out.
+	fc.mu.Lock()
+	for id := range fc.values {
+		fc.values[id] = []byte{2}
+	}
+	fc.fail = true
+	fc.mu.Unlock()
+	clock = clock.Add(time.Minute)
+	p.tick(context.Background())
+
+	snap, _ := state.Get("dev")
+	is.True(snap.LastErr != nil)                 // tick recorded as an error
+	is.Equal(len(errKinds), 1)                   // error metric hook fired once
+	is.Equal(snap.Values[ids[0]], []byte{2})     // good batch: new value
+	is.Equal(snap.Values[lastID], []byte{1})     // failed batch: previous value kept
+	is.Equal(len(snap.Values), len(ids))         // nothing vanished
+	is.True(snap.LastPoll.Equal(first.LastPoll)) // not counted as a fresh poll
+	is.Equal(polls, 1)                           // OnPoll (energy/push/HomeKit) skipped
+}

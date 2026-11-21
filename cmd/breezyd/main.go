@@ -208,7 +208,7 @@ func run(parent context.Context) error {
 			})
 		reg.MustRegister(pusher.Collectors()...)
 		go pusher.Run(rootCtx)
-		slog.Info("pushing polls", "targets", cfg.Daemon.Push.String())
+		slog.Info("pushing polls", "targets", redactedTargets(cfg.Daemon.Push))
 	}
 	onPoll := func(name string, snap Snapshot) {
 		// testOnPollHook is the run-level test seam: when a test sets it,

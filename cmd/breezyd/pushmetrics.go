@@ -5,6 +5,9 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/hughobrien/breezyd/internal/promwrite"
@@ -16,6 +19,10 @@ import (
 // stamped with the poll's time. With polls every 30 s and a 60 s scrape, the
 // scrape kept one poll in two, and two timers drifting against each other
 // can read one twice or skip one; pushing keeps every poll exactly once.
+//
+// Each target has its own flusher goroutine (see flusher), so a target that
+// hangs holds up only its own backlog: Run just gathers and enqueues to every
+// target's queue, never touching the network.
 //
 // Notify is called from the poller's OnPoll, inside the tick and under the
 // device's UDP lock, so it only queues: the gather and the write happen on
@@ -29,6 +36,7 @@ type metricPusher struct {
 	energy  func(name string) (breezy.EnergyValues, bool)
 
 	polls chan polled
+	wake  []chan struct{}      // one per target, cap 1: "there is something to flush"
 	last  map[string]time.Time // newest sample time pushed, per device
 }
 
@@ -39,8 +47,43 @@ type polled struct {
 
 func newMetricPusher(m *Metrics, data *prometheus.Registry, targets promwrite.Pushers, job string,
 	devices *DeviceRegistry, energy func(string) (breezy.EnergyValues, bool)) *metricPusher {
+	wake := make([]chan struct{}, len(targets))
+	for i := range wake {
+		wake[i] = make(chan struct{}, 1)
+	}
 	return &metricPusher{m: m, data: data, targets: targets, job: job, devices: devices, energy: energy,
-		polls: make(chan polled, 64), last: map[string]time.Time{}}
+		polls: make(chan polled, 64), wake: wake, last: map[string]time.Time{}}
+}
+
+// flushTimeout bounds one write attempt to one target; the target's samples
+// stay queued (up to the queue's MaxAge) and the next wake retries.
+const flushTimeout = 20 * time.Second
+
+// flusher flushes one target whenever woken, until ctx ends. Flushes of one
+// target never overlap, which keeps its samples in order.
+func (p *metricPusher) flusher(ctx context.Context, t *promwrite.Push, wake <-chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+			fctx, cancel := context.WithTimeout(ctx, flushTimeout)
+			if err := t.Queue.Flush(fctx); err != nil {
+				slog.Warn("push", "target", t.Name, "err", err)
+			}
+			cancel()
+		}
+	}
+}
+
+// kick asks every flusher to run; a flusher already pending is not doubled.
+func (p *metricPusher) kick() {
+	for _, w := range p.wake {
+		select {
+		case w <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // Collectors expose each target's queue on /metrics.
@@ -57,17 +100,26 @@ func (p *metricPusher) Notify(name string, snap Snapshot) {
 }
 
 func (p *metricPusher) Run(ctx context.Context) {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	for i, t := range p.targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.flusher(ctx, t, p.wake[i])
+		}()
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case e := <-p.polls:
-			p.push(ctx, e.name, e.snap)
+			p.push(e.name, e.snap)
 		}
 	}
 }
 
-func (p *metricPusher) push(ctx context.Context, name string, snap Snapshot) {
+func (p *metricPusher) push(name string, snap Snapshot) {
 	d, ok := p.devices.Get(name)
 	if !ok {
 		return
@@ -95,7 +147,24 @@ func (p *metricPusher) push(ctx context.Context, name string, snap Snapshot) {
 	}
 	p.targets.Add(series...)
 	p.last[name] = t
-	if err := p.targets.Flush(ctx); err != nil {
-		slog.Warn("push", "err", err)
+	p.kick()
+}
+
+// redactURL returns raw as scheme://host[:port]/path, dropping userinfo, query
+// and fragment, which can carry credentials. Use it for anything logged.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "<invalid url>"
 	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
+}
+
+// redactedTargets formats push targets as name=url,... with every URL redacted.
+func redactedTargets(ts promwrite.Targets) string {
+	s := make([]string, 0, len(ts))
+	for _, t := range ts {
+		s = append(s, t.Name+"="+redactURL(t.URL))
+	}
+	return strings.Join(s, ",")
 }

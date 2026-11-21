@@ -225,6 +225,7 @@ func (p *Poller) tick(ctx context.Context) {
 	defer func() { _ = client.Close() }()
 
 	values := make(map[breezy.ParamID][]byte, len(ids))
+	carried := map[breezy.ParamID][]byte{}
 	var lastErr error
 	for start := 0; start < len(ids); start += pollBatchSize {
 		end := start + pollBatchSize
@@ -236,6 +237,15 @@ func (p *Poller) tick(ctx context.Context) {
 		if err != nil {
 			lastErr = err
 			p.recordErr(err)
+			// Carry the failed batch's last-known values forward so a
+			// partly failed tick doesn't blank half the cache. Only IDs we
+			// actually tried to read: fan-settle-suppressed IDs are not in
+			// ids and stay dropped.
+			for _, id := range batch {
+				if v, ok := prev.Values[id]; ok {
+					carried[id] = v
+				}
+			}
 			continue
 		}
 		for k, v := range got {
@@ -251,6 +261,14 @@ func (p *Poller) tick(ctx context.Context) {
 	// good state on the very first failed tick.
 	if lastErr != nil && len(values) == 0 && len(prev.Values) > 0 {
 		values = prev.Values
+	} else if len(carried) > 0 {
+		// Partly failed tick: fresh values from the good batches, previous
+		// values for the failed ones. The snapshot is marked LastErr and
+		// LastPoll holds, so OnPoll and Energy (success-only, below) skip it
+		// and the carried values are never treated as a fresh reading.
+		for k, v := range carried {
+			values[k] = v
+		}
 	}
 
 	// (3) Read-failure branch: LastPoll holds at prev.LastPoll on failure;

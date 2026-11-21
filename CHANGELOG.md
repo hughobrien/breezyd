@@ -20,6 +20,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `services.prometheus`) when `prometheus.enable` is on, registers the scrape
   job there with the drop rule, and takes more targets in `push.<name>.url`.
 
+### Fixed
+
+- Config validation: `poll_interval` and `periodic:` discovery under 1 s,
+  passwords over 8 bytes, non-ASCII device ids and device names `help` /
+  `version` are now rejected at load; push URLs are redacted in the startup
+  log. The default `[homekit].state_dir` now follows `$STATE_DIRECTORY`
+  (`<it>/homekit`), but an existing pairing in the old XDG default is kept
+  when the new directory does not exist yet.
+- A partly failed poll (one of the two read packets times out) no longer drops
+  the failed packet's parameters from the cache (#265). Their previous values
+  are carried forward, the tick is still recorded as an error (`LastErr`, the
+  error metric) with `LastPoll` held, so the device shows as stale rather than
+  half blank. Energy accumulation, remote-write push and HomeKit sync still
+  skip such a tick, as they skip any failed one.
+- One hanging push target no longer delays and then drops pushes to every
+  target (#266). Each target now has its own flusher goroutine with a 20 s
+  per-flush timeout; the pusher only enqueues, so a stuck target keeps its
+  backlog in its own queue.
+
 ### Security
 
 - The HTTP API no longer accepts cross-site browser writes (#259). A request
