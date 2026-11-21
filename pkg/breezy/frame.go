@@ -71,12 +71,20 @@ var (
 	ErrInvalidData = errors.New("breezy: malformed data block")
 	ErrIDMismatch  = errors.New("breezy: response device ID does not match request")
 	ErrPwdMismatch = errors.New("breezy: response password does not match request")
-	// ErrReservedParamID is returned (via panic in the builders) when a
-	// caller passes a ParamID whose low byte is in the protocol's reserved
-	// special-command range 0xFC-0xFF. Such IDs would alias to FC/FD/FE/FF
-	// inside DATA blocks and silently corrupt traffic. No documented
-	// parameter uses this range; hitting it is a caller bug.
+	// ErrReservedParamID is returned by the public read/write entry points
+	// (Client, MemClient) when a caller passes a ParamID whose low byte is
+	// in the protocol's reserved special-command range 0xFC-0xFF. Such IDs
+	// would alias to FC/FD/FE/FF inside DATA blocks and silently corrupt
+	// traffic. No documented parameter uses this range. The error also
+	// wraps ErrInvalidArg. (The low-level builders still panic with this
+	// text as an internal invariant.)
 	ErrReservedParamID = errors.New("breezy: parameter ID's low byte is in the reserved range 0xFC-0xFF")
+	// ErrValueTooLarge is returned when a write value exceeds the 255 bytes
+	// the FE size prefix can carry. Wraps ErrInvalidArg.
+	ErrValueTooLarge = errors.New("breezy: write value longer than 255 bytes")
+	// ErrPasswordTooLong is returned when a password exceeds the protocol's
+	// 8-byte limit. Wraps ErrInvalidArg.
+	ErrPasswordTooLong = errors.New("breezy: password longer than 8 bytes")
 	// ErrUnexpectedFuncChange indicates the response DATA block contained an
 	// FC <new_func> marker. The protocol allows it but we've never observed
 	// real firmware emitting one. Callers can choose to treat it as an error
@@ -90,6 +98,46 @@ var (
 // FF <hi>, which never aliases to a value byte.
 func isReservedLowByte(lo byte) bool {
 	return lo >= cmdChangeFunc // 0xFC..0xFF
+}
+
+// maxPasswordLen is the protocol's limit on the PWD field.
+const maxPasswordLen = 8
+
+// ValidatePassword rejects passwords EncodeRequest would panic on.
+func ValidatePassword(password string) error {
+	if len(password) > maxPasswordLen {
+		return fmt.Errorf("%w: %w (got %d)", ErrInvalidArg, ErrPasswordTooLong, len(password))
+	}
+	return nil
+}
+
+// ValidateReadIDs rejects IDs BuildReadDataBlock would panic on. Every
+// public read path calls it before building a frame.
+func ValidateReadIDs(ids []ParamID) error {
+	for _, id := range ids {
+		if isReservedLowByte(byte(id & 0xFF)) {
+			return fmt.Errorf("%w: %w: 0x%04X", ErrInvalidArg, ErrReservedParamID, uint16(id))
+		}
+	}
+	return nil
+}
+
+// ValidateWrites rejects writes BuildWriteDataBlock would panic on or
+// silently drop (reserved IDs, values over 255 bytes, empty values). Every
+// public write path calls it before building a frame.
+func ValidateWrites(writes []ParamWrite) error {
+	for _, w := range writes {
+		if isReservedLowByte(byte(w.ID & 0xFF)) {
+			return fmt.Errorf("%w: %w: 0x%04X", ErrInvalidArg, ErrReservedParamID, uint16(w.ID))
+		}
+		if len(w.Value) == 0 {
+			return fmt.Errorf("%w: empty value for param 0x%04X", ErrInvalidArg, uint16(w.ID))
+		}
+		if len(w.Value) > 0xFF {
+			return fmt.Errorf("%w: %w: param 0x%04X has %d bytes", ErrInvalidArg, ErrValueTooLarge, uint16(w.ID), len(w.Value))
+		}
+	}
+	return nil
 }
 
 // EncodeRequest builds a complete FDFD/02 request packet. deviceID must

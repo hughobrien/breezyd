@@ -171,6 +171,9 @@ func DiscoverAtWithPassword(ctx context.Context, targets []string, password stri
 }
 
 func discoverInternal(ctx context.Context, targets []string, broadcast bool, password string) ([]Found, error) {
+	if err := ValidatePassword(password); err != nil {
+		return nil, err
+	}
 	// Bind to an ephemeral local port. ListenPacket on "udp" gives us an
 	// unconnected socket — required because we want to receive replies
 	// from arbitrary peers, not just one we Dial'd.
