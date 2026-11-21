@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log. The default `[homekit].state_dir` now follows `$STATE_DIRECTORY`
   (`<it>/homekit`), but an existing pairing in the old XDG default is kept
   when the new directory does not exist yet.
+- A partly failed poll (one of the two read packets times out) no longer drops
+  the failed packet's parameters from the cache (#265). Their previous values
+  are carried forward, the tick is still recorded as an error (`LastErr`, the
+  error metric) with `LastPoll` held, so the device shows as stale rather than
+  half blank. Energy accumulation, remote-write push and HomeKit sync still
+  skip such a tick, as they skip any failed one.
+- One hanging push target no longer delays and then drops pushes to every
+  target (#266). Each target now has its own flusher goroutine with a 20 s
+  per-flush timeout; the pusher only enqueues, so a stuck target keeps its
+  backlog in its own queue.
 
 ### Security
 
@@ -45,15 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward `Host` or `X-Forwarded-Host`, otherwise dashboard writes are
   rejected with 403 (browsers omit `Sec-Fetch-Site` on plain-HTTP LAN
   origins). The NixOS nginx integration now sets `X-Forwarded-Host` itself.
-
-### Fixed
-
-- A partly failed poll (one of the two read packets times out) no longer drops
-  the failed packet's parameters from the cache (#265). Their previous values
-  are carried forward, the tick is still recorded as an error (`LastErr`, the
-  error metric) with `LastPoll` held, so the device shows as stale rather than
-  half blank. Energy accumulation, remote-write push and HomeKit sync still
-  skip such a tick, as they skip any failed one.
 
 ### Removed
 
