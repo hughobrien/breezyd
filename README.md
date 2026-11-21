@@ -558,6 +558,27 @@ listen = "0.0.0.0:9876"
 (Or pick a specific LAN IP if you want to avoid binding on every
 interface.) Restart `breezyd` after changing the config.
 
+**Browser-facing hardening.** The daemon has no authentication, but it
+rejects cross-site browser writes (403): any non-GET/HEAD/OPTIONS request
+whose `Sec-Fetch-Site` is `cross-site`/`same-site`, or whose `Origin` does
+not match `Host` (or `X-Forwarded-Host` behind a proxy), is refused, so a
+web page you happen to have open cannot drive the API. A hand-written
+reverse proxy serving the dashboard over plain HTTP must forward `Host` or
+`X-Forwarded-Host` (browsers omit `Sec-Fetch-Site` on plain-HTTP LAN
+origins), otherwise dashboard writes get 403; the NixOS module does this
+itself. Requests with
+neither header (the `breezy` CLI, curl, Prometheus) are unaffected. Request
+bodies are capped at 64 KiB (413 beyond that). DNS rebinding is **not**
+blocked by default; to block it, list the names you reach the daemon by:
+
+```toml
+[daemon]
+allowed_hosts = ["breezy.example.com"]   # empty/absent = no Host check
+```
+
+Once set, a request whose `Host` (port ignored) is not listed, not an IP
+literal and not `localhost` gets 403.
+
 **Security implication:** the HTTP API has no authentication. Binding
 to a LAN-reachable address exposes every `/v1/...` endpoint to anyone
 on the same network — including the raw `POST /v1/devices/<name>/params/<id>`

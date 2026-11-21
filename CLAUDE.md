@@ -131,6 +131,10 @@ configuration knob — the cycle is fully derived from `time.Now()`
 and restarts cleanly on daemon restart. Failures (UDP timeout, auth)
 log a warning and continue; next 04:00 retries naturally.
 
+### Request guard (cross-origin, body cap, Host allowlist)
+
+`cmd/breezyd/guard.go::guard` wraps the whole top-level mux in `main.go`. Every non-GET/HEAD/OPTIONS request is checked by `http.CrossOriginProtection` (`Sec-Fetch-Site`, else `Origin` vs `Host`; an `Origin` equal to `X-Forwarded-Host` is also accepted when no `Sec-Fetch-Site` is sent) and rejected 403 with the JSON envelope (`code: forbidden`); requests with neither header (CLI, curl, Prometheus) pass. State-changing bodies are read up to 64 KiB (`maxBodyBytes`) and answered 413 beyond that. `[daemon].allowed_hosts` is an opt-in Host allowlist (DNS rebinding): empty means no check; when set, a Host (port stripped) that is not listed, not an IP literal and not `localhost` gets 403. No auth is added. New routes get this for free; don't register handlers outside the guarded mux.
+
 ### Cache vs. passthrough
 
 - `GET /v1/devices`, `GET /v1/devices/{name}`, `/metrics` → in-memory cache populated by the poller. Reads are cheap and never block on UDP.
@@ -166,7 +170,7 @@ Subject-before-verb: `breezy <device-name> <verb> [args]`. Per-device verbs (`st
 
 Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config` (including `help` and `version`). The loader also rejects `poll_interval` / `periodic:` durations under 1s, passwords over 8 bytes, and non-printable-ASCII device ids. Device names must also be valid JS identifiers (letters/digits/underscore, starting with a non-digit) because they appear as datastar signal-path segments (e.g. `$detailsOpen.<name>.sensors`); names with hyphens or dots would silently break the dashboard's signal parsing.
 
-CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error.
+CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error (including a config file that exists but fails to load, reported as `error: <path>: <reason>`; only a missing file falls through to the next location or standalone mode).
 
 ## Config
 

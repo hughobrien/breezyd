@@ -101,7 +101,15 @@ func run(args []string, stdout, stderr io.Writer, injected backend) int {
 
 	b := injected
 	if b == nil {
-		cfg := loadConfig()
+		var cfg *config.Config
+		if *daemon == "" && needsConfig(rest[0]) {
+			var err error
+			cfg, err = loadConfig()
+			if err != nil {
+				_, _ = fmt.Fprintf(stderr, "error: %s\n", err)
+				return 2
+			}
+		}
 		var err error
 		b, err = resolveBackend(*daemon, cfg)
 		if err != nil {
@@ -235,19 +243,39 @@ Globals:
 // install (e.g. the NixOS module) can hand the CLI the daemon URL
 // without every user writing their own home-directory config.
 //
-// Errors silently fall through to nil — running breezy on a fresh box
-// without any config should still produce useful behavior (standalone
-// mode).
-func loadConfig() *config.Config {
+// A missing file means "no config here, try the next one"; running breezy
+// on a fresh box without any config still gives standalone mode. Any other
+// failure (bad TOML, wrong mode, validation) is returned so the caller can
+// report it rather than guess.
+func loadConfig() (*config.Config, error) {
+	var paths []string
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		if cfg, err := config.Load(filepath.Join(home, ".config", "breezy", "config.toml")); err == nil {
-			return cfg
+		paths = append(paths, filepath.Join(home, ".config", "breezy", "config.toml"))
+	}
+	paths = append(paths, "/etc/breezy/config.toml")
+	for _, p := range paths {
+		cfg, err := config.Load(p)
+		if err == nil {
+			return cfg, nil
 		}
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if strings.Contains(err.Error(), p) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%s: %w", p, err)
 	}
-	if cfg, err := config.Load("/etc/breezy/config.toml"); err == nil {
-		return cfg
+	return nil, nil
+}
+
+// needsConfig reports whether a command consults the config at all.
+func needsConfig(cmd string) bool {
+	switch cmd {
+	case "discover", "param", "version", "help", "-h", "--help":
+		return false
 	}
-	return nil
+	return true
 }
 
 // resolveBackend picks a backend based on the precedence:

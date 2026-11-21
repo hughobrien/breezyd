@@ -62,6 +62,10 @@ type Config struct {
 type Daemon struct {
 	// Listen is the host:port the HTTP server binds to.
 	Listen string
+	// AllowedHosts is an opt-in Host-header allowlist (DNS-rebinding
+	// defence). Empty disables the check; IP literals and localhost are
+	// always accepted when it is set.
+	AllowedHosts []string
 	// PollInterval is how often the poller refreshes device state.
 	PollInterval time.Duration
 	// Discovery is one of "on-start", "off", or "periodic:<duration>".
@@ -128,6 +132,7 @@ type rawHomekit struct {
 
 type rawDaemon struct {
 	Listen       string            `toml:"listen"`
+	AllowedHosts []string          `toml:"allowed_hosts"`
 	PollInterval string            `toml:"poll_interval"`
 	Discovery    string            `toml:"discovery"`
 	Password     string            `toml:"password"`
@@ -180,6 +185,7 @@ func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Daemon: Daemon{
 			Listen:        raw.Daemon.Listen,
+			AllowedHosts:  raw.Daemon.AllowedHosts,
 			Discovery:     raw.Daemon.Discovery,
 			Password:      raw.Daemon.Password,
 			PrometheusJob: raw.Daemon.PromJob,

@@ -62,6 +62,22 @@ ip       = "192.168.1.42"
 	is.Equal(br.IP, "192.168.1.42")
 }
 
+func TestLoad_AllowedHosts(t *testing.T) {
+	is := is.New(t)
+	path := writeConfig(t, `
+[daemon]
+allowed_hosts = ["breezy.example.com", "breezy.lan"]
+`)
+	cfg, err := Load(path)
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.AllowedHosts, []string{"breezy.example.com", "breezy.lan"})
+
+	path = writeConfig(t, "[devices.a]\nid = \"BREEZY00000000A0\"\npassword = \"p\"\n")
+	cfg, err = Load(path)
+	is.NoErr(err)
+	is.Equal(len(cfg.Daemon.AllowedHosts), 0)
+}
+
 func TestLoad_DefaultsApplied(t *testing.T) {
 	is := is.New(t)
 	// daemon table omitted entirely

@@ -409,3 +409,31 @@ func TestGetUISSE_PushEventEmitsSignalsAndBlocks(t *testing.T) {
 	is.True(strings.Contains(combined, "id: signals:alpha")) // signals event id format
 	is.True(strings.Contains(combined, "id: block:alpha"))   // block patch event id format
 }
+
+// TestGetUISSE_ShutdownEndsStreamPromptly pins #263: http.Server.Shutdown
+// does not cancel request contexts, so an open /ui/sse stream used to hold
+// Shutdown for its entire timeout. The hub's Close (registered via
+// RegisterOnShutdown, as in run) must end the stream cleanly and quickly.
+func TestGetUISSE_ShutdownEndsStreamPromptly(t *testing.T) {
+	is := is.New(t)
+	h := newSSETestHandler(t, "alpha")
+	srv := httptest.NewUnstartedServer(h.mux())
+	srv.Config.RegisterOnShutdown(h.PushHub.(*PushHub).Close)
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/sse")
+	is.NoErr(err)
+	defer func() { _ = resp.Body.Close() }()
+	readUntil(t, resp.Body, `data-device="alpha"`, 2*time.Second)
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	is.NoErr(srv.Config.Shutdown(ctx))
+	is.True(time.Since(start) < time.Second)
+
+	// Clean end of stream: the body reads to EOF, not a reset.
+	_, err = io.ReadAll(resp.Body)
+	is.NoErr(err)
+}

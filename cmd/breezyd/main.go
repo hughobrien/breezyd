@@ -271,7 +271,7 @@ func run(parent context.Context) error {
 
 	srv := &http.Server{
 		Addr:    listen,
-		Handler: mux,
+		Handler: guard(mux, cfg.Daemon.AllowedHosts),
 		// Bound every phase of the request lifecycle. Every endpoint we
 		// serve is short-lived (cache-backed JSON, a small HTML page, or
 		// a small Prometheus dump), so generous-but-finite timeouts both
@@ -281,6 +281,12 @@ func run(parent context.Context) error {
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+	}
+
+	// Shutdown doesn't cancel request contexts, so end the long-lived
+	// /ui/sse streams explicitly (#263); short requests drain normally.
+	if hub, ok := handler.PushHub.(*PushHub); ok {
+		srv.RegisterOnShutdown(hub.Close)
 	}
 
 	serveErr := make(chan error, 1)
