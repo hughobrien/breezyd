@@ -133,6 +133,10 @@
           networking.hostName = "my-host";
           services.breezyd = {
             enable = true;
+            # The module check evaluates options; the Go tests already run
+            # in checks.gate, so don't re-run them (they also need a HOME
+            # the bare package build lacks) when building the unit.
+            package = self.packages.x86_64-linux.default.overrideAttrs (_: { doCheck = false; });
             settings.daemon.listen = "127.0.0.1:9876";
             prometheus.enable = true;
             push.offsite.url = "http://offsite:8428";
@@ -149,6 +153,11 @@
           services.prometheus.enable = true;
           services.prometheus.extraFlags = [ "--web.enable-remote-write-receiver" ];
         }).config;
+        ng = (moduleSystem {
+          services.breezyd.nginx.enable = true;
+          services.breezyd.nginx.virtualHost = "breezy.home.lan";
+        }).config;
+        ngLoc = ng.services.nginx.virtualHosts."breezy.home.lan".locations."/";
         lib = nixpkgs.lib;
         job = jobs: lib.findFirst (j: j.job_name == "breezyd") null jobs;
         drops = j: lib.any (r: r.source_labels == [ "pushed_my_host" ] && r.regex == "true" && r.action == "drop") j.metric_relabel_configs;
@@ -159,6 +168,9 @@
       assert vm.services.prometheus.scrapeConfigs == [ ];
       assert (prom.services.breezyd.settings.daemon.push).my_host == "http://127.0.0.1:9090";
       assert drops (job prom.services.prometheus.scrapeConfigs);
+      assert ngLoc.proxyPass == "http://127.0.0.1:9876";
+      assert lib.hasInfix "proxy_set_header X-Forwarded-Host $http_host;" ngLoc.extraConfig;
+      assert lib.hasInfix "proxy_buffering off;" ngLoc.extraConfig;
       vm.systemd.units."breezyd.service".unit;
     # Wrap the bare module so it defaults services.breezyd.package to the
     # flake's own build for the host's system. Without this wrapper, the
