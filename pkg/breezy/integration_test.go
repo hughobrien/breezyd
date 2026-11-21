@@ -444,6 +444,11 @@ func TestIntegration_ReplyIDs_Writes(t *testing.T) {
 			t.Fatalf("cannot snapshot 0x%04X: %x", uint16(id), orig[id])
 		}
 	}
+	// The test arms and clears the timer, and a running timer's remaining
+	// time cannot be restored, so only run when no timer is active.
+	if orig[0x0007][0] != 0 {
+		t.Skipf("timer 0x0007 is active (%d); skipping so its state is not lost", orig[0x0007][0])
+	}
 	t.Logf("original: power=%d speed_mode=%d timer=%d manual_pct=%d", orig[0x0001][0], orig[0x0002][0], orig[0x0007][0], orig[0x0044][0])
 
 	t.Cleanup(func() {
@@ -473,11 +478,6 @@ func TestIntegration_ReplyIDs_Writes(t *testing.T) {
 		}
 		for _, id := range ids {
 			want := orig[id][0]
-			// The timer is cleared by the 0x0002 / power writes; the
-			// original may have been a timer, which we do not re-arm.
-			if id == 0x0007 {
-				want = 0
-			}
 			if len(got[id]) != 1 || got[id][0] != want {
 				t.Errorf("cleanup verify: 0x%04X = %x, want %02x (original %02x)", uint16(id), got[id], want, orig[id][0])
 			}
