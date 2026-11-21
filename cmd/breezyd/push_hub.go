@@ -59,9 +59,8 @@ type PushNotifier interface {
 type PushHub struct {
 	renderBlocks func(name string, snap Snapshot) (*PushEvent, error)
 
-	mu     sync.Mutex
-	subs   map[*Subscriber]struct{}
-	closed map[*Subscriber]struct{}
+	mu   sync.Mutex
+	subs map[*Subscriber]struct{}
 }
 
 // NewPushHub constructs an empty hub. renderBlocks produces the
@@ -71,7 +70,6 @@ func NewPushHub(renderBlocks func(name string, snap Snapshot) (*PushEvent, error
 	return &PushHub{
 		renderBlocks: renderBlocks,
 		subs:         make(map[*Subscriber]struct{}),
-		closed:       make(map[*Subscriber]struct{}),
 	}
 }
 
@@ -86,7 +84,9 @@ func (h *PushHub) Subscribe() *Subscriber {
 }
 
 // Unsubscribe removes a subscriber and closes its events channel. Safe
-// to call multiple times — the second call is a no-op.
+// to call multiple times: membership in subs is the guard, so a second
+// call is a no-op, and Notify (which holds mu while sending) never sees
+// a closed subscriber because it is deleted from subs before close.
 func (h *PushHub) Unsubscribe(sub *Subscriber) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -94,7 +94,6 @@ func (h *PushHub) Unsubscribe(sub *Subscriber) {
 		return
 	}
 	delete(h.subs, sub)
-	h.closed[sub] = struct{}{}
 	close(sub.Events)
 }
 
