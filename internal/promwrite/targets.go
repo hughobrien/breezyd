@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -51,25 +50,6 @@ func (ts *Targets) String() string {
 	var s []string
 	for _, t := range *ts {
 		s = append(s, t.Name+"="+t.URL)
-	}
-	return strings.Join(s, ",")
-}
-
-// RedactURL returns raw as scheme://host[:port]/path, dropping userinfo,
-// query and fragment, which can carry credentials. Use it for anything logged.
-func RedactURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return "<invalid url>"
-	}
-	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
-}
-
-// Redacted is String with every URL passed through RedactURL: safe to log.
-func (ts Targets) Redacted() string {
-	var s []string
-	for _, t := range ts {
-		s = append(s, t.Name+"="+RedactURL(t.URL))
 	}
 	return strings.Join(s, ",")
 }

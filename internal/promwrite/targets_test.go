@@ -96,20 +96,3 @@ func TestPushersCollectors(t *testing.T) {
 		}
 	}
 }
-
-func TestRedactURL(t *testing.T) {
-	for in, want := range map[string]string{
-		"http://user:pw@host:8428/api?token=abc#f": "http://host:8428/api",
-		"https://tok@host/":                        "https://host/",
-		"http://127.0.0.1:8428":                    "http://127.0.0.1:8428",
-		"http://%zz":                               "<invalid url>",
-	} {
-		if got := RedactURL(in); got != want {
-			t.Errorf("RedactURL(%q) = %q, want %q", in, got, want)
-		}
-	}
-	ts := Targets{{Name: "vm", URL: "http://u:p@h:1/?k=v"}}
-	if got := ts.Redacted(); got != "vm=http://h:1/" {
-		t.Errorf("Redacted() = %q", got)
-	}
-}

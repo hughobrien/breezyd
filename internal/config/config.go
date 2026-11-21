@@ -319,20 +319,31 @@ func Load(path string) (*Config, error) {
 // the homekit state directory. An empty input returns the default,
 // following the same precedence as the daemon's energy/schedule state dir:
 // $STATE_DIRECTORY/homekit, else $XDG_STATE_HOME/breezyd/homekit, else
-// $HOME/.local/state/breezyd/homekit. A non-empty input always wins.
+// $HOME/.local/state/breezyd/homekit. A non-empty input always wins. To avoid
+// orphaning an existing pairing (new PIN, lost keys), when $STATE_DIRECTORY is
+// set the legacy XDG default is kept if it exists and
+// $STATE_DIRECTORY/homekit does not.
 func expandStateDir(in string) (string, error) {
 	if in == "" {
-		if d := os.Getenv("STATE_DIRECTORY"); d != "" {
-			return filepath.Join(d, "homekit"), nil
-		}
+		var legacy string
 		if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-			return filepath.Join(x, "breezyd", "homekit"), nil
+			legacy = filepath.Join(x, "breezyd", "homekit")
+		} else {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			legacy = filepath.Join(home, ".local", "state", "breezyd", "homekit")
 		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+		if d := os.Getenv("STATE_DIRECTORY"); d != "" {
+			next := filepath.Join(d, "homekit")
+			// Don't orphan an existing pairing: keep the legacy dir when it
+			// exists and the new one does not.
+			if dirExists(next) || !dirExists(legacy) {
+				return next, nil
+			}
 		}
-		return filepath.Join(home, ".local", "state", "breezyd", "homekit"), nil
+		return legacy, nil
 	}
 	if strings.HasPrefix(in, "~/") {
 		home, err := os.UserHomeDir()
@@ -342,6 +353,11 @@ func expandStateDir(in string) (string, error) {
 		return filepath.Join(home, in[2:]), nil
 	}
 	return in, nil
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // defaultConfigTemplate is the content WriteDefault writes for a fresh
