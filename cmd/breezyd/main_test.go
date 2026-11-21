@@ -48,7 +48,7 @@ func writeTempConfig(t *testing.T, listen, fakeAddr, deviceID, password string) 
 	cfgPath := filepath.Join(dir, "config.toml")
 	body := fmt.Sprintf(`[daemon]
 listen        = "%s"
-poll_interval = "100ms"
+poll_interval = "1s"
 discovery     = "off"
 
 [devices.playroom]

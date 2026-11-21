@@ -20,6 +20,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `services.prometheus`) when `prometheus.enable` is on, registers the scrape
   job there with the drop rule, and takes more targets in `push.<name>.url`.
 
+### Fixed
+
+- Config validation: `poll_interval` and `periodic:` discovery under 1 s,
+  passwords over 8 bytes, non-ASCII device ids and device names `help` /
+  `version` are now rejected at load; push URLs are redacted in the startup
+  log. The default `[homekit].state_dir` now follows `$STATE_DIRECTORY`
+  (`<it>/homekit`), but an existing pairing in the old XDG default is kept
+  when the new directory does not exist yet.
+- A partly failed poll (one of the two read packets times out) no longer drops
+  the failed packet's parameters from the cache (#265). Their previous values
+  are carried forward, the tick is still recorded as an error (`LastErr`, the
+  error metric) with `LastPoll` held, so the device shows as stale rather than
+  half blank. Energy accumulation, remote-write push and HomeKit sync still
+  skip such a tick, as they skip any failed one.
+- One hanging push target no longer delays and then drops pushes to every
+  target (#266). Each target now has its own flusher goroutine with a 20 s
+  per-flush timeout; the pusher only enqueues, so a stuck target keeps its
+  backlog in its own queue.
+
 ### Security
 
 - The HTTP API no longer accepts cross-site browser writes (#259). A request
@@ -59,7 +78,6 @@ Minor release: two UX features (inline-edit schedule, optimistic-UI cascades) pl
 
 ### Fixed
 
-- **One hanging push target delayed and then dropped pushes to every target** (#266). Targets were flushed one after another on the pusher's single goroutine, so a target that accepted the connection and never answered held up the healthy ones for up to 30 s per poll, and once the 64-slot poll queue filled, polls were dropped for all targets. Each target now has its own flusher goroutine (with a 20 s per-flush timeout); the pusher only enqueues, so a stuck target keeps its backlog in its own queue without affecting the others.
 - **Power-off didn't clear an externally-set timer** (#238, #241). The firmware runs the fans whenever `0x0007` (night/turbo) is set, regardless of `0x0001`. **Turbo can be activated via the IR remote without touching 0x0001 at all.** A power-off device with turbo running reported `power=off`, the dashboard showed the power button as off, and clicking it was a no-op. Three coordinated fixes: (1) view-derive `Power = (0x0001 == 1) OR (special_mode != "off")` so the dashboard tells the truth when the firmware is running fans regardless of how the timer was activated; (2) `postUITimer` activate writes `Power(true)` before `SetTimer` so the cache reflects the on-state immediately; (3) `pkg/breezy/ops.Power(false)` writes `SetTimer(off)` after the power write — encoded at the ops layer per #241 after a 2026-05-12 firmware probe on `192.168.1.148` confirmed firmware clears `0x0007` on a 1→0 power transition, so all callers (UI, `/v1`, HomeKit, scheduler) get a coherent cache, not just the UI handler.
 - **Preset chip expanded the editor on every click** (#239). The chip's click handler unconditionally toggled the editor. Now matches radio-button intuition: clicking a non-active chip selects that preset and closes any open editor; clicking the already-active chip toggles the editor. Generated handler branches on `$specialMode === 'off' && $speedMode === 'preset<n>'`.
 - **Manual slider drag occasionally posted the wrong value** (#241). The `manual slider drag posts dragged value` Playwright test flaked 40–60% under heavy load. Datastar's `data-bind` plugin fires the change handler synchronously during signal→input syncs — both initial and on every SSE-pushed signal update. The synthetic events have `isTrusted=false` and the input's current value, producing no-op `{manual:50}` POSTs that pre-empted dragged-value POSTs. Replaced `data-bind` with the explicit split that doesn't synthesise change events: `data-effect="el.value = $_manualPct.X"` (signal → input.value, direct property assignment, no DOM event), `data-on:input` (live drag mirror into signal), and `data-on:change` (POST on release, debounce removed so SSE pushes can't reset `el.value` between dispatch and handler-fire).

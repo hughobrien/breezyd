@@ -106,3 +106,20 @@ func TestNotifyNeverBlocks(t *testing.T) {
 		t.Fatal("Notify blocked the poller")
 	}
 }
+
+func TestRedactURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"http://user:pw@host:8428/api?token=abc#f": "http://host:8428/api",
+		"https://tok@host/":                        "https://host/",
+		"http://127.0.0.1:8428":                    "http://127.0.0.1:8428",
+		"http://%zz":                               "<invalid url>",
+	} {
+		if got := redactURL(in); got != want {
+			t.Errorf("redactURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+	ts := promwrite.Targets{{Name: "vm", URL: "http://u:p@h:1/?k=v"}}
+	if got := redactedTargets(ts); got != "vm=http://h:1/" {
+		t.Errorf("redactedTargets() = %q", got)
+	}
+}

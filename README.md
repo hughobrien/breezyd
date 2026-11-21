@@ -655,7 +655,7 @@ The next daemon start regenerates the PIN.
 
 - `bridge_name`: name shown during pairing. Default `"breezyd"`.
 - `port`: TCP port for the HAP server. Default 0 (OS-assigned).
-- `state_dir`: where pairing keys + the PIN live.
+- `state_dir`: where pairing keys + the PIN live. Default `$STATE_DIRECTORY/homekit` when systemd sets it, else `$XDG_STATE_HOME/breezyd/homekit`.
 
 On NixOS the bridge is one knob — see [HomeKit (optional)](#homekit-optional)
 under the NixOS section above.
@@ -783,7 +783,7 @@ Full schema with defaults:
 # Optional. Without this block the CLI runs in standalone mode (no HTTP).
 [daemon]
 listen        = "127.0.0.1:9876"   # http listener; required when [daemon] present
-poll_interval = "30s"              # default 30s
+poll_interval = "30s"              # default 30s; minimum 1s
 discovery     = "on-start"         # "on-start" | "off" | "periodic:<duration>"
 password      = ""                 # optional fleet-wide protocol password; used for
                                    # the daemon's discovery probes and inherited by
@@ -794,7 +794,7 @@ password      = ""                 # optional fleet-wide protocol password; used
 enabled = false
 # bridge_name = "breezyd"
 # port = 0                          # 0 = ephemeral
-# state_dir = "~/.local/state/breezyd/homekit"
+# state_dir = "~/.local/state/breezyd/homekit"  # default: $STATE_DIRECTORY/homekit, else $XDG_STATE_HOME/breezyd/homekit
 
 # One [devices.<name>] block per Breezy unit. Name = the label used as the
 # CLI's <subject>: "breezy playroom status".

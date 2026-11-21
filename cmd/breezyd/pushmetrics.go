@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,4 +148,23 @@ func (p *metricPusher) push(name string, snap Snapshot) {
 	p.targets.Add(series...)
 	p.last[name] = t
 	p.kick()
+}
+
+// redactURL returns raw as scheme://host[:port]/path, dropping userinfo, query
+// and fragment, which can carry credentials. Use it for anything logged.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "<invalid url>"
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
+}
+
+// redactedTargets formats push targets as name=url,... with every URL redacted.
+func redactedTargets(ts promwrite.Targets) string {
+	s := make([]string, 0, len(ts))
+	for _, t := range ts {
+		s = append(s, t.Name+"="+redactURL(t.URL))
+	}
+	return strings.Join(s, ",")
 }
