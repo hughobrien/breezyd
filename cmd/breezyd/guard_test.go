@@ -28,6 +28,7 @@ func doGuard(t *testing.T, allowed []string, method, target, body string, hdr ma
 	var reached bool
 	g := guard(guardedOK(&reached), allowed)
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Host = "127.0.0.1:9876"
 	for k, v := range hdr {
 		if k == "Host" {
 			req.Host = v
@@ -63,7 +64,7 @@ func TestGuard_CrossOrigin(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rec, reached := doGuard(t, nil, c.method, "/v1/devices/a/params/0087", "", c.hdr)
+			rec, reached := doGuard(t, []string{"*"}, c.method, "/v1/devices/a/params/0087", "", c.hdr)
 			if rec.Code != c.want {
 				t.Fatalf("status = %d, want %d (body %s)", rec.Code, c.want, rec.Body)
 			}
@@ -85,7 +86,7 @@ func TestGuard_CrossOrigin(t *testing.T) {
 func TestGuard_ForwardedHostMultiValue(t *testing.T) {
 	post := func(xfh ...string) int {
 		var reached bool
-		g := guard(guardedOK(&reached), nil)
+		g := guard(guardedOK(&reached), []string{"*"})
 		req := httptest.NewRequest("POST", "/v1/devices/a/power", strings.NewReader("{}"))
 		req.Host = "127.0.0.1:9876"
 		req.Header.Set("Origin", "http://breezy.home.lan")
@@ -115,7 +116,7 @@ func TestGuard_ForwardedHostMultiValue(t *testing.T) {
 
 func TestGuard_BodyCap(t *testing.T) {
 	big := strings.Repeat("a", maxBodyBytes+1)
-	rec, reached := doGuard(t, nil, "POST", "/v1/devices/a/power", big, nil)
+	rec, reached := doGuard(t, []string{"*"}, "POST", "/v1/devices/a/power", big, nil)
 	if rec.Code != http.StatusRequestEntityTooLarge || reached {
 		t.Fatalf("oversize: status %d reached=%v", rec.Code, reached)
 	}
@@ -124,7 +125,7 @@ func TestGuard_BodyCap(t *testing.T) {
 	}
 	// Unknown-length (chunked) body over the cap.
 	var reached2 bool
-	g := guard(guardedOK(&reached2), nil)
+	g := guard(guardedOK(&reached2), []string{"*"})
 	req := httptest.NewRequest("PUT", "/v1/devices/a/schedule", strings.NewReader(big))
 	req.ContentLength = -1
 	rec = httptest.NewRecorder()
@@ -133,7 +134,7 @@ func TestGuard_BodyCap(t *testing.T) {
 		t.Fatalf("chunked oversize: status %d reached=%v", rec.Code, reached2)
 	}
 	// Exactly at the cap passes.
-	rec, reached = doGuard(t, nil, "POST", "/v1/devices/a/power", strings.Repeat("a", maxBodyBytes), nil)
+	rec, reached = doGuard(t, []string{"*"}, "POST", "/v1/devices/a/power", strings.Repeat("a", maxBodyBytes), nil)
 	if rec.Code != 200 || !reached {
 		t.Fatalf("at-cap: status %d reached=%v", rec.Code, reached)
 	}
@@ -145,7 +146,7 @@ func TestGuard_BodyPreserved(t *testing.T) {
 		b := make([]byte, 64)
 		n, _ := r.Body.Read(b)
 		got = string(b[:n])
-	}), nil)
+	}), []string{"*"})
 	req := httptest.NewRequest("POST", "/x", strings.NewReader(`{"on":true}`))
 	g.ServeHTTP(httptest.NewRecorder(), req)
 	if got != `{"on":true}` {
@@ -178,10 +179,89 @@ func TestGuard_HostAllowlist(t *testing.T) {
 			}
 		}
 	}
-	// Empty list: no Host check.
+	// Empty list: still checked (default-on); IP literals pass.
 	rec, _ := doGuard(t, nil, "GET", "/v1/devices", "", map[string]string{"Host": "evil.example"})
+	if rec.Code != 403 {
+		t.Fatalf("rebinding name accepted with empty allowlist: %d", rec.Code)
+	}
+	if b := rec.Body.String(); !strings.Contains(b, "evil.example") || !strings.Contains(b, "allowed_hosts") {
+		t.Fatalf("message lacks host/hint: %s", b)
+	}
+	rec, _ = doGuard(t, nil, "GET", "/v1/devices", "", map[string]string{"Host": "127.0.0.1:9876"})
 	if rec.Code != 200 {
-		t.Fatalf("empty allowlist rejected: %d", rec.Code)
+		t.Fatalf("IP literal rejected: %d", rec.Code)
+	}
+	// Trailing dot tolerated.
+	rec, _ = doGuard(t, allowed, "GET", "/v1/devices", "", map[string]string{"Host": "breezy.example.com.:9876"})
+	if rec.Code != 200 {
+		t.Fatalf("trailing dot rejected: %d", rec.Code)
+	}
+}
+
+func TestGuard_Wildcard(t *testing.T) {
+	rec, _ := doGuard(t, []string{"*"}, "GET", "/v1/devices", "", map[string]string{"Host": "evil.example"})
+	if rec.Code != 200 {
+		t.Fatalf("wildcard rejected: %d", rec.Code)
+	}
+}
+
+// X-Forwarded-Host must never widen the allowlist, from loopback or not:
+// a rebinding page's JS can set it itself.
+func TestGuard_ForwardedHostNotTrusted(t *testing.T) {
+	for _, remote := range []string{"127.0.0.1:5555", "192.168.1.9:5555"} {
+		var reached bool
+		g := guard(guardedOK(&reached), nil)
+		req := httptest.NewRequest("GET", "/v1/devices", nil)
+		req.Host = "evil.example"
+		req.RemoteAddr = remote
+		req.Header.Set("X-Forwarded-Host", "evil.example")
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, req)
+		if rec.Code != 403 || reached {
+			t.Errorf("remote %s: status %d reached=%v, want 403", remote, rec.Code, reached)
+		}
+	}
+}
+
+func TestImplicitHosts(t *testing.T) {
+	cases := []struct {
+		name     string
+		cfg      []string
+		listen   string
+		hostname string
+		allow    []string
+		deny     []string
+	}{
+		{"fqdn hostname", nil, "127.0.0.1:9876", "BigThink.Home.Lan",
+			[]string{"bigthink.home.lan", "bigthink", "BIGTHINK.local:9876", "bigthink.home.lan."}, []string{"evil.example", "home.lan"}},
+		{"short hostname", nil, "127.0.0.1:9876", "bigthink",
+			[]string{"bigthink", "bigthink.local"}, []string{"evil.example"}},
+		{"listen name", nil, "breezy.lan:9876", "box",
+			[]string{"breezy.lan", "box"}, []string{"evil.example"}},
+		{"listen ip", nil, "0.0.0.0:9876", "box",
+			[]string{"box", "192.168.1.5"}, []string{"evil.example"}},
+		{"configured", []string{"Breezy.Example.com"}, "127.0.0.1:9876", "box",
+			[]string{"breezy.example.com:443"}, []string{"evil.example"}},
+		{"empty hostname", nil, "127.0.0.1:9876", "",
+			[]string{"localhost", "127.0.0.1", "[::1]:9876"}, []string{"evil.example", ".local", ""}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			allowed := map[string]bool{}
+			for _, h := range implicitHosts(c.cfg, c.listen, c.hostname) {
+				allowed[normHost(h)] = true
+			}
+			for _, h := range c.allow {
+				if !hostAllowed(h, allowed) {
+					t.Errorf("%q rejected", h)
+				}
+			}
+			for _, h := range c.deny {
+				if hostAllowed(h, allowed) {
+					t.Errorf("%q accepted", h)
+				}
+			}
+		})
 	}
 }
 
@@ -194,7 +274,7 @@ func TestGuard_RealMux(t *testing.T) {
 			called = true
 			return nil, http.ErrNotSupported
 		}))
-	g := guard(h, nil)
+	g := guard(h, []string{"*"})
 	req := httptest.NewRequest("POST", "/v1/devices/a/params/0087", strings.NewReader("01"))
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	req.Header.Set("Content-Type", "text/plain")
