@@ -55,6 +55,11 @@
         # network access, but the integration tests need a real device
         # behind a build tag. Run only the default test set.
         doCheck = true;
+        # The daemon tests resolve a state dir from HOME/XDG_STATE_HOME; the
+        # nix sandbox sets HOME=/homeless-shelter (unwritable).
+        preCheck = ''
+          export HOME="$TMPDIR"
+        '';
         meta = with pkgs.lib; {
           description = "Go library, daemon, and CLI for Vents Twinfresh Breezy ERVs";
           homepage = "https://github.com/hughobrien/breezyd";
@@ -133,10 +138,6 @@
           networking.hostName = "my-host";
           services.breezyd = {
             enable = true;
-            # The module check evaluates options; the Go tests already run
-            # in checks.gate, so don't re-run them (they also need a HOME
-            # the bare package build lacks) when building the unit.
-            package = self.packages.x86_64-linux.default.overrideAttrs (_: { doCheck = false; });
             settings.daemon.listen = "127.0.0.1:9876";
             prometheus.enable = true;
             push.offsite.url = "http://offsite:8428";
