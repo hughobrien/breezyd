@@ -538,8 +538,10 @@ schedule does not touch the unit; it only stops future entries firing.
 
 On a transient fire failure (timeout, checksum, dial error) a retry is
 installed: `nextAttempt = now + 30s` (`retryCadence`),
-`deadline = now + 10m` (`retryDeadline`). Subsequent ticks attempt the
-retry when `now ≥ nextAttempt`, bumping `attempts`. Transitions:
+`deadline = now + 10m` (`retryDeadline`). `Scheduler.Run` wakes at
+`nextAttempt` between its once-a-minute ticks and attempts the retry
+(`retryTick`, which leaves `lastTick` and the window logic alone), bumping
+`attempts`; the minute `tick` also services a due retry. Transitions:
 **succeed** → clear retry, `lastApply.ok = true`; **deadline reached** →
 clear retry, `lastApply.ok` stays false (UI keeps the alert);
 **superseded by next entry** → if a newer entry's `At` lies in the

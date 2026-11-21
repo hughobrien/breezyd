@@ -355,10 +355,11 @@ func wallClock(t time.Time) time.Time {
 // fireTimeout bounds a single fire attempt's UDP round-trip.
 const fireTimeout = 5 * time.Second
 
-const (
-	retryCadence  = 30 * time.Second
-	retryDeadline = 10 * time.Minute
-)
+// retryCadence is the gap between a failed attempt and its retry. It is a
+// var only so the Run-loop test can shrink it; production never changes it.
+var retryCadence = 30 * time.Second
+
+const retryDeadline = 10 * time.Minute
 
 // tick processes one minute boundary. now is the wall-clock; tests pass
 // a synthetic value via s.Now.
@@ -370,8 +371,10 @@ const (
 // is not after the previous tick's (DST fall-back, NTP step back) crosses
 // no minutes and fires nothing; it is not a midnight wrap.
 //
-// Retry state-machine: after a transient failure, fire retries every 30s
-// for up to 10 minutes. A newer entry arriving in the same tick window
+// Retry state-machine: after a transient failure, the entry is retried
+// every 30s for up to 10 minutes. Run wakes at each retry's nextAttempt and
+// calls retryTick between minute ticks; tick itself also services a due
+// retry, so tests driving tick alone still see retries. A newer entry arriving in the same tick window
 // supersedes the in-flight retry. Disable always clears it.
 func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	s.mu.Lock()
@@ -454,13 +457,7 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 			s.retry = nil
 			s.mu.Unlock()
 		case !now.Before(r.deadline):
-			// Abandon. lastApply.ok stays false so the UI keeps the alert.
-			s.mu.Lock()
-			s.retry = nil
-			if err := s.save(); err != nil {
-				slog.Warn("schedule: save after deadline-abandon failed", "device", s.Device, "err", err)
-			}
-			s.mu.Unlock()
+			s.abandonRetry()
 		case !now.Before(r.nextAttempt):
 			s.fire(ctx, r.entry, r.entryIndex, now)
 			retryFired = true
@@ -504,6 +501,54 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	if latest != nil {
 		s.fire(ctx, *latest, latestIdx, now)
 	}
+}
+
+// abandonRetry drops the in-flight retry at its deadline. lastApply.ok stays
+// false so the UI keeps the alert.
+func (s *Scheduler) abandonRetry() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.retry = nil
+	if err := s.save(); err != nil {
+		slog.Warn("schedule: save after deadline-abandon failed", "device", s.Device, "err", err)
+	}
+}
+
+// retryTick services only the retry path, for wakes that fall between
+// minute ticks. It never touches lastTick/lastTickTime or the window logic,
+// so a mid-minute wake cannot make tick skip or double-fire an entry. A
+// newer entry superseding the retry is tick's job; it runs at the next
+// minute boundary, at most one extra retry attempt later.
+func (s *Scheduler) retryTick(ctx context.Context, now time.Time) {
+	s.mu.Lock()
+	r := s.retry
+	enabled := s.enabled
+	s.mu.Unlock()
+	if r == nil || !enabled {
+		return
+	}
+	switch {
+	case !now.Before(r.deadline):
+		s.abandonRetry()
+	case !now.Before(r.nextAttempt):
+		s.fire(ctx, r.entry, r.entryIndex, now)
+	}
+}
+
+// retryWake returns how long until the pending retry needs attention, or
+// false if no retry is pending (or the schedule is disabled, where tick
+// clears it).
+func (s *Scheduler) retryWake(now time.Time) (time.Duration, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.retry == nil || !s.enabled {
+		return 0, false
+	}
+	at := s.retry.nextAttempt
+	if d := s.retry.deadline; at.After(d) {
+		at = d
+	}
+	return max(at.Sub(now), 0), true
 }
 
 // fire dispatches one entry's writes through Dial. Records lastApply on
@@ -593,7 +638,8 @@ func (s *Scheduler) fire(ctx context.Context, e ScheduleEntry, idx int, now time
 
 // Run blocks until ctx is done, ticking once a minute aligned to the
 // wall-clock minute boundary. The first tick fires immediately after
-// alignment to give callers a deterministic startup point.
+// alignment to give callers a deterministic startup point. While a retry
+// is pending it also wakes at the retry's due time (see loop).
 func (s *Scheduler) Run(ctx context.Context) {
 	s.alignToNextMinute(ctx)
 	if ctx.Err() != nil {
@@ -602,12 +648,33 @@ func (s *Scheduler) Run(ctx context.Context) {
 	t := time.NewTicker(1 * time.Minute)
 	defer t.Stop()
 	s.tick(ctx, s.now())
+	s.loop(ctx, t.C)
+}
+
+// loop runs a full tick on every minuteC receive and, between those, a
+// retryTick whenever a pending retry falls due, so retries keep the 30 s
+// cadence instead of waiting for the next minute boundary.
+func (s *Scheduler) loop(ctx context.Context, minuteC <-chan time.Time) {
 	for {
+		var wakeC <-chan time.Time
+		var timer *time.Timer
+		if d, ok := s.retryWake(s.now()); ok {
+			timer = time.NewTimer(d)
+			wakeC = timer.C
+		}
 		select {
 		case <-ctx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
 			return
-		case <-t.C:
+		case <-minuteC:
+			if timer != nil {
+				timer.Stop()
+			}
 			s.tick(ctx, s.now())
+		case <-wakeC:
+			s.retryTick(ctx, s.now())
 		}
 	}
 }

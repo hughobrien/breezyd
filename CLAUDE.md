@@ -109,7 +109,7 @@ Each configured device gets a `Scheduler` goroutine (in `cmd/breezyd/scheduler.g
 
 Entries have `At | Action | Pct`. Action ∈ `{off, regeneration, ventilation, supply, extract}`; off powers the unit off, the others power-on + set the airflow mode + set speed=manual at the given Pct. Times are in the daemon host's local timezone.
 
-Failed fires retry every 30 s for up to 10 min, abandoning early when the next entry's At-time arrives. `breezy.ErrAuth` is treated as a config error and does not retry. Failures surface as a force-expanded alert on the SCHEDULE block in the dashboard.
+Failed fires retry every 30 s for up to 10 min (`Run` wakes at each retry's due time between its minute ticks; `retryTick` touches no window state), abandoning early when the next entry's At-time arrives (detected at the next minute tick). `breezy.ErrAuth` is treated as a config error and does not retry. Failures surface as a force-expanded alert on the SCHEDULE block in the dashboard.
 
 Editing happens exclusively from the web UI via `GET`/`PUT /v1/devices/{name}/schedule`. There are no CLI verbs and no HomeKit exposure for the schedule itself.
 

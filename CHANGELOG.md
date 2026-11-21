@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log. The default `[homekit].state_dir` now follows `$STATE_DIRECTORY`
   (`<it>/homekit`), but an existing pairing in the old XDG default is kept
   when the new directory does not exist yet.
+- Schedule retries now really run every 30 s (#270). They were only
+  evaluated on the one-minute tick, so a failed fire was retried once a
+  minute (10 attempts in the 10-minute window instead of 20). `Run` now also
+  wakes at a pending retry's due time.
 - A partly failed poll (one of the two read packets times out) no longer drops
   the failed packet's parameters from the cache (#265). Their previous values
   are carried forward, the tick is still recorded as an error (`LastErr`, the
