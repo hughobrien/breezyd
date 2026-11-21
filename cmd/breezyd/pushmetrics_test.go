@@ -20,6 +20,13 @@ func (w *fakeWriter) Write(_ context.Context, s []promwrite.Series) error {
 	return nil
 }
 
+func flush(t *testing.T, ps promwrite.Pushers) {
+	t.Helper()
+	if err := ps.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPushEachPoll(t *testing.T) {
 	reg, data := prometheus.NewRegistry(), prometheus.NewRegistry()
 	targets := promwrite.Targets{{Name: "vm", URL: "http://vm"}}
@@ -32,12 +39,13 @@ func TestPushEachPoll(t *testing.T) {
 	push := promwrite.NewPushers(targets, nil)
 	push[0].Queue.W = w
 	p := newMetricPusher(m, data, push, "breezyd", devices, nil)
-	ctx := context.Background()
 
 	snap := representativeSnapshot()
 	snap.LastPoll = time.Now().Truncate(time.Second) // the queue drops samples older than 50m
-	p.push(ctx, "bedroom", snap)                     // another device's gauges exist too
-	p.push(ctx, "office", snap)
+	p.push("bedroom", snap)                          // another device's gauges exist too
+	flush(t, push)
+	p.push("office", snap)
+	flush(t, push)
 	if len(w.got) != 2 {
 		t.Fatalf("want a write per poll, got %d", len(w.got))
 	}
@@ -55,7 +63,8 @@ func TestPushEachPoll(t *testing.T) {
 		t.Error("health stays on /metrics, not pushed")
 	}
 
-	p.push(ctx, "office", snap) // same LastPoll: must still be newer
+	p.push("office", snap) // same LastPoll: must still be newer
+	flush(t, push)
 	if got := w.got[2][0].Samples[0].T; !got.Equal(snap.LastPoll.Add(time.Millisecond)) {
 		t.Errorf("repeat poll time pushed at %v, want 1ms after the last", got)
 	}
