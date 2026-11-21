@@ -70,7 +70,6 @@ type Accessory struct {
 	// daemon's write callbacks can reach them via typed handles instead of
 	// walking the characteristic list.
 	RotationSpeed      *characteristic.RotationSpeed
-	VOCDensity         *characteristic.VOCDensity
 	CarbonDioxideLevel *characteristic.CarbonDioxideLevel
 	StatusFault        *characteristic.StatusFault
 	FilterLifeLevel    *characteristic.FilterLifeLevel
@@ -128,10 +127,9 @@ func NewBreezyAccessory(name, deviceID, ip string) *Accessory {
 	a.CarbonDioxideLevel = characteristic.NewCarbonDioxideLevel()
 	a.CO2.AddC(a.CarbonDioxideLevel.C)
 
-	// AirQuality sensor with optional VOCDensity.
+	// AirQuality sensor: enum only. The device reports a dimensionless VOC
+	// index, not a µg/m³ density, so VOCDensity is deliberately omitted.
 	a.AirQualitySvc = service.NewAirQualitySensor()
-	a.VOCDensity = characteristic.NewVOCDensity()
-	a.AirQualitySvc.AddC(a.VOCDensity.C)
 
 	// Temperature sensors with Name characteristics so iOS Home shows labels.
 	a.TempOutdoor = newNamedTemp("Outdoor")

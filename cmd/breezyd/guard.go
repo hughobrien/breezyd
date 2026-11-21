@@ -3,7 +3,8 @@
 // Request guard: one middleware layer around the whole mux that closes
 // the "web page in a browser drives the daemon" hole (issue #259).
 //
-//  1. Host allowlist (opt-in, [daemon].allowed_hosts) against DNS rebinding.
+//  1. Host allowlist (on by default; see implicitHosts) against DNS
+//     rebinding. allowed_hosts = ["*"] disables it.
 //  2. Cross-origin rejection for every state-changing method, via
 //     net/http.CrossOriginProtection (Sec-Fetch-Site, else Origin vs Host).
 //  3. A request body size cap, answered with 413.
@@ -14,23 +15,67 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 // maxBodyBytes caps request bodies. The largest legitimate body is a
 // schedule PUT (a handful of entries, well under 4 KiB).
 const maxBodyBytes = 64 << 10
 
+// wildcardHost in the allowlist disables the Host check entirely.
+const wildcardHost = "*"
+
+// maxLoggedHosts bounds the dedupe set so an attacker cycling Host values
+// cannot grow it without limit; past it, rejections are no longer logged.
+const maxLoggedHosts = 256
+
+// implicitHosts builds the allowlist the daemon derives for itself: the
+// explicitly configured entries, the machine hostname (plus its short form
+// and <short>.local), and the host part of the listen address when that is
+// a name. IP literals and localhost are always accepted by hostAllowed.
+func implicitHosts(configured []string, listen, hostname string) []string {
+	out := append([]string(nil), configured...)
+	if hostname = normHost(hostname); hostname != "" {
+		out = append(out, hostname)
+		short, _, _ := strings.Cut(hostname, ".")
+		if short != "" {
+			out = append(out, short, short+".local")
+		}
+	}
+	if h, _, err := net.SplitHostPort(listen); err == nil && h != "" {
+		out = append(out, h)
+	}
+	return out
+}
+
 // guard wraps next with the Host allowlist, cross-origin protection and
-// body cap. An empty allowedHosts disables the Host check.
+// body cap. allowedHosts is the full allowlist (see implicitHosts); IP
+// literals and localhost are always accepted, and "*" disables the check.
 func guard(next http.Handler, allowedHosts []string) http.Handler {
 	allowed := make(map[string]bool, len(allowedHosts))
 	for _, h := range allowedHosts {
 		allowed[normHost(h)] = true
+	}
+	anyHost := allowed[wildcardHost]
+
+	var logMu sync.Mutex
+	logged := map[string]bool{}
+	logRejection := func(host string) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		if logged[host] || len(logged) >= maxLoggedHosts {
+			return
+		}
+		logged[host] = true
+		slog.Warn("rejected request: Host not allowed; add it to [daemon].allowed_hosts",
+			"host", host)
 	}
 
 	cop := http.NewCrossOriginProtection()
@@ -42,9 +87,16 @@ func guard(next http.Handler, allowedHosts []string) http.Handler {
 	checked := cop.Handler(body)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(allowed) > 0 && !hostAllowed(r.Host, allowed) {
+		// X-Forwarded-Host is deliberately not trusted here, even from a
+		// loopback peer: under DNS rebinding the page's own JS can set it,
+		// so honouring it would let the attack through. A proxy that
+		// forwards the public name as Host needs that name listed.
+		if !anyHost && !hostAllowed(r.Host, allowed) {
+			h := normHost(r.Host)
+			logRejection(h)
 			writeJSON(w, http.StatusForbidden, errEnvelope{
-				Error: "host not allowed", Code: "forbidden"})
+				Error: fmt.Sprintf("host %q not allowed; add it to [daemon].allowed_hosts", h),
+				Code:  "forbidden"})
 			return
 		}
 		// Behind the NixOS nginx proxy r.Host may be the upstream address

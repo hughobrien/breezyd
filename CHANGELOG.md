@@ -20,8 +20,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `services.prometheus`) when `prometheus.enable` is on, registers the scrape
   job there with the drop rule, and takes more targets in `push.<name>.url`.
 
+### Changed
+
+- **Potentially breaking:** the `Host` allowlist (DNS-rebinding defence) is
+  now on by default. Requests are accepted only for IP literals, `localhost`,
+  the machine hostname (also short form and `<short>.local`), the host part
+  of `[daemon].listen`, and `[daemon].allowed_hosts` entries; other names get
+  403 with a message naming the host (logged once per host at warn).
+  Upgrade note: if you reach the daemon by any other name (DNS alias, reverse
+  proxy forwarding its public name as `Host`), add it to
+  `[daemon].allowed_hosts`, or set `allowed_hosts = ["*"]` to restore the old
+  no-check behaviour. The NixOS module adds `nginx.virtualHost` itself, but
+  not when you provide your own `configFile`. `X-Forwarded-Host` is not
+  trusted for this check.
+
 ### Fixed
 
+- HomeKit: the AirQuality sensor no longer exposes VOCDensity. The device
+  reports a dimensionless VOC index (0..500), which the Home app showed as
+  "µg/m³". The AirQuality enum derived from the index is unchanged, and the
+  index stays on the dashboard and in `/metrics`. A paired bridge picks the
+  change up without re-pairing (hap bumps its configuration number).
 - HomeKit: the accessory no longer flips to "Idle" for ~12 s after a fan
   change (missing RPMs during the fan-settle window now leave the state
   alone); Active follows the dashboard's rule (power on OR a timer running);
