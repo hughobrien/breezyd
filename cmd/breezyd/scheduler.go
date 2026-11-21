@@ -126,6 +126,7 @@ type Scheduler struct {
 	// twice on the wall clock.
 	firedAt      map[ScheduleTime]time.Time
 	lastTick     ScheduleTime
+	lastTickTime time.Time // full wall-clock of the previous tick; tells a midnight wrap from a backward step
 	haveLastTick bool
 }
 
@@ -325,6 +326,13 @@ func sameLocalDay(a, b time.Time) bool {
 	return ya == yb && ma == mb && da == db
 }
 
+// wallClock returns t's local date and clock reading re-labelled as UTC,
+// giving a zone-independent value that orders by what a wall clock shows.
+func wallClock(t time.Time) time.Time {
+	y, mo, d := t.Date()
+	return time.Date(y, mo, d, t.Hour(), t.Minute(), 0, 0, time.UTC)
+}
+
 // fireTimeout bounds a single fire attempt's UDP round-trip.
 const fireTimeout = 5 * time.Second
 
@@ -339,7 +347,9 @@ const (
 // Window detection uses the half-open interval (lastTick, nowMinute];
 // midnight wraparound (nowMinute < lastTick) becomes the union
 // (lastTick, 1440) ∪ [0, nowMinute]. Multiple matches fire the latest
-// one only — earlier matches are stale.
+// one only — earlier matches are stale. A tick whose wall-clock reading
+// is not after the previous tick's (DST fall-back, NTP step back) crosses
+// no minutes and fires nothing; it is not a midnight wrap.
 //
 // Retry state-machine: after a transient failure, fire retries every 30s
 // for up to 10 minutes. A newer entry arriving in the same tick window
@@ -350,6 +360,7 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	entries := append([]ScheduleEntry(nil), s.entries...)
 	haveLastTick := s.haveLastTick
 	lastTick := s.lastTick
+	lastTickTime := s.lastTickTime
 	firedAt := make(map[ScheduleTime]time.Time, len(s.firedAt))
 	for k, v := range s.firedAt {
 		firedAt[k] = v
@@ -364,6 +375,7 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 		// in-flight retry.
 		s.mu.Lock()
 		s.lastTick = nowMinute
+		s.lastTickTime = now
 		s.haveLastTick = true
 		s.retry = nil
 		s.mu.Unlock()
@@ -372,6 +384,7 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 	if !haveLastTick {
 		s.mu.Lock()
 		s.lastTick = nowMinute
+		s.lastTickTime = now
 		s.haveLastTick = true
 		s.mu.Unlock()
 		return
@@ -380,7 +393,19 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 		return
 	}
 
+	// A wall clock that did not advance since the previous tick (DST
+	// fall-back, NTP step back) has crossed no new minutes. Compare
+	// wall-clock readings (date + HH:MM, ignoring zone) rather than
+	// minute-of-day, so a backward step is not mistaken for a midnight
+	// wrap. Nothing is windowed; lastTick still follows the clock so
+	// forward ticks resume from the new reading, and firedAt de-dups
+	// any minute that is crossed a second time.
+	backward := !wallClock(now).After(wallClock(lastTickTime))
+
 	inWindow := func(at ScheduleTime) bool {
+		if backward {
+			return false
+		}
 		if nowMinute > lastTick {
 			return at > lastTick && at <= nowMinute
 		}
@@ -453,6 +478,7 @@ func (s *Scheduler) tick(ctx context.Context, now time.Time) {
 
 	s.mu.Lock()
 	s.lastTick = nowMinute
+	s.lastTickTime = now
 	s.haveLastTick = true
 	s.mu.Unlock()
 

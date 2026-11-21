@@ -115,6 +115,7 @@ Editing happens exclusively from the web UI via `GET`/`PUT /v1/devices/{name}/sc
 
 - Spring-forward: an entry whose At-time falls in the missing hour fires once at the first tick after the skipped hour. Handled by the existing window-detection for a running daemon.
 - Fall-back: an entry whose At-time falls in the repeated hour fires exactly once, at the first occurrence. The per-entry `firedAt` map on `Scheduler` suppresses the second appearance.
+- Backward clock steps (the fall-back hour itself, NTP step back): a tick whose wall-clock reading is not after the previous tick's crosses no minutes and fires nothing (`Scheduler.lastTickTime` distinguishes this from a midnight wrap). Entries outside the repeated hour neither re-fire nor lose their real fire.
 - Residual edge case: if the daemon starts during the missing hour (spring-forward), entries in that hour are silently skipped. Matches the no-catch-up rule.
 - Non-1h-DST zones (e.g. Lord Howe's 30-min): the firedness check uses calendar-day comparison, so any DST offset de-duplicates correctly.
 

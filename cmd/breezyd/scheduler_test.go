@@ -345,8 +345,8 @@ func TestScheduler_Tick_FiresAcrossMidnight(t *testing.T) {
 	s.entries = []ScheduleEntry{{At: 5, Action: "regeneration", Pct: 60}}
 	s.mu.Unlock()
 	s.tick(context.Background(), atHM(23, 59))
-	is.Equal(len(fc.writes), 0) // priming tick must not fire
-	s.tick(context.Background(), atHM(0, 6))
+	is.Equal(len(fc.writes), 0)                               // priming tick must not fire
+	s.tick(context.Background(), atHM(0, 6).AddDate(0, 0, 1)) // next calendar day
 	got := fc.flatWrites()
 	is.True(len(got) > 0) // 00:05 entry must fire across midnight
 }
