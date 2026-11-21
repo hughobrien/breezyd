@@ -1,5 +1,5 @@
 name: ci
-# Merge gate: pure nix build of the flake's checks.gate.
+# Merge gate: pure nix build of the flake's checks.gate and checks.ui.
 on:
   pull_request:
     branches: [main]
@@ -17,5 +17,6 @@ jobs:
           GIT_CONFIG_VALUE_0: "Authorization: Bearer ${{ github.token }}"
         run: |
           umask 077
+          src="git+${{ github.server_url }}/${{ github.repository }}.git?ref=${{ github.ref_name }}&rev=${{ github.sha }}"
           nix build --no-write-lock-file -L \
-            "git+${{ github.server_url }}/${{ github.repository }}.git?ref=${{ github.ref_name }}&rev=${{ github.sha }}#checks.x86_64-linux.gate"
+            "$src#checks.x86_64-linux.gate" "$src#checks.x86_64-linux.ui"
