@@ -199,6 +199,28 @@ func TestNewest(t *testing.T) {
 	}
 }
 
+func TestNewestHourly(t *testing.T) {
+	var q string
+	reply := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1762333500,"1762333200"]}]}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q = r.URL.Query().Get("query")
+		_, _ = io.WriteString(w, reply)
+	}))
+	defer srv.Close()
+	c := &Client{Base: srv.URL}
+	at, ok, err := c.NewestHourly(context.Background(), `m{job="x"}`, 5*365*24*time.Hour)
+	if err != nil || !ok || !at.Equal(time.Unix(1762333200, 0)) {
+		t.Fatalf("got %v %v %v", at, ok, err)
+	}
+	if q != `max(max_over_time(timestamp(m{job="x"})[157680000s:1h]))` {
+		t.Errorf("query %s", q)
+	}
+	reply = `{"status":"success","data":{"resultType":"vector","result":[]}}`
+	if _, ok, err := c.NewestHourly(context.Background(), `m`, time.Hour); ok || err != nil {
+		t.Errorf("empty result: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestOldest(t *testing.T) {
 	var q string
 	reply := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1762333500,"1762333200"]}]}}`
