@@ -165,7 +165,7 @@ func (c *Client) ReadParams(ctx context.Context, ids []ParamID) (map[ParamID][]b
 	if len(ids) == 0 {
 		return map[ParamID][]byte{}, nil
 	}
-	body, err := c.exchange(ctx, FuncRead, BuildReadDataBlock(ids))
+	body, err := c.exchange(ctx, FuncRead, BuildReadDataBlock(ids), ids)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (c *Client) WriteParams(ctx context.Context, writes []ParamWrite) error {
 			return fmt.Errorf("%w: %s (0x%04X)", ErrReadOnly, p.Name, uint16(w.ID))
 		}
 	}
-	_, err := c.exchange(ctx, FuncWriteWithReply, BuildWriteDataBlock(writes))
+	_, err := c.exchange(ctx, FuncWriteWithReply, BuildWriteDataBlock(writes), writeIDs(writes))
 	return err
 }
 
@@ -228,7 +228,7 @@ func (c *Client) WriteParamsUnsafe(ctx context.Context, writes []ParamWrite) err
 	if len(writes) == 0 {
 		return nil
 	}
-	_, err := c.exchange(ctx, FuncWriteWithReply, BuildWriteDataBlock(writes))
+	_, err := c.exchange(ctx, FuncWriteWithReply, BuildWriteDataBlock(writes), writeIDs(writes))
 	return err
 }
 
@@ -239,7 +239,7 @@ func (c *Client) WriteParamsUnsafe(ctx context.Context, writes []ParamWrite) err
 // The request is regenerated on each attempt — real devices occasionally
 // drop the first packet, and rebuilding is cheap and keeps all attempts
 // independent of any state we might add later (sequence numbers etc.).
-func (c *Client) exchange(ctx context.Context, fn byte, dataBlock []byte) ([]byte, error) {
+func (c *Client) exchange(ctx context.Context, fn byte, dataBlock []byte, want []ParamID) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -251,7 +251,7 @@ func (c *Client) exchange(ctx context.Context, fn byte, dataBlock []byte) ([]byt
 			return nil, err
 		}
 
-		body, err := c.attempt(ctx, fn, dataBlock)
+		body, err := c.attempt(ctx, fn, dataBlock, want)
 		if err == nil {
 			return body, nil
 		}
@@ -294,11 +294,21 @@ func (c *Client) exchange(ctx context.Context, fn byte, dataBlock []byte) ([]byt
 
 // attempt performs one send + recv with the appropriate deadline. It does
 // not retry; that's exchange's job.
-func (c *Client) attempt(ctx context.Context, fn byte, dataBlock []byte) ([]byte, error) {
+//
+// The protocol has no sequence numbers, so a reply that arrives after its own
+// request timed out would otherwise be taken as the answer to the next
+// request. Two defences: datagrams already queued on the socket are drained
+// before sending, and a reply whose parameter IDs are not all among the
+// requested ones (want) is discarded while we keep reading until the deadline.
+func (c *Client) attempt(ctx context.Context, fn byte, dataBlock []byte, want []ParamID) ([]byte, error) {
 	deadline := time.Now().Add(c.timeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
+
+	buf := make([]byte, readBufSize)
+	c.drain(buf)
+
 	if err := c.conn.SetDeadline(deadline); err != nil {
 		return nil, fmt.Errorf("breezy: set deadline: %w", err)
 	}
@@ -308,21 +318,68 @@ func (c *Client) attempt(ctx context.Context, fn byte, dataBlock []byte) ([]byte
 		return nil, mapNetErr(err, ctx)
 	}
 
-	buf := make([]byte, readBufSize)
-	n, err := c.conn.Read(buf)
-	if err != nil {
-		return nil, mapNetErr(err, ctx)
-	}
+	for {
+		n, err := c.conn.Read(buf)
+		if err != nil {
+			return nil, mapNetErr(err, ctx)
+		}
 
-	_, body, derr := DecodeResponse(buf[:n], c.deviceID, c.password)
-	if derr != nil {
-		return nil, derr
-	}
+		_, body, derr := DecodeResponse(buf[:n], c.deviceID, c.password)
+		if derr != nil {
+			return nil, derr
+		}
+		if !replyMatches(body, want) {
+			continue // stale reply to an earlier request
+		}
 
-	// Copy out — buf is reused on the next attempt.
-	out := make([]byte, len(body))
-	copy(out, body)
-	return out, nil
+		// Copy out — buf is reused on the next read.
+		out := make([]byte, len(body))
+		copy(out, body)
+		return out, nil
+	}
+}
+
+// drain discards datagrams already queued on the socket (late replies to
+// earlier, timed-out requests). The short deadline is needed because Go
+// reports a timeout for an already-expired deadline without reading.
+func (c *Client) drain(buf []byte) {
+	for {
+		if err := c.conn.SetReadDeadline(time.Now().Add(time.Millisecond)); err != nil {
+			return
+		}
+		if _, err := c.conn.Read(buf); err != nil {
+			return
+		}
+	}
+}
+
+// replyMatches reports whether a response body plausibly answers a request
+// for the given parameter IDs: every ID in the reply (including FD
+// "unsupported" markers) must be one that was asked for. A body that does not
+// parse is let through so the caller reports the parse error as before.
+func replyMatches(body []byte, want []ParamID) bool {
+	parsed, _ := ParseDataBlock(body)
+	for _, p := range parsed {
+		found := false
+		for _, id := range want {
+			if p.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func writeIDs(writes []ParamWrite) []ParamID {
+	ids := make([]ParamID, len(writes))
+	for i, w := range writes {
+		ids[i] = w.ID
+	}
+	return ids
 }
 
 // mapNetErr converts net-level errors into the typed errors callers expect.
