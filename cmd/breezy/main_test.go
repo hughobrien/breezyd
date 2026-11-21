@@ -799,16 +799,16 @@ func TestGetUnknownID(t *testing.T) {
 		got.path = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id":  "0xFFFE",
+			"id":  "0xFF10",
 			"hex": "abcd",
 			// no "name" / "type" — daemon doesn't know it either.
 		})
 	}))
 	defer srv.Close()
-	code, stdout, _ := runCLI(t, srv, "playroom", "get", "0xFFFE")
+	code, stdout, _ := runCLI(t, srv, "playroom", "get", "0xFF10")
 	is.Equal(code, 0)
-	is.Equal(got.path, "/v1/devices/playroom/params/0xFFFE")
-	is.True(strings.Contains(stdout, "0xFFFE"))                                               // ID echoed
+	is.Equal(got.path, "/v1/devices/playroom/params/0xFF10")
+	is.True(strings.Contains(stdout, "0xFF10"))                                               // ID echoed
 	is.True(strings.Contains(stdout, "abcd"))                                                 // raw hex bytes
 	is.True(!strings.Contains(stdout, "humidity") && !strings.Contains(stdout, "(humidity)")) // no name prefix
 }

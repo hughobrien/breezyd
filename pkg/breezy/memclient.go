@@ -51,6 +51,9 @@ func (m *MemClient) Close() error { return nil }
 // omitted from the map (matching *Client semantics for unsupported params).
 // Returns ErrAuth or ErrTimeout if fault-injection is active.
 func (m *MemClient) ReadParams(ctx context.Context, ids []ParamID) (map[ParamID][]byte, error) {
+	if err := ValidateReadIDs(ids); err != nil {
+		return nil, err
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.forceAuth {
@@ -75,6 +78,9 @@ func (m *MemClient) ReadParams(ctx context.Context, ids []ParamID) (map[ParamID]
 // WriteParams stores the supplied values, replacing any prior bytes for each
 // written ID. Returns ErrAuth or ErrTimeout if fault-injection is active.
 func (m *MemClient) WriteParams(ctx context.Context, writes []ParamWrite) error {
+	if err := ValidateWrites(writes); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.forceAuth {

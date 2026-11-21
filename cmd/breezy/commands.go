@@ -397,6 +397,10 @@ func cmdSet(b backend, name string, args []string, stdout, stderr io.Writer) int
 		_, _ = fmt.Fprintf(stderr, "set: invalid hex %q: %v\n", args[1], err)
 		return 2
 	}
+	if err := breezy.ValidateWrites([]breezy.ParamWrite{{ID: id, Value: valueBytes}}); err != nil {
+		_, _ = fmt.Fprintf(stderr, "set: %v\n", err)
+		return 2
+	}
 	return runOp(func(ctx context.Context) error {
 		return b.SetParam(ctx, name, id, valueBytes)
 	}, "ok", stdout, stderr)
@@ -423,6 +427,9 @@ func resolveParam(s string) (id breezy.ParamID, p breezy.Param, known bool, err 
 		// Try hex without prefix.
 		if n, err := strconv.ParseUint(s, 16, 16); err == nil {
 			id := breezy.ParamID(n)
+			if err := breezy.ValidateReadIDs([]breezy.ParamID{id}); err != nil {
+				return 0, breezy.Param{}, false, err
+			}
 			rp, ok := breezy.LookupByID(id)
 			return id, rp, ok, nil
 		}
@@ -432,6 +439,9 @@ func resolveParam(s string) (id breezy.ParamID, p breezy.Param, known bool, err 
 		return 0, breezy.Param{}, false, fmt.Errorf("unknown param %q (not a registry name or hex id)", s)
 	}
 	id = breezy.ParamID(n)
+	if err := breezy.ValidateReadIDs([]breezy.ParamID{id}); err != nil {
+		return 0, breezy.Param{}, false, err
+	}
 	rp, ok := breezy.LookupByID(id)
 	return id, rp, ok, nil
 }
@@ -497,6 +507,10 @@ func cmdDiscover(args []string, stdout, stderr io.Writer) int {
 		default:
 			targets = append(targets, a)
 		}
+	}
+	if err := breezy.ValidatePassword(password); err != nil {
+		_, _ = fmt.Fprintf(stderr, "discover: %v\n", err)
+		return 2
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), discoverTimeout)
