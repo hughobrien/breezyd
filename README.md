@@ -438,6 +438,9 @@ Pre-built binaries for Linux (amd64/arm64), macOS (amd64/arm64), and Windows
 page](https://github.com/hughobrien/breezyd/releases). Download the archive
 for your platform and extract `breezyd` and `breezy` somewhere on `$PATH`:
 
+Release archives are built and published from GitHub only (tag pushes to
+the Forgejo origin alone do not produce them).
+
 ```sh
 # Linux amd64 example
 curl -sSL -o breezyd.tar.gz \
