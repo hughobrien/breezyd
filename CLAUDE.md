@@ -166,7 +166,7 @@ Subject-before-verb: `breezy <device-name> <verb> [args]`. Per-device verbs (`st
 
 Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config`. Device names must also be valid JS identifiers (letters/digits/underscore, starting with a non-digit) because they appear as datastar signal-path segments (e.g. `$detailsOpen.<name>.sensors`); names with hyphens or dots would silently break the dashboard's signal parsing.
 
-CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error.
+CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error (including a config file that exists but fails to load, reported as `error: <path>: <reason>`; only a missing file falls through to the next location or standalone mode).
 
 ## Config
 
