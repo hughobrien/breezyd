@@ -61,6 +61,9 @@ type PushHub struct {
 
 	mu   sync.Mutex
 	subs map[*Subscriber]struct{}
+	// closed is set by Close; later Subscribe calls get an already-closed
+	// subscriber so a stream racing with shutdown ends instead of hanging.
+	closed bool
 }
 
 // NewPushHub constructs an empty hub. renderBlocks produces the
@@ -78,9 +81,28 @@ func NewPushHub(renderBlocks func(name string, snap Snapshot) (*PushEvent, error
 func (h *PushHub) Subscribe() *Subscriber {
 	sub := &Subscriber{Events: make(chan PushEvent, pushHubBufferSize)}
 	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		close(sub.Events)
+		return sub
+	}
 	h.subs[sub] = struct{}{}
-	h.mu.Unlock()
 	return sub
+}
+
+// Close ends every subscription (closing their Events channels, which
+// makes the SSE handlers return) and makes later Subscribe calls yield
+// already-closed subscribers. Idempotent. Wire it to
+// http.Server.RegisterOnShutdown: Shutdown never cancels request contexts,
+// so long-lived SSE streams would otherwise hold it for the full timeout.
+func (h *PushHub) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	for sub := range h.subs {
+		delete(h.subs, sub)
+		close(sub.Events)
+	}
 }
 
 // Unsubscribe removes a subscriber and closes its events channel. Safe

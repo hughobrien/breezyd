@@ -283,6 +283,12 @@ func run(parent context.Context) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	// Shutdown doesn't cancel request contexts, so end the long-lived
+	// /ui/sse streams explicitly (#263); short requests drain normally.
+	if hub, ok := handler.PushHub.(*PushHub); ok {
+		srv.RegisterOnShutdown(hub.Close)
+	}
+
 	serveErr := make(chan error, 1)
 	go func() {
 		slog.Info("breezyd listening", "addr", listen)
