@@ -91,7 +91,7 @@ Concurrent UDP request/response with checksums isn't safe to fan out from indepe
 
 ### HomeKit bridge (opt-in via `[homekit].enabled`)
 
-When enabled, the daemon runs a brutella/hap HAP server that exposes each configured Breezy as a HomeKit accessory (AirPurifier + airflow-mode Switches + sensor services for humidity, eCO2, VOC, and four temperatures). The bridge runs in-process; writes flow through `pkg/breezy/ops` via the same `dialRecording` wrapper as the HTTP handlers, so every protocol invariant (packet ordering, fan-settle, validation) holds. PIN auto-generated on first run and persisted to `state_dir`. Pure accessory logic lives in `pkg/homekit`; daemon glue in `cmd/breezyd/homekit.go`.
+When enabled, the daemon runs a brutella/hap HAP server that exposes each configured Breezy as a HomeKit accessory (AirPurifier + airflow-mode Switches + sensor services for humidity, eCO2, VOC, and four temperatures). The bridge runs in-process; writes flow through `pkg/breezy/ops` via the same `dialRecording` wrapper as the HTTP handlers, so every protocol invariant (packet ordering, fan-settle, validation) holds. PIN auto-generated on first run and persisted to `state_dir` (default `$STATE_DIRECTORY/homekit`, else `$XDG_STATE_HOME/breezyd/homekit`; an explicit `[homekit].state_dir` always wins). Pure accessory logic lives in `pkg/homekit`; daemon glue in `cmd/breezyd/homekit.go`.
 
 ### Energy tracking (always on)
 
@@ -164,7 +164,7 @@ The vendor protocol manual (`docs/superpowers/specs/breezy-manual-vendor.pdf`) i
 
 Subject-before-verb: `breezy <device-name> <verb> [args]`. Per-device verbs (`status`, `on`/`off`, `speed`, `mode`, `heater`, `reset-filter`, `reset-faults`, `faults`, `firmware`, `efficiency`, `rtc [set]`, `get <param>`, `set <param> <val>`) and globals (`ls`, `discover`, `daemon-url`, `param`).
 
-Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config`. Device names must also be valid JS identifiers (letters/digits/underscore, starting with a non-digit) because they appear as datastar signal-path segments (e.g. `$detailsOpen.<name>.sensors`); names with hyphens or dots would silently break the dashboard's signal parsing.
+Reserved global names cannot be used as device names — the config loader rejects collisions in `internal/config` (including `help` and `version`). The loader also rejects `poll_interval` / `periodic:` durations under 1s, passwords over 8 bytes, and non-printable-ASCII device ids. Device names must also be valid JS identifiers (letters/digits/underscore, starting with a non-digit) because they appear as datastar signal-path segments (e.g. `$detailsOpen.<name>.sensors`); names with hyphens or dots would silently break the dashboard's signal parsing.
 
 CLI exit codes: `0` success, `1` backend error (in daemon mode: HTTP `{"error","code"}` envelope rendered as `error: <msg> (<code>)`; in standalone mode: UDP/protocol error rendered as `error: <msg>`), `2` local usage error.
 

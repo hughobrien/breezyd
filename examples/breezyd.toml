@@ -12,7 +12,7 @@
 
 [daemon]
 listen        = "127.0.0.1:9876"
-poll_interval = "30s"
+poll_interval = "30s"   # minimum 1s
 discovery     = "on-start"   # "on-start" | "off" | "periodic:<duration>"
 # Fleet-wide protocol password. Used for the daemon's wildcard
 # discovery probes and inherited by any [devices.NAME] block that

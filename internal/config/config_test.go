@@ -485,3 +485,96 @@ prometheus_job = "vents"
 `))
 	is.True(err != nil) // not a label name
 }
+
+func TestLoad_RejectsBadPollInterval(t *testing.T) {
+	for _, v := range []string{"0s", "-5s", "10ms", "999ms"} {
+		t.Run(v, func(t *testing.T) {
+			is := is.New(t)
+			_, err := Load(writeConfig(t, "[daemon]\npoll_interval = \""+v+"\"\n"))
+			is.True(err != nil)
+			is.True(strings.Contains(err.Error(), "poll_interval"))
+			is.True(strings.Contains(err.Error(), v))
+		})
+	}
+	is := is.New(t)
+	cfg, err := Load(writeConfig(t, "[daemon]\npoll_interval = \"1s\"\n"))
+	is.NoErr(err)
+	is.Equal(cfg.Daemon.PollInterval, time.Second)
+}
+
+func TestLoad_RejectsBadPeriodicDiscovery(t *testing.T) {
+	for _, v := range []string{"periodic:0s", "periodic:-1m", "periodic:10ms"} {
+		t.Run(v, func(t *testing.T) {
+			is := is.New(t)
+			_, err := Load(writeConfig(t, "[daemon]\ndiscovery = \""+v+"\"\n"))
+			is.True(err != nil)
+			is.True(strings.Contains(err.Error(), "discovery"))
+			is.True(strings.Contains(err.Error(), v))
+		})
+	}
+	is := is.New(t)
+	_, err := Load(writeConfig(t, "[daemon]\ndiscovery = \"periodic:1s\"\n"))
+	is.NoErr(err)
+}
+
+func TestLoad_RejectsLongPasswords(t *testing.T) {
+	is := is.New(t)
+	_, err := Load(writeConfig(t, "[daemon]\npassword = \"123456789\"\n"))
+	is.True(err != nil)
+	is.True(strings.Contains(err.Error(), "[daemon].password"))
+
+	_, err = Load(writeConfig(t, "[devices.a]\nid = \"BREEZY00000000A0\"\npassword = \"123456789\"\n"))
+	is.True(err != nil)
+	is.True(strings.Contains(err.Error(), `device "a"`))
+	is.True(strings.Contains(err.Error(), "password"))
+
+	_, err = Load(writeConfig(t, "[daemon]\npassword = \"12345678\"\n[devices.a]\nid = \"BREEZY00000000A0\"\npassword = \"12345678\"\n"))
+	is.NoErr(err)
+}
+
+func TestLoad_RejectsHelpAndVersionNames(t *testing.T) {
+	for _, n := range []string{"help", "version", "Help", "VERSION"} {
+		t.Run(n, func(t *testing.T) {
+			is := is.New(t)
+			_, err := Load(writeConfig(t, "[devices."+n+"]\nid = \"BREEZY00000000A0\"\n"))
+			is.True(err != nil)
+			is.True(strings.Contains(err.Error(), n))
+			is.True(strings.Contains(err.Error(), "reserved"))
+		})
+	}
+}
+
+func TestLoad_RejectsNonASCIIID(t *testing.T) {
+	is := is.New(t)
+	// 16 bytes but non-ASCII: "é" is 2 bytes.
+	_, err := Load(writeConfig(t, "[devices.a]\nid = \"BREEZY0000000é0\"\n"))
+	is.True(err != nil)
+	is.True(strings.Contains(err.Error(), "id"))
+}
+
+func TestLoad_HomekitStateDirPrecedence(t *testing.T) {
+	hk := "[homekit]\nenabled = true\n"
+	t.Run("STATE_DIRECTORY beats XDG", func(t *testing.T) {
+		is := is.New(t)
+		t.Setenv("STATE_DIRECTORY", "/var/lib/breezyd")
+		t.Setenv("XDG_STATE_HOME", "/x")
+		cfg, err := Load(writeConfig(t, hk))
+		is.NoErr(err)
+		is.Equal(cfg.Homekit.StateDir, "/var/lib/breezyd/homekit")
+	})
+	t.Run("explicit wins", func(t *testing.T) {
+		is := is.New(t)
+		t.Setenv("STATE_DIRECTORY", "/var/lib/breezyd")
+		cfg, err := Load(writeConfig(t, hk+"state_dir = \"/custom\"\n"))
+		is.NoErr(err)
+		is.Equal(cfg.Homekit.StateDir, "/custom")
+	})
+	t.Run("XDG fallback", func(t *testing.T) {
+		is := is.New(t)
+		t.Setenv("STATE_DIRECTORY", "")
+		t.Setenv("XDG_STATE_HOME", "/x")
+		cfg, err := Load(writeConfig(t, hk))
+		is.NoErr(err)
+		is.Equal(cfg.Homekit.StateDir, "/x/breezyd/homekit")
+	})
+}
