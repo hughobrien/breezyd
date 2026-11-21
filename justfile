@@ -60,7 +60,23 @@ ci: lint test test-race test-staticcheck test-asan test-msan test-ui test-templ-
 
 # heavy gate: ci + race-flake. Slow (~5 min); run before tagging a release
 # or after risky concurrency / cgo / unsafe code.
-check-deep: ci test-race-flake
+check-deep: ci test-race-flake check-version
+
+# fail if the newest v* tag reachable from HEAD is newer than ./VERSION
+# (the Nix-built version string). Needs tags, so it is a just recipe, not
+# part of the sandboxed flake gate. Run after tagging, before pushing the tag.
+check-version:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	v=$(tr -d '[:space:]' < VERSION)
+	tag=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+	[ -n "$tag" ] || { echo "check-version: no v* tag reachable; nothing to compare"; exit 0; }
+	newest=$(printf '%s\n%s\n' "${tag#v}" "$v" | sort -V | tail -n1)
+	if [ "$newest" != "$v" ]; then
+		echo "check-version: latest tag $tag is newer than VERSION ($v); bump VERSION" >&2
+		exit 1
+	fi
+	echo "check-version: ok (VERSION $v, latest tag $tag)"
 
 # live integration tests; WRITES to device (each test t.Cleanup-restores)
 test-integration ip id password:
