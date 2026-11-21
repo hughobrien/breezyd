@@ -179,3 +179,26 @@ func TestPushHub_UnsubscribeReleasesSubscribers(t *testing.T) {
 		}
 	}
 }
+
+func TestPushHub_CloseEndsSubscribersAndRejectsNew(t *testing.T) {
+	hub := newTestHub(t)
+	sub := hub.Subscribe()
+	hub.Close()
+	if _, ok := <-sub.Events; ok {
+		t.Fatal("expected closed Events after Close")
+	}
+	hub.Close()
+	hub.Unsubscribe(sub)
+	late := hub.Subscribe()
+	if _, ok := <-late.Events; ok {
+		t.Fatal("expected late subscriber to be closed")
+	}
+	hub.Unsubscribe(late)
+	hub.Notify("x", Snapshot{})
+	hub.mu.Lock()
+	n := len(hub.subs)
+	hub.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("subs retained: %d", n)
+	}
+}
