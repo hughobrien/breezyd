@@ -19,7 +19,5 @@ export default defineConfig({
     baseURL: process.env.BREEZYD_URL,
     trace: "retain-on-failure",
   },
-  projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-  ],
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

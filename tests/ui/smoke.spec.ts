@@ -8,9 +8,9 @@
 // mocking.
 //
 // Tag: @smoke  — run in isolation with:
-//   just test-ui -- --grep "@smoke"
+//   nix develop -c sh -c 'cd tests/ui && pnpm exec playwright test --grep "@smoke"'
 
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const DEVICE = "alpha";
 

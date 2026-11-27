@@ -4,14 +4,14 @@
 // breezyd in memory-backend mode and capturing the templ-rendered dashboard.
 // Mirrors the spawn pattern in tests/ui/global-setup.ts.
 //
-// Run via: just screenshot
+// Run via: nix develop -c sh -c 'cd tests/ui && pnpm exec tsx screenshot.ts'
 
-import { chromium, expect } from "@playwright/test";
-import { spawn, ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, createWriteStream } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { createWriteStream, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createServer } from "node:net";
+import { chromium, expect } from "@playwright/test";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const SNAPSHOT = join(REPO_ROOT, "pkg", "breezy", "fakedevice", "snapshot_148.json");
@@ -101,11 +101,14 @@ async function main() {
     "go",
     [
       "run",
-      "-tags", "breezyd_test_admin",
+      "-tags",
+      "breezyd_test_admin",
       "./cmd/breezyd",
-      "--config", cfgPath,
+      "--config",
+      cfgPath,
       "--backend=memory",
-      "--seed", SNAPSHOT,
+      "--seed",
+      SNAPSHOT,
     ],
     { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -113,7 +116,7 @@ async function main() {
   bd.stderr?.pipe(bdLog);
 
   const daemonURL = `http://127.0.0.1:${httpPort}`;
-  await waitForHTTP(daemonURL + "/healthz", 60_000);
+  await waitForHTTP(`${daemonURL}/healthz`, 60_000);
   // Two poll cycles so all cards have data before screenshot.
   await new Promise((r) => setTimeout(r, 2 * 1500));
 
@@ -128,7 +131,7 @@ async function main() {
       const chip = page
         .locator('.card:first-of-type [data-preset-editor="2"]')
         .locator("xpath=preceding::div[contains(@class,'seg')][1]")
-        .locator('button:nth-of-type(2)');
+        .locator("button:nth-of-type(2)");
       await chip.scrollIntoViewIfNeeded();
       await chip.click();
       // The data-preset-editor="2" attribute is unique within a card; combined
@@ -161,7 +164,7 @@ async function captureViewport(
       if (msg.type() === "error") pageErrors.push(`console.error: ${msg.text()}`);
     });
 
-    await page.goto(daemonURL + "/");
+    await page.goto(`${daemonURL}/`);
     // Wait for the SSE-driven initial-state pass to populate every card and
     // for datastar to apply data-attr:* bindings — data-airflow-mode is
     // populated reactively from the $airflowMode signal once the first
@@ -171,10 +174,7 @@ async function captureViewport(
     await page.waitForFunction(
       (n) => {
         const cards = document.querySelectorAll(".card");
-        return (
-          cards.length >= n &&
-          Array.from(cards).every((c) => c.hasAttribute("data-airflow-mode"))
-        );
+        return cards.length >= n && Array.from(cards).every((c) => c.hasAttribute("data-airflow-mode"));
       },
       DEVICES.length,
       { timeout: 10_000 },

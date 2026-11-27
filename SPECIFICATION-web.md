@@ -253,7 +253,7 @@ The SSE handler's `emitPushEvent` emits the signals event *first*, then one elem
 
 Block patches use `:not([data-edit])` selectors, e.g.:
 
-```
+```text
 .card[data-device="bedroom"] [data-block="schedule"]:not([data-edit])
 ```
 
@@ -267,7 +267,7 @@ The DOM-id-match-on-merge behavior of datastar is what preserves any other eleme
 
 A representative `datastar-patch-elements` event (line breaks inside `data:` are part of the SSE record):
 
-```
+```text
 event: datastar-patch-elements
 id: block:bedroom
 data: selector .card[data-device="bedroom"] [data-block="sensors"]:not([data-edit])
@@ -277,7 +277,7 @@ data: elements <details class="block sensors alert" id="sensors-bedroom" ...>...
 
 A signal patch:
 
-```
+```text
 event: datastar-patch-signals
 id: signals:bedroom
 data: signals {"stale":false,"speedMode":"preset2","airflowMode":"regeneration","lastPollAge":"2s","sensorsAlert":true}
@@ -491,9 +491,9 @@ Each block is its own SSE-patchable unit. The push pipeline (`buildPushEvent`) r
 
 ### Templ codegen
 
-The repo follows the standard templ pipeline: `.templ` source files compile to `_templ.go` siblings via `templ generate` (run by `just generate` or `just build`). Never edit `*_templ.go` files directly — the next codegen overwrites the changes.
+The repo follows the standard templ pipeline: `.templ` source files compile to `_templ.go` siblings via `templ generate` (`nix develop -c templ generate`). Never edit `*_templ.go` files directly — the next codegen overwrites the changes.
 
-Render-pipeline contracts are pinned by `cmd/breezyd/ui/templates/render_test.go` against goldens in `testdata/`. `just test-templ-drift` verifies the committed `_templ.go` files match what regeneration would produce; CI fails if they drift.
+Render-pipeline contracts are pinned by `cmd/breezyd/ui/templates/render_test.go` against goldens in `testdata/`. `cycle test-slow` and CI verify the committed `_templ.go` files match what regeneration would produce; CI fails if they drift.
 
 ## Initial connection sequence
 

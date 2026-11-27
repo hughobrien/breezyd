@@ -16,7 +16,7 @@ Tone: skeptical. Each entry includes a critical view if there's a plausible argu
 
 - **a-h/templ** v0.3.1020 — HTML templating DSL that compiles `.templ` files into Go. Used throughout `cmd/breezyd/ui/templates/`.
   - **Why this one**: type-checked at compile time, no runtime template engine, no template-cache invalidation. SSE patches consume `templ.Component` directly via `datastar.PatchElementTempl`.
-  - **Critical view**: `html/template` would mean abandoning every `.templ` file for `*.tmpl` text templates — losing Go-syntax-in-markup and the component model. Not a trade we'd make. Required at build time (`just build` runs `templ generate` first).
+  - **Critical view**: `html/template` would mean abandoning every `.templ` file for `*.tmpl` text templates — losing Go-syntax-in-markup and the component model. Not a trade we'd make. Required at build time (`nix build` / `templ generate`).
 
 - **brutella/hap** v0.0.35 — HomeKit Accessory Protocol server. Used in `pkg/homekit/` for the optional HomeKit bridge (opt-in via `[homekit].enabled`).
   - **Why this one**: only mature pure-Go HAP implementation. The protocol is hundreds of pages of pairing crypto + service definitions.
@@ -53,12 +53,12 @@ All three are `devDependencies`; nothing ships to users.
   - **Evaluation outcome (#205)**: JSDoc-on-JS migration evaluated and **rejected**. The 1270 lines across 7 `.ts` files lean heavily on literal type unions (`mode: "ventilation"|"regeneration"|"supply"|"extract"`, `n: 1|2|3`, `level: "none"|"alarm"|"warning"`) and inline object shapes — JSDoc handles all of it but the prose form is noticeably noisier than the inline TS annotation, and the migration would force `/** @typedef {import('@playwright/test').Page} Page */` boilerplate at the top of every file. The cost is felt every time the suite is touched; the benefit is dropping 2 devDeps that never ship to users. Keep.
 
 - **tsx** ^4.21.0 — TypeScript runner for non-Playwright scripts (`screenshot.ts`).
-  - **Why this one**: lets `just screenshot` run a `.ts` file directly without a separate build step.
+  - **Why this one**: lets `tests/ui/screenshot.ts` run directly without a separate build step.
   - **Coupled to typescript above**: kept by the same evaluation.
 
 ## Nix (`flake.nix`)
 
-- **nixpkgs** — `github:NixOS/nixpkgs/nixos-unstable`. The universe; provides `go`, `templ`, `just`, `playwright`, `gh`, everything in `nix develop`.
+- **nixpkgs** — `github:NixOS/nixpkgs/nixos-unstable` (followed via `ci/nixpkgs`). The universe; provides `go`, `templ`, `playwright`, everything in `nix develop`.
   - **Critical view**: load-bearing. Nothing to debate.
 
 ## Critical-assessment summary

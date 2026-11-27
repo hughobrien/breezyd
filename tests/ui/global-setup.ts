@@ -8,8 +8,8 @@
 // in-process MemClient serves as the device. The /test/devices/{name}/...
 // admin surface is mounted on the same HTTP server.
 
-import { spawn, ChildProcess } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, createWriteStream } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { createWriteStream, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -44,9 +44,7 @@ export default async function globalSetup() {
 
   // Snapshot shipped with the fakedevice package — used as the memory seed.
   // BREEZYD_SEED overrides it (the nix flake check has no repo checkout).
-  const snapshotPath =
-    process.env.BREEZYD_SEED ??
-    join(REPO_ROOT, "pkg", "breezy", "fakedevice", "snapshot_148.json");
+  const snapshotPath = process.env.BREEZYD_SEED ?? join(REPO_ROOT, "pkg", "breezy", "fakedevice", "snapshot_148.json");
 
   // 1. Write a temp breezyd config.
   const tmpDir = mkdtempSync(join(tmpdir(), "breezyd-test-"));
@@ -71,16 +69,15 @@ export default async function globalSetup() {
   // 2. Spawn breezyd with the memory backend and test-admin surface.
   // BREEZYD_BIN points at a prebuilt breezyd (built with
   // -tags breezyd_test_admin) -- the nix flake check (checks.ui) uses this.
-  // Unset, build and run from source via `go run` (local `just test-ui`).
+  // Unset, build and run from source via `go run` (local `pnpm exec playwright test`).
   const daemonArgs = ["--config", configPath, "--backend=memory", "--seed", snapshotPath];
   const bin = process.env.BREEZYD_BIN;
   breezydProc = bin
     ? spawn(bin, daemonArgs, { cwd: tmpDir, stdio: ["ignore", "pipe", "pipe"] })
-    : spawn(
-        "go",
-        ["run", "-tags", "breezyd_test_admin", "./cmd/breezyd", ...daemonArgs],
-        { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] },
-      );
+    : spawn("go", ["run", "-tags", "breezyd_test_admin", "./cmd/breezyd", ...daemonArgs], {
+        cwd: REPO_ROOT,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
 
   const bdLog = createWriteStream(join(logDir, "breezyd.log"));
   breezydProc.stdout?.pipe(bdLog);
@@ -89,7 +86,7 @@ export default async function globalSetup() {
   // 3. Wait for the HTTP server to be ready.
   const daemonURL = `http://127.0.0.1:${httpPort}`;
   try {
-    await waitForHTTP(daemonURL + "/healthz", 60_000);
+    await waitForHTTP(`${daemonURL}/healthz`, 60_000);
   } catch (e) {
     throw new Error(`breezyd did not become ready at ${daemonURL}: ${e}`);
   }
@@ -97,13 +94,7 @@ export default async function globalSetup() {
   // Write addresses to a file so workers can read them reliably.
   // (process.env mutations in globalSetup are not guaranteed to propagate
   // to worker processes in all Playwright versions.)
-  writeFileSync(
-    ENV_FILE,
-    [
-      `BREEZYD_URL=${daemonURL}`,
-      `BREEZYD_DEVICE_NAME=alpha`,
-    ].join("\n") + "\n",
-  );
+  writeFileSync(ENV_FILE, `${[`BREEZYD_URL=${daemonURL}`, `BREEZYD_DEVICE_NAME=alpha`].join("\n")}\n`);
 
   // Also set on the main process for playwright.config.ts baseURL resolution.
   process.env.BREEZYD_URL = daemonURL;

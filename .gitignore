@@ -15,8 +15,12 @@ coverage.out
 *.swp
 
 # Nix build symlink (created by `nix build`)
+result
+result-*
 /result
 /result-*
+.direnv/
+.worktrees/
 
 # Python bytecode caches
 __pycache__/

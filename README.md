@@ -20,13 +20,15 @@ against the same device.
 
 ![breezy dashboard — three Breezy units on the LAN](tests/ui/screenshots/dashboard-3col.png)
 
+<!-- rumdl-disable MD033 -->
 <p align="center">
   <img src="tests/ui/screenshots/homekit-bridge.png" width="45%" alt="HomeKit bridge details in iOS Home — &quot;breezyd&quot; bridge with 3 accessories" />
   &nbsp;&nbsp;
   <img src="tests/ui/screenshots/homekit-accessories.png" width="45%" alt="Each Breezy as a separate AirPurifier accessory in the Apple Home rooms list" />
 </p>
+<!-- rumdl-enable MD033 -->
 
-The bundled web dashboard is served from the daemon at `GET /`; it is server-rendered with `templ` + datastar and pushes updates over SSE — every connected browser sees the new state within one poll cycle, with no client-side polling. It covers power/mode/speed/heater/timer plus per-device 24-hour schedules and supports dark mode (auto via `prefers-color-scheme`, manual via a theme picker). See [Web UI](#web-ui) for details. The screenshot above is rendered automatically by `just screenshot` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
+The bundled web dashboard is served from the daemon at `GET /`; it is server-rendered with `templ` + datastar and pushes updates over SSE — every connected browser sees the new state within one poll cycle, with no client-side polling. It covers power/mode/speed/heater/timer plus per-device 24-hour schedules and supports dark mode (auto via `prefers-color-scheme`, manual via a theme picker). See [Web UI](#web-ui) for details. The screenshot above is rendered automatically via `tests/ui/screenshot.ts` and re-committed when the design changes — the README always shows the current state. The two iPhone screenshots show the optional [HomeKit](#homekit) bridge: each configured Breezy appears as its own AirPurifier accessory under the auto-generated `breezyd` bridge.
 
 ## At a glance
 
@@ -436,7 +438,9 @@ No pre-built release archives are published. Build from source (needs Go
 and `templ`; see [Build from source](#build-from-source)):
 
 ```sh
-just build
+templ generate
+go build -o breezyd ./cmd/breezyd
+go build -o breezy ./cmd/breezy
 sudo install -m 0755 breezyd breezy /usr/local/bin/
 breezyd --version
 ```
@@ -523,7 +527,7 @@ If you turn on `[homekit]` in the config, also:
 
 The daemon serves a server-rendered dashboard (templ + datastar over SSE) at the root path of its HTTP listener:
 
-```
+```text
 http://127.0.0.1:9876/
 ```
 
@@ -642,7 +646,9 @@ enabled = true
 
 Restart `breezyd`. The startup log includes a line like:
 
-    homekit: bridge ready name="breezyd" pin="123-45-678" state_dir="..."
+```text
+homekit: bridge ready name="breezyd" pin="123-45-678" state_dir="..."
+```
 
 Open the Apple Home app on iPhone → Add Accessory → enter the PIN
 manually. All configured Breezy units appear together; each gets
@@ -854,29 +860,27 @@ Working on breezyd itself? Start here.
 
 ### Build from source
 
-Requires Go 1.22+ (developed on 1.26) and the `templ` CLI. No other system
-dependencies for the binaries themselves; the race-detector recipe
-(`just test-race`) needs a working C toolchain.
+Requires Go 1.27+ and the `templ` CLI. No other system
+dependencies for the binaries themselves; the race-detector run
+needs a working C toolchain (`clang` on Linux, Xcode on macOS).
 
-`nix develop` provides all prerequisites including `templ`. Outside Nix:
+`nix develop` provides all prerequisites including `templ` (or `nix build`
+builds `./result/bin/breezyd` and `./result/bin/breezy`). Outside Nix:
 
 ```sh
 go install github.com/a-h/templ/cmd/templ@v0.3.x
 ```
 
 ```sh
-just generate    # run templ codegen (needed once after checkout or .templ edits)
-just build       # generate + produces ./breezyd and ./breezy
-just check       # vet + fast tests + templ-drift (pre-commit gate)
-just test-race   # full race-detector run (the CI command)
+nix develop -c templ generate            # run templ codegen (needed after .templ edits)
+nix build                                # build ./result/bin/breezyd and ./result/bin/breezy
+cycle test-fast                          # gofmt, go vet, unit tests, ruff, biome
+cycle test-slow                          # race tests, test-admin, golangci-lint, templ drift, nix/md lints
 ```
-
-`just test-race` already sets `CGO_ENABLED=1 CC=clang`, so the recipe works
-out of the box on dev hosts whose default `gcc` lacks the TSan runtime.
 
 ### Project layout
 
-```
+```text
 breezyd/
 ├── pkg/breezy/                # protocol library (importable)
 │   ├── frame.go               # FDFD/02 packet codec
@@ -886,9 +890,8 @@ breezyd/
 │   ├── discover.go            # LAN broadcast
 │   └── fakedevice/            # in-process protocol-speaking fake for tests
 ├── cmd/breezyd/               # the daemon (HTTP + Prometheus + poller)
-│   └── ui/                    # templ templates, datastar+dashboard vendor JS, style.css, view.go
+│   └── ui/                    # templ templates, datastar vendor JS, style.css, view.go
 ├── cmd/breezy/                # the CLI (standalone UDP by default; daemon mode opt-in)
-├── cmd/fakedevice/            # build-tagged fakedevice binary with admin HTTP (for Playwright)
 ├── internal/config/           # TOML config loader, shared by both
 ├── tools/                     # Phase 0 Python probes (one-off, kept for reference)
 └── docs/superpowers/specs/    # design doc, parameter map, vendor PDF manual
@@ -897,37 +900,36 @@ breezyd/
 ### Testing
 
 ```sh
-just test                       # unit tests (uses fakedevice)
-just test-race                  # same, with -race (the CI command)
-just lint                       # go vet + gofmt-drift check
-just check                      # lint + fast tests (pre-commit gate)
-just check-all                  # check + test-race + Playwright UI suite
+cycle test-fast                          # gofmt, go vet, fast unit tests, ruff, biome
+cycle test-slow                          # -race, test-admin, golangci-lint, templ drift, nixfmt, statix, deadnix, rumdl
+nix build .#checks.x86_64-linux.gate     # full CI gate (adds -asan, -msan, NixOS module check, Playwright)
 ```
 
 UI tests are end-to-end Playwright specs under `tests/ui/` that spawn a real
-`breezyd` process pointed at `cmd/fakedevice` (a build-tagged UDP fake with an
-HTTP admin control plane):
+`breezyd` process with `--backend=memory` and `-tags breezyd_test_admin`:
 
 ```sh
-just test-ui-install            # one-time: pnpm install + chromium download
-just test-ui                    # 82 tests (66 active + 16 fixme), ~20 s
-just screenshot                 # re-render tests/ui/screenshots/*.png
+nix develop -c sh -c 'cd tests/ui && pnpm install && pnpm exec playwright install chromium && pnpm exec playwright test'
+nix develop -c sh -c 'cd tests/ui && pnpm exec tsx screenshot.ts'
 ```
 
 Run a single Go package or test with raw `go`:
 
 ```sh
-go test ./pkg/breezy/...
-go test ./cmd/breezyd -run TestPoller_FanSettle
+nix develop -c go test ./pkg/breezy/...
+nix develop -c go test ./cmd/breezyd -run TestPoller_FanSettle
 ```
 
 Live integration tests against real hardware are gated by both the
 `integration` build tag and `BREEZY_INTEGRATION=1`, plus three env vars
-identifying the target device. The `just test-integration` recipe wraps
-all of that:
+identifying the target device:
 
 ```sh
-just test-integration 192.168.1.148 BREEZY00000000A0 <your password>
+BREEZY_INTEGRATION=1 \
+BREEZY_TEST_DEVICE_IP=192.168.1.148 \
+BREEZY_TEST_DEVICE_ID=BREEZY00000000A0 \
+BREEZY_TEST_DEVICE_PASSWORD='<your password>' \
+  nix develop -c go test -tags integration ./pkg/breezy/...
 ```
 
 These tests write to the device — each one registers a `t.Cleanup` that
