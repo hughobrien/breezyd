@@ -73,7 +73,7 @@ and is not on the brutella/hap weak-PIN list (`00000000`, `11111111`,
 PIN and atomically writes it back. The PIN is logged once at INFO at
 startup, formatted as `XXXX-XXXX` (cosmetic; iOS accepts both forms):
 
-```
+```text
 HomeKit PIN: 1234-5678
 ```
 

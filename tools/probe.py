@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Interactive Twinfresh probe. Read/write any param against one device.
 Used during Phase 0 to characterize the param map empirically."""
-import argparse, socket, sys, time
+
+import argparse
+import socket
+import sys
+import time
 
 SAFETY_LOCKED = {0x7D, 0x95, 0x96, 0x9C, 0x9D, 0x9E, 0x9F, 0xA3}
+
 
 def build(devid: str, pwd: bytes, func: int, payload: bytes) -> bytes:
     body = bytes([0xFD, 0xFD, 0x02])
@@ -13,12 +18,14 @@ def build(devid: str, pwd: bytes, func: int, payload: bytes) -> bytes:
     cs = sum(body[2:]) & 0xFFFF
     return body + bytes([cs & 0xFF, (cs >> 8) & 0xFF])
 
+
 def parse_response(data: bytes, devid: str, pwd: bytes) -> bytes:
     """Strip the echoed header and trailing checksum, return the function+payload body."""
     prefix = bytes([0xFD, 0xFD, 0x02, len(devid)]) + devid.encode() + bytes([len(pwd)]) + pwd
     if not data.startswith(prefix):
-        raise ValueError(f"unexpected header: {data[:len(prefix)].hex()}")
-    return data[len(prefix):-2]  # strip checksum
+        raise ValueError(f"unexpected header: {data[: len(prefix)].hex()}")
+    return data[len(prefix) : -2]  # strip checksum
+
 
 def parse_param_value(body: bytes, want_id: int):
     """Walk a response body and find the value for want_id.
@@ -52,10 +59,12 @@ def parse_param_value(body: bytes, want_id: int):
             i += 2
     return (None, b"", b"")
 
+
 def send(sock, ip, devid, pwd, func, payload, timeout=1.5):
     sock.settimeout(timeout)
     sock.sendto(build(devid, pwd, func, payload), (ip, 4000))
     return sock.recvfrom(2048)[0]
+
 
 def cmd_read(args, sock):
     if args.target == "all":
@@ -67,7 +76,9 @@ def cmd_read(args, sock):
             body = parse_response(resp, args.id, args.pwd.encode())
             _, val, chunk = parse_param_value(body, pid)
             if chunk and not (len(chunk) == 2 and chunk[0] == 0xFD):
-                print(f"  0x{pid:02X}: raw={chunk.hex()}  val_bytes={val.hex() or '(empty)'}  int={int.from_bytes(val, 'little') if val else 'n/a'}")
+                print(
+                    f"  0x{pid:02X}: raw={chunk.hex()}  val_bytes={val.hex() or '(empty)'}  int={int.from_bytes(val, 'little') if val else 'n/a'}"
+                )
             time.sleep(0.02)
         return
     pid = int(args.target, 0)
@@ -78,7 +89,10 @@ def cmd_read(args, sock):
         sys.exit(1)
     body = parse_response(resp, args.id, args.pwd.encode())
     _, val, chunk = parse_param_value(body, pid)
-    print(f"0x{pid:02X} = raw={chunk.hex()}  val_bytes={val.hex() or '(empty)'}  int={int.from_bytes(val, 'little') if val else 'n/a'}")
+    print(
+        f"0x{pid:02X} = raw={chunk.hex()}  val_bytes={val.hex() or '(empty)'}  int={int.from_bytes(val, 'little') if val else 'n/a'}"
+    )
+
 
 def cmd_write(args, sock):
     pid = int(args.target, 0)
@@ -101,7 +115,10 @@ def cmd_write(args, sock):
         sys.exit(1)
     body = parse_response(resp, args.id, args.pwd.encode())
     _, val_bytes, chunk = parse_param_value(body, pid)
-    print(f"after write 0x{pid:02X}: raw={chunk.hex()}  int={int.from_bytes(val_bytes, 'little') if val_bytes else 'n/a'}")
+    print(
+        f"after write 0x{pid:02X}: raw={chunk.hex()}  int={int.from_bytes(val_bytes, 'little') if val_bytes else 'n/a'}"
+    )
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -122,6 +139,7 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("0.0.0.0", 0))
     args.func(args, sock)
+
 
 if __name__ == "__main__":
     main()

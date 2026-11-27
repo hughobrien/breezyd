@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub release plumbing (`.github/workflows/release.yml`, `.goreleaser.yml`,
   `just release-snapshot`, goreleaser in the dev shell). No pre-built release
   archives are published; build from the flake or from source.
+- The six resetting Prometheus gauges `breezyd_energy_{heating,cooling,consumed}_{today,month}_kwh`
+  (served and pushed). `increase(breezyd_energy_heating_lifetime_kwh[$__range])`
+  gives any period in any time zone without depending on the daemon's idea of
+  midnight or the first of the month. The web UI's ENERGY block and the JSON
+  snapshot keep their today/month fields. `grafana/breezyd.json` now uses
+  `increase()` over the lifetime counters: the "Energy: recovered vs spent on
+  fans" columns follow the dashboard's time range, and "Today (all units)"
+  sets the panel's relative time to `now/d`.
 
 ### Added
 
@@ -109,17 +117,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward `Host` or `X-Forwarded-Host`, otherwise dashboard writes are
   rejected with 403 (browsers omit `Sec-Fetch-Site` on plain-HTTP LAN
   origins). The NixOS nginx integration now sets `X-Forwarded-Host` itself.
-
-### Removed
-
-- The six resetting Prometheus gauges `breezyd_energy_{heating,cooling,consumed}_{today,month}_kwh`
-  (served and pushed). `increase(breezyd_energy_heating_lifetime_kwh[$__range])`
-  gives any period in any time zone without depending on the daemon's idea of
-  midnight or the first of the month. The web UI's ENERGY block and the JSON
-  snapshot keep their today/month fields. `grafana/breezyd.json` now uses
-  `increase()` over the lifetime counters: the "Energy: recovered vs spent on
-  fans" columns follow the dashboard's time range, and "Today (all units)"
-  sets the panel's relative time to `now/d`.
 
 ## [2.1.0] - 2026-05-12
 
@@ -240,12 +237,18 @@ Major milestone covering six days of dashboard, scheduling, energy, and substrat
 
 - The dashboard's SSE push pipeline now emits one `datastar-patch-signals` event plus per-block `datastar-patch-elements` events instead of one full-card outer patch (#65). Card-outer reactive state (`stale` class, speed/airflow `data-*` attributes, "X ago" stale row, sensors-block alert class) flows through datastar signals; the card outer is never HTML-patched after initial render. SSE reconnects use the `Last-Event-ID` header to detect cold load vs. reconnect and avoid duplicating cards.
 - Each block carries `data-block="<key>"`; sensor cells carry `data-sensor-cell="<key>"`. Edit variants (schedule, threshold) carry `data-edit="true"` statically; the controls block carries it reactively via `data-attr:data-edit` so the preset editor's slider value is preserved during a poll. Poll-driven patch selectors target `:not([data-edit])` and silently drop when an editor is open. The browser console will show one `PatchElementsNoTargetsFound` warning per poll per open editor — this is by design (the mechanism by which patches are dropped to preserve open editors), not a flood.
-
 - The dashboard substrate is now datastar + SSE. `/ui/devices/{name}/...` action endpoints return 200 + empty body on success (subscribers see the new card via the SSE push channel) or a status-coded `datastar-patch-elements` event into `#global-error-banner` on failure. Threshold and schedule fragment endpoints emit SSE patch events targeting their cells. The `/v1/*` JSON API is unchanged.
 - The `GET /ui/devices` and `GET /ui/devices/{name}/card` routes are removed — the SSE push channel replaces them.
 - `just build` now depends on `just generate` (templ codegen). The `templ` CLI is a required build prerequisite: provided by `nix develop`, or `go install github.com/a-h/templ/cmd/templ@v0.3.x` outside Nix.
 - `just check` and `just ci` include `just test-templ-drift` (verifies generated `*_templ.go` files match sources) and `just test-fakedevice-admin` (builds with the admin build tag).
 - Playwright suite reduced from 1600 to ~200 lines, covering the SSE-driven user-visible behaviors (initial render, action clicks, cross-tab synchronization, threshold edit, error banner, reconnect-via-reload).
+- The NixOS module's `StateDirectory = "breezyd"` is now unconditional (was previously gated on `cfg.homekit.enable`). Energy state and HomeKit pairing files share the same directory under `/var/lib/breezyd/`.
+- `pkg/breezy.commandedFanPct` (unexported) renamed to `pkg/breezy.CommandedFanPct` (exported) so daemon-side code can reuse the speed-mode-aware fan-pct resolution.
+- `/v1` write handlers share a generic `postV1WriteJSON` helper mirroring the existing `postUIWriteJSON` on the `/ui` side; behaviour and response envelope unchanged.
+- CLI ack-pattern commands share a `runOp(op, successMsg, stdout, stderr)` helper. Exit codes (0/1/2) and stdout/stderr strings unchanged.
+- Dashboard daemon picks a free port dynamically in Playwright fixtures (`launchBackend`); previously hardcoded ports occasionally collided.
+- Schedule retry on transient write failure abandoned at 10 minutes (was implicit; now explicit constant `retryDeadline`) and gated correctly when superseded by the next entry's At-time.
+- `cmd/breezyd/handler_test_helpers_test.go`: shared `newTestHandler` / `newTestState` / `setRunFlags` test fixtures introduced; 9 high-duplication test files migrated.
 
 ### Removed
 
@@ -264,7 +267,6 @@ Major milestone covering six days of dashboard, scheduling, energy, and substrat
 - `State.RecordPoll` (cosmetic alias for `State.Set`).
 - Direct `prometheus/client_model` dep (replaced by `prometheus/testutil.CollectAndCompare` in the one test that used it).
 - The `flake-utils` flake input (helper inlined via `nixpkgs.lib.genAttrs`).
-
 - Daemon-driven per-device 24-hour cyclic schedule. Each device's card has a new collapsible SCHEDULE block with an `At | Action | Pct` table editor; entries fire writes (Power → SetMode → SetSpeedManual, or Power(false) for "off") at each At-time. State persists to `<state_dir>/schedule_<device>.json`. On transient write failure the daemon retries every 30 s for up to 10 min (abandoned earlier when superseded by the next entry); `breezy.ErrAuth` is treated as a config error and not retried. The dashboard auto-expands the SCHEDULE block with a `⚠` line when the most recent fire failed.
 - New `GET`/`PUT /v1/devices/{name}/schedule` endpoints. PUT replaces the schedule wholesale (≤24 entries, action ∈ off/regeneration/ventilation/supply/extract, pct 10–100, no duplicate At-times); validation failures return 400 `bad_request`. Edits clear any in-flight retry and the previous fire's alert banner.
 - New `service.schedule` block on `GET /v1/devices/{name}` with `enabled`, `entries`, the derived `alert` flag, and (when present) `last_apply` for UI rendering.
@@ -273,16 +275,6 @@ Major milestone covering six days of dashboard, scheduling, energy, and substrat
 - Eight new Prometheus gauges exposed at `/metrics`: `breezyd_energy_recovered_watts`, `breezyd_energy_consumed_watts`, plus `_today_kwh` and `_lifetime_kwh` variants for heating/cooling/consumed.
 - New ENERGY block on the dashboard (collapsed by default, `<details>` element). Shows the live wattage line plus a 3-column 2-row grid: heating / cooling / consumed × today / lifetime. Hidden when `service.energy` is missing; replaced by the error string when the device's model has no calibration.
 - New NOTICE block at the bottom of each card, absorbing the existing sensor-override and timer-active warnings (previously rendered inside the Speed control). Hidden entirely when no warning applies.
-
-### Changed
-
-- The NixOS module's `StateDirectory = "breezyd"` is now unconditional (was previously gated on `cfg.homekit.enable`). Energy state and HomeKit pairing files share the same directory under `/var/lib/breezyd/`.
-- `pkg/breezy.commandedFanPct` (unexported) renamed to `pkg/breezy.CommandedFanPct` (exported) so daemon-side code can reuse the speed-mode-aware fan-pct resolution.
-- `/v1` write handlers share a generic `postV1WriteJSON` helper mirroring the existing `postUIWriteJSON` on the `/ui` side; behaviour and response envelope unchanged.
-- CLI ack-pattern commands share a `runOp(op, successMsg, stdout, stderr)` helper. Exit codes (0/1/2) and stdout/stderr strings unchanged.
-- Dashboard daemon picks a free port dynamically in Playwright fixtures (`launchBackend`); previously hardcoded ports occasionally collided.
-- Schedule retry on transient write failure abandoned at 10 minutes (was implicit; now explicit constant `retryDeadline`) and gated correctly when superseded by the next entry's At-time.
-- `cmd/breezyd/handler_test_helpers_test.go`: shared `newTestHandler` / `newTestState` / `setRunFlags` test fixtures introduced; 9 high-duplication test files migrated.
 
 ## [1.8.1] - 2026-05-05
 
@@ -536,8 +528,8 @@ Major milestone covering six days of dashboard, scheduling, energy, and substrat
   "edit it" message. Atomic write (temp + rename); refuses to clobber existing
   files.
 - Playwright end-to-end tests under `tests/ui/` (pnpm-managed) covering the
-  UI's HTTP-call contract via `page.route()` mocking. `just test-ui-install`
-  + `just test-ui` run the suite.
+  UI's HTTP-call contract via `page.route()` mocking. `just test-ui-install` +
+  `just test-ui` run the suite.
 - `just screenshot` recipe + committed PNGs of the dashboard in 3-col and
   1-col viewports under `tests/ui/screenshots/`. The dashboard screenshot is
   embedded near the top of the README and re-renders on each `just screenshot`

@@ -15,13 +15,8 @@
 // Device name: "alpha" (sole device in the test config).
 // baseURL: process.env.BREEZYD_URL (set by global-setup).
 
-import { test, expect, Page, Locator } from "@playwright/test";
-import {
-  reset,
-  simulateAuthFailure,
-  simulateUDPTimeout,
-  presets,
-} from "./fixtures.js";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { presets, reset, simulateAuthFailure, simulateUDPTimeout } from "./fixtures.js";
 
 const DEVICE = "alpha";
 
@@ -47,10 +42,7 @@ const POLL_PUSH_TIMEOUT = 4_000;
 // per-poll deterministic signal isn't tractable in Playwright (datastar's
 // long-lived SSE delivers events the test framework can't observe at event
 // granularity).
-async function assertStableAcrossPolls(
-  page: Page,
-  invariants: () => Promise<void>,
-): Promise<void> {
+async function assertStableAcrossPolls(page: Page, invariants: () => Promise<void>): Promise<void> {
   const samples = 6;
   const intervalMs = 500;
   for (let i = 0; i < samples; i++) {
@@ -98,7 +90,7 @@ test.describe("rendering", () => {
     await reset(DEVICE);
     const card = await loadCard(page);
     // data-block="info" sits on the wrap div (not the <details>) since #32.
-    const info = card.locator('.device-info-wrap > details.device-info');
+    const info = card.locator(".device-info-wrap > details.device-info");
     // Defaults closed (initialCardSignals seeds detailsOpen.info=false).
     await expect(info).not.toHaveAttribute("open", "");
 
@@ -124,9 +116,9 @@ test.describe("rendering", () => {
 
     // datastar-fetch:started on /ui/sse drives streamOpen=true; the
     // initial-state datastar-patch-elements (one per device) bumps events.
-    await expect(debug.locator('dd').filter({ hasText: 'open' })).toBeVisible();
-    await expect(debug.locator('dd').filter({ hasText: /^\d+$/ })).toBeVisible();
-    await expect(debug.locator('dd').filter({ hasText: /^\d+s ago$/ })).toBeVisible();
+    await expect(debug.locator("dd").filter({ hasText: "open" })).toBeVisible();
+    await expect(debug.locator("dd").filter({ hasText: /^\d+$/ })).toBeVisible();
+    await expect(debug.locator("dd").filter({ hasText: /^\d+s ago$/ })).toBeVisible();
   });
 });
 
@@ -280,10 +272,7 @@ test.describe("controls", () => {
     // Count POSTs to /ui/devices/{name}/preset.
     const presetPosts: Array<{ supply: number; extract: number }> = [];
     page.on("request", (req) => {
-      if (
-        req.method() === "POST" &&
-        req.url().endsWith(`/ui/devices/${DEVICE}/preset`)
-      ) {
+      if (req.method() === "POST" && req.url().endsWith(`/ui/devices/${DEVICE}/preset`)) {
         try {
           const body = JSON.parse(req.postData() || "{}");
           if (body.preset === 2) {
@@ -312,9 +301,7 @@ test.describe("controls", () => {
     // reflects the dragged value (80=0x50). That confirms the @post
     // fired AND the daemon wrote it through. Any racing extra POSTs
     // would have fired before this one completes.
-    await expect
-      .poll(() => presetPosts.length, { timeout: POLL_PUSH_TIMEOUT })
-      .toBeGreaterThanOrEqual(1);
+    await expect.poll(() => presetPosts.length, { timeout: POLL_PUSH_TIMEOUT }).toBeGreaterThanOrEqual(1);
 
     // Give any racing extras a chance to land. The debounce window is
     // 200ms; once the first POST has landed, the listener has already
@@ -420,9 +407,7 @@ test.describe("controls", () => {
       el.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    await expect
-      .poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT })
-      .toBeGreaterThanOrEqual(1);
+    await expect.poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT }).toBeGreaterThanOrEqual(1);
     expect(manualPosts[0]).toBe(10);
   });
 
@@ -456,9 +441,7 @@ test.describe("controls", () => {
       el.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    await expect
-      .poll(() => presetPosts.length, { timeout: POLL_PUSH_TIMEOUT })
-      .toBeGreaterThanOrEqual(1);
+    await expect.poll(() => presetPosts.length, { timeout: POLL_PUSH_TIMEOUT }).toBeGreaterThanOrEqual(1);
     expect(presetPosts[0].supply).toBe(100);
   });
 
@@ -492,9 +475,7 @@ test.describe("controls", () => {
       el.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    await expect
-      .poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT })
-      .toBeGreaterThanOrEqual(1);
+    await expect.poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT }).toBeGreaterThanOrEqual(1);
     expect(manualPosts[0]).toBe(10);
     await expect(manualInput).toHaveValue("10");
   });
@@ -513,10 +494,7 @@ test.describe("controls", () => {
 
     const manualPosts: number[] = [];
     page.on("request", (req) => {
-      if (
-        req.method() === "POST" &&
-        req.url().endsWith(`/ui/devices/${DEVICE}/speed`)
-      ) {
+      if (req.method() === "POST" && req.url().endsWith(`/ui/devices/${DEVICE}/speed`)) {
         try {
           const body = JSON.parse(req.postData() || "{}");
           if (typeof body.manual === "number") {
@@ -535,9 +513,7 @@ test.describe("controls", () => {
       el.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    await expect
-      .poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT })
-      .toBeGreaterThanOrEqual(1);
+    await expect.poll(() => manualPosts.length, { timeout: POLL_PUSH_TIMEOUT }).toBeGreaterThanOrEqual(1);
     expect(manualPosts[0]).toBe(75);
   });
 
@@ -588,8 +564,7 @@ test.describe("schedule editor", () => {
     await pctInput.fill("77");
     await pctInput.blur();
 
-    await expect.poll(() => putRequests.length, { timeout: POLL_PUSH_TIMEOUT })
-      .toBeGreaterThanOrEqual(1);
+    await expect.poll(() => putRequests.length, { timeout: POLL_PUSH_TIMEOUT }).toBeGreaterThanOrEqual(1);
     expect(putRequests[0]).toContain("pct=77");
   });
 
@@ -612,7 +587,7 @@ test.describe("schedule editor", () => {
 
     await card.getByRole("button", { name: "+ add row" }).click();
     // After the SSE patch lands, exactly one row exists in the table body.
-    await expect(details.locator('tbody.schedule-edit-tbody tr')).toHaveCount(1, {
+    await expect(details.locator("tbody.schedule-edit-tbody tr")).toHaveCount(1, {
       timeout: POLL_PUSH_TIMEOUT,
     });
 
@@ -829,7 +804,9 @@ test.describe("editor preservation across polls (#65)", () => {
   test("stale class applied via signal patch preserves card identity", async ({ page }) => {
     await reset(DEVICE);
     const card = await loadCard(page);
-    await card.evaluate((el) => { (el as HTMLElement).dataset.testTag = "marker-1"; });
+    await card.evaluate((el) => {
+      (el as HTMLElement).dataset.testTag = "marker-1";
+    });
     await simulateUDPTimeout(DEVICE, true);
     try {
       await expect(card).toHaveClass(/stale/, { timeout: 8_000 });

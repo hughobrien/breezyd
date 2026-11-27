@@ -1,0 +1,18 @@
+[repo]
+name = "breezyd"
+forge = "https://forgejo.wg"
+owner = "hughobrien"
+
+[test]
+fast_stages = [
+  ["nix develop -c sh -c 'drift=$(gofmt -l . | grep -v \"^vendor/\" || true) && { [ -z \"$drift\" ] || { echo \"gofmt drift: $drift\"; exit 1; }; } && go vet ./... && go test ./... && ruff check --config \"$RUFF_CONFIG\" tools && ruff format --config \"$RUFF_CONFIG\" --check tools && biome ci --config-path=\"$BIOME_CONFIG\" --colors=off tests/ui/*.ts tests/ui/package.json'"],
+]
+
+slow_stages = [
+  ["nix develop -c sh -c 'CGO_ENABLED=1 CC=clang go test -race ./... && go test -tags breezyd_test_admin ./cmd/breezyd/ -run TestAdmin && golangci-lint run ./... && tmp=$(mktemp -d) && { cp -a cmd/breezyd/ui/templates \"$tmp/before\" && templ generate && diff -rq \"$tmp/before\" cmd/breezyd/ui/templates; rc=$?; rm -rf \"$tmp\"; exit $rc; } && find . -path \"./.worktrees\" -prune -o -name \"*.nix\" -exec nixfmt --check {} + && statix check . && deadnix --fail . && actionlint .forgejo/workflows/*.yml && rumdl check --disable MD013 --no-cache --exclude docs/superpowers,cmd/breezyd/ui/vendor/README.md .'"],
+]
+
+[ci]
+required_contexts = ["ci / gate (pull_request)"]
+main_workflows = ["ci.yml"]
+tofu_plan = "none"

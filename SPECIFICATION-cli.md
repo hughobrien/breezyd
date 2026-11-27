@@ -18,7 +18,7 @@ Wire-protocol bytes are defined in `pkg/breezy/frame.go` and out of scope here.
 
 ## Invocation
 
-```
+```text
 breezy [--daemon URL] <name> <verb> [args...]      # per-device verb
 breezy [--daemon URL] <global> [args...]           # global verb
 breezy --version                                   # version + build metadata
@@ -150,7 +150,7 @@ Prints a multi-line snapshot rendered by `cmd/breezy/render.go::renderStatus`.
 The output distinguishes **configured** (what the user asked for) from
 **live** (what the device is actually doing):
 
-```
+```text
 playroom @ 192.168.1.148  (firmware 0.11, last poll 3s ago)
   power      : on
   mode       : regeneration
@@ -165,7 +165,7 @@ just below the header. This signals a known device behaviour: the firmware
 boosts the fan above the user setting when humidity / eCO2 / VOC exceeds
 threshold and the matching sensor is enabled.
 
-```
+```text
   !! sensor override active (co2 alert, voc alert) — fan/heater may not match configured values
 ```
 
@@ -212,7 +212,7 @@ Bad input exits `2`. Success: `rtc set`.
 
 Names take precedence over hex parsing. Output:
 
-```
+```text
 <name> (0xNNNN) = <value> <unit>
 ```
 
@@ -243,7 +243,7 @@ In **standalone mode** there is no cache; `POWER` / `MODE` render as `?`,
 `breezy discover [-p PASSWORD] [target...]` enumerates Breezy devices on
 the LAN. Each responder is printed on its own line:
 
-```
+```text
 192.168.1.148  id=BREEZY00000000A0  type=185 (Breezy 160)
 ```
 
@@ -297,7 +297,7 @@ exits `2`.
 
 - Output is human-readable text on stdout. Errors and usage hints go to
   stderr.
-- Error lines are prefixed `error: ` (lower-case `e`).
+- Error lines are prefixed `error:` (lower-case `e`).
 - Successful writes print a short confirmation: `ok` for most verbs;
   verb-specific phrasing (`filter timer reset`, `faults cleared`,
   `rtc set`) where it conveys more information than `ok`.
@@ -324,8 +324,12 @@ Rationale for the `1` / `2` split is documented in
 Live integration tests under `pkg/breezy/...` are double-gated and require
 real hardware. They are skipped unless **both** the `integration` build tag
 and `BREEZY_INTEGRATION=1` are set, plus three target env vars
-(`BREEZY_TEST_DEVICE_IP`, `_ID`, `_PASSWORD`). The
-`just test-integration <ip> <id> <password>` recipe wires this up.
+(`BREEZY_TEST_DEVICE_IP`, `_ID`, `_PASSWORD`):
+
+```sh
+BREEZY_INTEGRATION=1 BREEZY_TEST_DEVICE_IP=<ip> BREEZY_TEST_DEVICE_ID=<id> BREEZY_TEST_DEVICE_PASSWORD=<password> \
+  nix develop -c go test -tags integration ./pkg/breezy/...
+```
 
 These tests write to the device. Each one registers a `t.Cleanup` that
 restores the prior parameter value, so re-runs leave device state intact.

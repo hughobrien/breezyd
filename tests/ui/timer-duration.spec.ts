@@ -10,8 +10,8 @@
 // container, so deactivation, mode-switch, and power-off all close
 // the editor without per-handler changes.
 
-import { test, expect, Page, Locator } from "@playwright/test";
-import { reset, presets, setDeviceState } from "./fixtures.js";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { presets, reset, setDeviceState } from "./fixtures.js";
 
 const DEVICE = "alpha";
 
@@ -81,10 +81,7 @@ test.describe("timer duration editor", () => {
     // Capture POSTs before triggering them.
     const durationPosts: Array<{ mode: string; hours: number; minutes: number }> = [];
     page.on("request", (req) => {
-      if (
-        req.method() === "POST" &&
-        req.url().endsWith(`/ui/devices/${DEVICE}/timer-duration`)
-      ) {
+      if (req.method() === "POST" && req.url().endsWith(`/ui/devices/${DEVICE}/timer-duration`)) {
         try {
           const body = JSON.parse(req.postData() || "{}");
           durationPosts.push(body);
@@ -111,9 +108,7 @@ test.describe("timer duration editor", () => {
     });
 
     // Wait for at least one POST carrying the new duration.
-    await expect
-      .poll(() => durationPosts.length, { timeout: POLL_PUSH_TIMEOUT })
-      .toBeGreaterThanOrEqual(1);
+    await expect.poll(() => durationPosts.length, { timeout: POLL_PUSH_TIMEOUT }).toBeGreaterThanOrEqual(1);
 
     // The last post should reflect the final values (1h 30m).
     const last = durationPosts[durationPosts.length - 1];

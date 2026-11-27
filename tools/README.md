@@ -12,7 +12,7 @@ firmware revision or a model that this project hasn't yet characterized.
 Interactive single-parameter read/write against one device. Lets you read
 any parameter by hex ID, write a value, or sweep all parameters at once.
 
-```
+```sh
 python3 tools/probe.py --ip 192.168.1.X --id <16-char-device-id> --pwd <password> read 0x25
 python3 tools/probe.py --ip 192.168.1.X --id <16-char-device-id> --pwd <password> read all
 python3 tools/probe.py --ip 192.168.1.X --id <16-char-device-id> --pwd <password> write 0x02 2
@@ -29,7 +29,7 @@ Captures the entire readable parameter state to a JSON file, and diffs
 two snapshots. Used during reverse-engineering to identify which
 parameter(s) changed when a single setting was toggled in the vendor app.
 
-```
+```sh
 python3 tools/snapshot.py capture --ip 192.168.1.X --id <id> --pwd <pwd> baseline.json
 # (operator changes one setting in the vendor app)
 python3 tools/snapshot.py capture --ip 192.168.1.X --id <id> --pwd <pwd> after.json

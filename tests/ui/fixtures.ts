@@ -71,10 +71,7 @@ async function daemonCall(method: string, path: string, body?: unknown): Promise
  * @param params Map of 4-char hex param IDs to hex-encoded value bytes.
  *               e.g. { "0001": "01" } sets param 0x0001 to 0x01 (power on).
  */
-export async function setDeviceState(
-  name: string,
-  params: Record<string, string>,
-): Promise<void> {
+export async function setDeviceState(name: string, params: Record<string, string>): Promise<void> {
   for (const [id, value] of Object.entries(params)) {
     await adminCall("POST", `/devices/${name}/params/${id}`, { value });
   }
@@ -136,8 +133,7 @@ export const presets = {
    * Set preset speed mode (preset 1–3).
    * speed_mode (0x0002) = 0x01, 0x02, or 0x03 for presets 1, 2, 3.
    */
-  asPresetSpeed: (name: string, n: 1 | 2 | 3) =>
-    setDeviceState(name, { "0002": n.toString(16).padStart(2, "0") }),
+  asPresetSpeed: (name: string, n: 1 | 2 | 3) => setDeviceState(name, { "0002": n.toString(16).padStart(2, "0") }),
 
   /**
    * Set airflow mode.
