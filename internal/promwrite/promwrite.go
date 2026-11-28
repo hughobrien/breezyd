@@ -80,6 +80,16 @@ func (c *Client) http() *http.Client {
 	return defaultHTTP
 }
 
+// unwrapURL strips the URL from a *url.Error (leaving its Op and underlying
+// error) so credentials, paths and query parameters stay out of logs.
+func unwrapURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
+	}
+	return err
+}
+
 // Write sends the series in one request. A *RefusedError means the data will
 // never be accepted; any other error may succeed on a retry. Resending samples
 // the receiver already has (same time, same value) is harmless.
@@ -87,14 +97,14 @@ func (c *Client) Write(ctx context.Context, series []Series) error {
 	body := snappyLiterals(Encode(series))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.Base, "/")+"/api/v1/write", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return unwrapURL(err)
 	}
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	req.Header.Set("Content-Encoding", "snappy")
 	req.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return err
+		return unwrapURL(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
@@ -214,11 +224,11 @@ func (c *Client) instant(ctx context.Context, q string, at time.Time) (t time.Ti
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return time.Time{}, false, err
+		return time.Time{}, false, unwrapURL(err)
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return time.Time{}, false, err
+		return time.Time{}, false, unwrapURL(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {

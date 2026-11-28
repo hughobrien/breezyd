@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -280,6 +281,25 @@ func TestNewestHourlyBefore(t *testing.T) {
 	}
 	if q != `max(max_over_time(timestamp(m{job="x"})[157680000s:1h]))` || at != "1762329600" {
 		t.Errorf("query %s at %s", q, at)
+	}
+}
+
+func TestWriteErrorHidesURL(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	base := "http://user:hunter2@" + u.Host + "/secret-path"
+	err = (&Client{Base: base}).Write(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error from closed server")
+	}
+	for _, secret := range []string{"hunter2", "user", "secret-path"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("error %q leaked %q", err.Error(), secret)
+		}
 	}
 }
 

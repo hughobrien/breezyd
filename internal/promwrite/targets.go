@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -114,15 +115,27 @@ func (ps Pushers) Add(series ...Series) {
 	}
 }
 
-// Flush flushes every target's queue and joins their errors, each naming its
-// target.
+// Flush flushes every target's queue concurrently and joins their errors, each
+// naming its target.
 func (ps Pushers) Flush(ctx context.Context) error {
-	var errs []error
-	for _, p := range ps {
-		if err := p.Queue.Flush(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("push to %s: %w", p.Name, err))
+	if len(ps) == 1 {
+		if err := ps[0].Queue.Flush(ctx); err != nil {
+			return fmt.Errorf("push to %s: %w", ps[0].Name, err)
 		}
+		return nil
 	}
+	errs := make([]error, len(ps))
+	var wg sync.WaitGroup
+	for i, p := range ps {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.Queue.Flush(ctx); err != nil {
+				errs[i] = fmt.Errorf("push to %s: %w", p.Name, err)
+			}
+		}()
+	}
+	wg.Wait()
 	return errors.Join(errs...)
 }
 
