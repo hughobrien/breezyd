@@ -19,15 +19,17 @@ type Writer interface {
 }
 
 // Queue holds samples until the receiver takes them. Add from anywhere; Flush
-// sends everything queued in one write. After a failure the receiver may get
-// over, the samples stay for the next Flush; a write it refused is dropped,
-// as is anything older than MaxAge, which bounds the backlog while a receiver
-// is down. (VictoriaMetrics takes any sample inside its retention; Prometheus
-// without an out-of-order window refuses ones older than about an hour.)
+// sends everything queued in chronological chunks of ChunkWindow (15m if zero).
+// After a transient failure the samples stay for the next Flush (already-sent
+// chunks are not resent); a chunk the receiver refuses is dropped without
+// discarding newer chunks, as is anything older than MaxAge. (VictoriaMetrics
+// takes any sample inside its retention; Prometheus without an out-of-order
+// window refuses ones older than about an hour.)
 type Queue struct {
-	W      Writer
-	MaxAge time.Duration // 6h if zero
-	Now    func() time.Time
+	W           Writer
+	MaxAge      time.Duration // 6h if zero
+	ChunkWindow time.Duration // 15m if zero
+	Now         func() time.Time
 
 	flush sync.Mutex // one Flush at a time keeps each series in time order
 
@@ -36,6 +38,8 @@ type Queue struct {
 	series map[string]*Series
 	errors uint64
 }
+
+const defaultChunkWindow = 15 * time.Minute
 
 func key(labels map[string]string) string {
 	names := make([]string, 0, len(labels))
@@ -123,34 +127,94 @@ func (q *Queue) Flush(ctx context.Context) error {
 	if len(out) == 0 {
 		return nil
 	}
-	err := q.W.Write(ctx, out)
-	if err == nil {
-		return nil
+	window := q.ChunkWindow
+	if window <= 0 {
+		window = defaultChunkWindow
 	}
-	var refused *RefusedError
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.errors++
-	if errors.As(err, &refused) {
+	chunks := splitChunks(out, window)
+	var refusedErr error
+	for idx, chunk := range chunks {
+		err := q.W.Write(ctx, chunk)
+		if err == nil {
+			continue
+		}
+		var refused *RefusedError
+		q.mu.Lock()
+		q.errors++
+		if errors.As(err, &refused) {
+			q.mu.Unlock()
+			refusedErr = err
+			continue
+		}
+		q.requeue(chunks[idx:])
+		q.mu.Unlock()
 		return err
 	}
-	// Put them back in front of anything added meanwhile.
+	return refusedErr
+}
+
+// requeue puts unsent chunks back in front of anything added meanwhile.
+// Caller holds q.mu.
+func (q *Queue) requeue(chunks [][]Series) {
 	newer, newerOrder := q.series, q.order
 	q.series, q.order = map[string]*Series{}, nil
-	for _, s := range out {
+	appendSeries := func(s *Series) {
 		k := key(s.Labels)
-		q.series[k] = &Series{Labels: s.Labels, Samples: s.Samples}
-		q.order = append(q.order, k)
-	}
-	for _, k := range newerOrder {
 		if have, ok := q.series[k]; ok {
-			have.Samples = append(have.Samples, newer[k].Samples...)
+			have.Samples = append(have.Samples, s.Samples...)
 		} else {
-			q.series[k] = newer[k]
+			cp := make([]Sample, len(s.Samples))
+			copy(cp, s.Samples)
+			q.series[k] = &Series{Labels: s.Labels, Samples: cp}
 			q.order = append(q.order, k)
 		}
 	}
-	return err
+	for _, chunk := range chunks {
+		for i := range chunk {
+			appendSeries(&chunk[i])
+		}
+	}
+	for _, k := range newerOrder {
+		appendSeries(newer[k])
+	}
+}
+
+func splitChunks(series []Series, window time.Duration) [][]Series {
+	var minT, maxT time.Time
+	for _, s := range series {
+		for _, p := range s.Samples {
+			if minT.IsZero() || p.T.Before(minT) {
+				minT = p.T
+			}
+			if maxT.IsZero() || p.T.After(maxT) {
+				maxT = p.T
+			}
+		}
+	}
+	if minT.IsZero() || maxT.Sub(minT) < window {
+		return [][]Series{series}
+	}
+	byBucket := map[int][]Series{}
+	for _, s := range series {
+		perSeries := map[int][]Sample{}
+		for _, p := range s.Samples {
+			b := int(p.T.Sub(minT) / window)
+			perSeries[b] = append(perSeries[b], p)
+		}
+		for b, samples := range perSeries {
+			byBucket[b] = append(byBucket[b], Series{Labels: s.Labels, Samples: samples})
+		}
+	}
+	buckets := make([]int, 0, len(byBucket))
+	for b := range byBucket {
+		buckets = append(buckets, b)
+	}
+	slices.Sort(buckets)
+	chunks := make([][]Series, 0, len(buckets))
+	for _, b := range buckets {
+		chunks = append(chunks, byBucket[b])
+	}
+	return chunks
 }
 
 // FromFamilies turns gathered gauges, counters and untyped metrics into
