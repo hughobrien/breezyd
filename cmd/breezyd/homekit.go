@@ -109,6 +109,7 @@ func (h *Handler) StartHomekit(ctx context.Context, cfg config.Homekit, devices 
 		return nil, fmt.Errorf("homekit: new server: %w", err)
 	}
 	server.Pin = pin
+	server.Ifaces = cfg.Interfaces
 	if cfg.Port != 0 {
 		server.Addr = fmt.Sprintf(":%d", cfg.Port)
 	}

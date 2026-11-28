@@ -236,6 +236,15 @@ in
           systemd.services.breezyd.serviceConfig.ReadWritePaths.
         '';
       };
+
+      interfaces = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = ''
+          Optional list of network interface names to restrict HomeKit mDNS
+          advertisement and queries to. Empty means all multicast interfaces.
+        '';
+      };
     };
 
     nginx = {
@@ -299,6 +308,7 @@ in
           bridge_name = lib.mkDefault cfg.homekit.bridgeName;
           port = lib.mkDefault cfg.homekit.port;
           state_dir = lib.mkDefault (toString cfg.homekit.stateDir);
+          interfaces = lib.mkIf (cfg.homekit.interfaces != [ ]) (lib.mkDefault cfg.homekit.interfaces);
         };
       };
 
