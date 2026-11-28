@@ -102,11 +102,13 @@
 
           goGateCheck = breezyd-pkg.overrideAttrs (old: {
             pname = "breezyd-go-gate";
-            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
-              pkgs.clang
-              pkgs.golangci-lint
-              pkgs.templ
-            ];
+            nativeBuildInputs =
+              (old.nativeBuildInputs or [ ])
+              ++ (with pkgs; [
+                clang
+                golangci-lint
+                templ
+              ]);
             doCheck = true;
             checkPhase = ''
               runHook preCheck
@@ -159,10 +161,10 @@
               pname = "breezyd-ui-tests";
               version = "0";
               src = uiSrc;
-              nativeBuildInputs = [
-                pkgs.nodejs
-                pkgs.pnpm_10
-                pkgs.pnpmConfigHook
+              nativeBuildInputs = with pkgs; [
+                nodejs
+                pnpm_10
+                pnpmConfigHook
               ];
               # Fixed-output fetch of the pnpm store from pnpm-lock.yaml.
               pnpmDeps = pkgs.fetchPnpmDeps {
