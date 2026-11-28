@@ -11,8 +11,8 @@
 // decoder reads; the payloads are a few hundred samples, so compression does
 // not matter.
 //
-// This package is the same in emporiad, kasad, comfortd and breezyd; change
-// the copies together.
+// This package is the same in emporiad, kasad, comfortd, breezyd and btpolld;
+// change the copies together.
 package promwrite
 
 import (
@@ -63,11 +63,21 @@ func (e *RefusedError) Error() string {
 	return fmt.Sprintf("remote write refused: HTTP %d: %s", e.Status, e.Body)
 }
 
+// defaultHTTP is used when Client.HTTP is nil. Pushes are often a minute or
+// more apart — around VictoriaMetrics' idle keep-alive timeout — and net/http
+// will not retry a POST on a closed idle socket, so each request opens a fresh
+// connection rather than reusing a potentially dead one.
+var defaultHTTP = func() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DisableKeepAlives = true
+	return &http.Client{Timeout: 30 * time.Second, Transport: t}
+}()
+
 func (c *Client) http() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	return defaultHTTP
 }
 
 // Write sends the series in one request. A *RefusedError means the data will

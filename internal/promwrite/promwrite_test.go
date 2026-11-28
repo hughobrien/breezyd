@@ -282,3 +282,24 @@ func TestNewestHourlyBefore(t *testing.T) {
 		t.Errorf("query %s at %s", q, at)
 	}
 }
+
+func TestWriteUsesFreshConnections(t *testing.T) {
+	var addrs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !r.Close {
+			t.Errorf("request did not ask to close connection")
+		}
+		addrs = append(addrs, r.RemoteAddr)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := &Client{Base: srv.URL}
+	for range 2 {
+		if err := c.Write(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(addrs) != 2 || addrs[0] == addrs[1] {
+		t.Fatalf("expected distinct TCP connections, got remote addrs %v", addrs)
+	}
+}
