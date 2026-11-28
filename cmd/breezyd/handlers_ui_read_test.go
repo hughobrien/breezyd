@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -149,6 +150,23 @@ func TestViewFor_PopulatesSerial(t *testing.T) {
 	// newUITestHandler assigns ID = "TESTID00000000" + name[:2], so
 	// "alpha" → "TESTID00000000al".
 	is.Equal(v.Serial, "TESTID00000000al")
+}
+
+func TestViewFor_EmptyValuesReturnsFalse(t *testing.T) {
+	is := is.New(t)
+	devices := map[string]DeviceConfig{
+		"ghost": {ID: "BREEZYGHOST00001", Password: "1111", IP: "10.0.0.99:4000"},
+	}
+	snaps := map[string]Snapshot{
+		"ghost": {IP: "10.0.0.99:4000", LastErr: errors.New("timeout")},
+	}
+	h := newTestHandler(t, devices,
+		withState(newTestState(t, snaps)),
+		withPollers(map[string]*Poller{}),
+		withSchedulers(map[string]*Scheduler{}),
+	)
+	_, ok := h.viewFor("ghost")
+	is.True(!ok) // empty Values snapshot must not render as live view
 }
 
 func TestBuildView_DefaultsAreClean(t *testing.T) {

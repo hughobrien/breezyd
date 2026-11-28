@@ -347,6 +347,11 @@ func run(parent context.Context) error {
 	case <-time.After(shutdownTimeout):
 		slog.Warn("pollers did not exit within shutdown deadline; abandoning")
 	}
+	for _, p := range pollers {
+		if p != nil && p.Energy != nil {
+			p.Energy.Flush()
+		}
+	}
 	return runErr
 }
 

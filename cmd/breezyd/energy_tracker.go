@@ -44,10 +44,14 @@ type EnergyTracker struct {
 	Device string
 	// StateDir is the directory where the state file is persisted.
 	StateDir string
+	// SaveInterval throttles periodic Tick saves to disk. Zero/negative
+	// defaults to defaultEnergySaveInterval (10m). Rollovers and Flush()
+	// always persist immediately.
+	SaveInterval time.Duration
 
 	// Fields below are guarded by mu. Read only via Snapshot() (which
-	// takes mu); write only from Tick() / Load() / save() while mu is
-	// held. External callers must not touch them directly — the
+	// takes mu); write only from Tick() / Load() / save() / Flush() while
+	// mu is held. External callers must not touch them directly — the
 	// race detector will catch violations once Tick lands in Task 3.
 	mu sync.Mutex
 
@@ -79,6 +83,11 @@ type EnergyTracker struct {
 	MonthStart string
 	// LastTick is the wall-clock time of the most recent Tick call.
 	LastTick time.Time
+	// lastSaved is the wall-clock time (from Tick's now) of the most recent
+	// successful save. Zero until the first save of this tracker instance.
+	lastSaved time.Time
+	// dirty is true when counters have changed since the last successful save.
+	dirty bool
 	// Error is non-empty when the device's UnitType has no calibration data.
 	Error string
 	// StateWarning is non-empty when Load found an unusable state file and
@@ -109,6 +118,8 @@ func (e *EnergyTracker) Load() {
 		e.Today = today
 		e.MonthStart = thisMonth
 		e.LastTick = time.Time{}
+		e.lastSaved = time.Time{}
+		e.dirty = false
 	}
 
 	path := e.statePath()
@@ -165,6 +176,8 @@ func (e *EnergyTracker) Load() {
 	// Always zero LastTick so the first Tick after Load primes without
 	// accumulating a spurious interval from the previous daemon run.
 	e.LastTick = time.Time{}
+	e.lastSaved = time.Time{}
+	e.dirty = false
 }
 
 // quarantine moves an unusable state file aside and records a warning for
@@ -182,8 +195,8 @@ func (e *EnergyTracker) quarantine(path, what string, cause error) {
 		"device", e.Device, "path", path, "moved_to", aside, "op", what, "err", cause)
 }
 
-// save writes the current state atomically to statePath. The caller must
-// hold mu or ensure exclusive access.
+// save writes the current state atomically (without fsync) to statePath.
+// The caller must hold mu or ensure exclusive access.
 func (e *EnergyTracker) save() error {
 	p := persistedEnergy{
 		TodayDate:           e.Today,
@@ -199,10 +212,25 @@ func (e *EnergyTracker) save() error {
 		ConsumedLifetimeKWh: e.ConsumedLifetimeKWh,
 		LastUpdated:         time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := writeJSONAtomic(e.statePath(), p); err != nil {
+	if err := writeJSONAtomicNoSync(e.statePath(), p); err != nil {
 		return fmt.Errorf("energy: %w", err)
 	}
+	e.dirty = false
 	return nil
+}
+
+// Flush writes any unsaved counter changes to disk. Safe to call on
+// graceful shutdown; a no-op when no counters have changed since the
+// last save so idle/off devices do not touch disk on daemon stop.
+func (e *EnergyTracker) Flush() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.dirty {
+		return
+	}
+	if err := e.save(); err != nil {
+		slog.Warn("energy: shutdown flush failed", "device", e.Device, "err", err)
+	}
 }
 
 // Snapshot returns a value copy of the current energy state.  Supported is
@@ -233,21 +261,26 @@ func (e *EnergyTracker) Snapshot() breezy.EnergyValues {
 // runaway accumulation jump from the elapsed wall clock.
 const dtCap = 300 * time.Second
 
+// defaultEnergySaveInterval throttles periodic energy state persistence
+// so 30s polls accumulate in memory and touch disk at most once every 10m
+// (plus day/month rollovers and graceful shutdown via Flush).
+const defaultEnergySaveInterval = 10 * time.Minute
+
 // Tick processes one poll's worth of values into the accumulator. The
 // poller calls this after each successful poll. Holds mu for the whole
 // duration so concurrent Snapshot() calls from the HTTP path see a
 // consistent view.
 //
 // Logic:
-//  1. Date rollover (zero today counters when local date changes).
+//  1. Date/month rollover (zero today/month counters when local date/month changes; persist immediately).
 //  2. First-tick priming: if LastTick was zero, set it and return without accumulating.
 //  3. Compute dt; cap at dtCap; clamp negative to zero.
 //  4. Resolve UnitType (param 0x00B9). Missing or unsupported → set Error and skip math.
-//  5. Regen-only gate (airflow_mode 0x00B7 must equal 1 = regeneration).
+//  5. Regen-only + power-on gates (airflow_mode 0x00B7 == 1, power 0x0001 == 1).
 //  6. Read inputs: supply pct + extract pct (CommandedFanPct), supply temp (0x0020), outdoor temp (0x001F).
 //  7. Compute recovered W (avg of supply+extract pcts as airflow proxy) and consumed W (sum of per-fan electric draws).
 //  8. Accumulate |W| × dt / 3.6e6 into right counter (heating if Δ>0, cooling if Δ<0); accumulate consumed always.
-//  9. save() the new state.
+//  9. Persist via save() when due (SaveInterval, default 10m); remaining dirty state is flushed on shutdown via Flush().
 func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -259,6 +292,7 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 	// into the now-zeroed today counter (capped at dtCap, but still a
 	// visible spike in the daily graph). See
 	// TestEnergyTracker_Tick_RolloverDoesNotDoubleAccumulate.
+	rolledOver := false
 	today := now.Local().Format("2006-01-02")
 	if e.Today != today {
 		e.HeatingTodayKWh = 0
@@ -266,21 +300,24 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 		e.ConsumedTodayKWh = 0
 		e.Today = today
 		e.LastTick = time.Time{}
-		if err := e.save(); err != nil {
-			slog.Warn("energy: rollover save failed", "device", e.Device, "err", err)
-		}
+		rolledOver = true
 	}
-	// Month rollover, parallel to date rollover. Crossing a month boundary
-	// also crosses a day boundary, so this fires after the date branch
-	// (saving twice in that rare case is harmless).
+	// Month rollover, parallel to date rollover. Coalesced with the date
+	// branch above so crossing a month boundary writes once instead of twice.
 	thisMonth := now.Local().Format("2006-01")
 	if e.MonthStart != thisMonth {
 		e.HeatingMonthKWh = 0
 		e.CoolingMonthKWh = 0
 		e.ConsumedMonthKWh = 0
 		e.MonthStart = thisMonth
+		rolledOver = true
+	}
+	if rolledOver {
+		e.dirty = true
 		if err := e.save(); err != nil {
-			slog.Warn("energy: month rollover save failed", "device", e.Device, "err", err)
+			slog.Warn("energy: rollover save failed", "device", e.Device, "err", err)
+		} else {
+			e.lastSaved = now
 		}
 	}
 
@@ -375,9 +412,18 @@ func (e *EnergyTracker) Tick(values map[breezy.ParamID][]byte, now time.Time) {
 	e.ConsumedTodayKWh += deltaConsumed
 	e.ConsumedMonthKWh += deltaConsumed
 	e.ConsumedLifetimeKWh += deltaConsumed
+	e.dirty = true
 
-	if err := e.save(); err != nil {
-		slog.Warn("energy: save failed", "device", e.Device, "err", err)
+	saveInterval := e.SaveInterval
+	if saveInterval <= 0 {
+		saveInterval = defaultEnergySaveInterval
+	}
+	if e.lastSaved.IsZero() || now.Sub(e.lastSaved) >= saveInterval || now.Before(e.lastSaved) {
+		if err := e.save(); err != nil {
+			slog.Warn("energy: save failed", "device", e.Device, "err", err)
+		} else {
+			e.lastSaved = now
+		}
 	}
 }
 

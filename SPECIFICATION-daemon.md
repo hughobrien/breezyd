@@ -467,7 +467,9 @@ gauges and skip accumulation; (6) inputs: supply + extract pct
 (7) math — recovered W uses average pct as airflow proxy, consumed W is
 the per-fan sum; accumulate `|W| × dt / 3.6e6` into the right
 today/month/lifetime counter (heating if Δ>0, cooling if Δ<0); consumed
-is always accumulated; (8) persist via atomic temp+rename (mode 0600).
+is always accumulated; (8) persist via temp+rename without `fsync` (mode
+0600), throttled to every 10 minutes plus day/month rollover and clean
+shutdown (`EnergyTracker.Flush`).
 
 The model-curve calibration table is `pkg/breezy/energy.go::modelCurves`;
 adding a new model is a one-line table edit. Devices whose UnitType

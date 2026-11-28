@@ -124,7 +124,7 @@ Together, the user's click writes the signal and the signal drives the attribute
 | Unreachable | configured but no successful poll has produced a Snapshot with values | placeholder card via `unreachableCard` template; lists name/IP/serial only | none rendered |
 | Fault | `v.NeedsAttention` (active fault, soiled filter) | `.alert` class on Info `<details>` summary; red heading + `⚠` prefix | unaffected |
 
-Stale/healthy is driven by `$stale` (a per-card signal patched on every push), not by re-rendering the whole card. The card outer HTML is rendered once at initial-state and never patched after; only block contents and signals change.
+Stale/healthy is driven by `$stale` (a per-card signal patched on every push), not by re-rendering the whole card. The card outer HTML is rendered once at initial-state and never patched after — with one exception: when a card starts as an unreachable placeholder and its first successful poll lands, `/ui/sse` replaces `.card[data-device="{name}"]` once via `mode=outer` (`device:{name}`) so the live card and its `data-signals` seed mount without a page reload. Thereafter, only block contents and signals change.
 
 The unreachable variant deliberately omits all controls and schedule/energy/sensors blocks — the user almost certainly has a config typo (wrong IP, wrong password, firmware off) and the only useful information is "what does the daemon think it's looking at." Once any params land in the State cache, the next push replaces the unreachable card with a full one (initial-state on a new connection uses `mode=outer` against the existing card on reconnect; see "SSE protocol").
 

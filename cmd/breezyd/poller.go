@@ -189,7 +189,11 @@ func (p *Poller) NoticeWrite(id breezy.ParamID) {
 
 // Run blocks until ctx is done, ticking at p.Interval. The first tick
 // fires immediately so callers see fresh data without waiting an interval.
+// Flushes any unsaved EnergyTracker counters on exit.
 func (p *Poller) Run(ctx context.Context) {
+	if p.Energy != nil {
+		defer p.Energy.Flush()
+	}
 	p.tick(ctx)
 	t := time.NewTicker(p.Interval)
 	defer t.Stop()
