@@ -95,3 +95,106 @@ func TestFromFamilies(t *testing.T) {
 		t.Errorf("got %v", s[0])
 	}
 }
+
+type cutoffWriter struct {
+	cutoff   time.Time
+	err      error
+	accepted []Sample
+	writes   int
+}
+
+func (w *cutoffWriter) Write(_ context.Context, series []Series) error {
+	w.writes++
+	if w.err != nil {
+		return w.err
+	}
+	for _, s := range series {
+		for _, p := range s.Samples {
+			if p.T.Before(w.cutoff) {
+				return &RefusedError{Status: 400, Body: "out of bounds"}
+			}
+		}
+	}
+	for _, s := range series {
+		w.accepted = append(w.accepted, s.Samples...)
+	}
+	return nil
+}
+
+func TestQueueFlushChunksRefusedOldKeepsNew(t *testing.T) {
+	now := at(90 * 60)
+	w := &cutoffWriter{cutoff: now.Add(-60 * time.Minute)}
+	q := &Queue{W: w, Now: func() time.Time { return now }}
+	for m := 0; m <= 90; m += 10 {
+		q.Add(one("a", m*60, float64(m)))
+	}
+	err := q.Flush(context.Background())
+	var re *RefusedError
+	if !errors.As(err, &re) {
+		t.Fatalf("err = %v, want *RefusedError", err)
+	}
+	if q.Errors() == 0 {
+		t.Fatal("expected refused chunks to increment Errors()")
+	}
+	if q.Len() != 0 {
+		t.Fatalf("Len = %d, want 0", q.Len())
+	}
+	if len(w.accepted) < 5 {
+		t.Fatalf("expected newer chunks to be accepted, got %v", w.accepted)
+	}
+	for i := 1; i < len(w.accepted); i++ {
+		if !w.accepted[i-1].T.Before(w.accepted[i].T) {
+			t.Fatalf("accepted samples out of order: %v", w.accepted)
+		}
+	}
+	if w.accepted[len(w.accepted)-1].V != 90 {
+		t.Fatalf("newest sample lost: %v", w.accepted)
+	}
+}
+
+type failNthWriter struct {
+	failOn int
+	err    error
+	calls  int
+	got    []Sample
+}
+
+func (w *failNthWriter) Write(_ context.Context, series []Series) error {
+	w.calls++
+	if w.failOn > 0 && w.calls == w.failOn {
+		return w.err
+	}
+	for _, s := range series {
+		w.got = append(w.got, s.Samples...)
+	}
+	return nil
+}
+
+func TestQueueFlushMidChunkTransientErrorRequeuesOnlyUnsent(t *testing.T) {
+	now := at(60 * 60)
+	w := &failNthWriter{failOn: 2, err: errors.New("503 unavailable")}
+	q := &Queue{W: w, Now: func() time.Time { return now }}
+	q.Add(one("a", 0, 0), one("a", 20*60, 20), one("a", 40*60, 40))
+
+	if err := q.Flush(context.Background()); err == nil {
+		t.Fatal("expected transient error on second chunk")
+	}
+	if q.Errors() != 1 || len(w.got) != 1 || w.got[0].V != 0 || q.Len() != 2 {
+		t.Fatalf("after partial flush: errors=%d got=%v len=%d", q.Errors(), w.got, q.Len())
+	}
+
+	q.Add(one("a", 50*60, 50))
+	w.failOn = 0
+	if err := q.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if q.Len() != 0 || len(w.got) != 4 {
+		t.Fatalf("after catch-up flush: len=%d got=%v", q.Len(), w.got)
+	}
+	want := []float64{0, 20, 40, 50}
+	for i, v := range want {
+		if w.got[i].V != v {
+			t.Fatalf("got[%d] = %v, want %v (all=%v)", i, w.got[i].V, v, w.got)
+		}
+	}
+}
