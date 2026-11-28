@@ -42,6 +42,20 @@ func TestRTCSync_UntilNext(t *testing.T) {
 	}
 }
 
+func TestRTCSync_UntilNext_DST(t *testing.T) {
+	is := is.New(t)
+	la, err := time.LoadLocation("America/Los_Angeles")
+	is.NoErr(err)
+
+	// Spring-forward (2026-03-08 02:00 PST -> 03:00 PDT): 23h between 04:00s.
+	springNow := time.Date(2026, 3, 7, 4, 0, 0, 0, la)
+	is.Equal(untilNext(springNow, 4), 23*time.Hour)
+
+	// Fall-back (2026-11-01 02:00 PDT -> 01:00 PST): 25h between 04:00s.
+	fallNow := time.Date(2026, 10, 31, 4, 0, 0, 0, la)
+	is.Equal(untilNext(fallNow, 4), 25*time.Hour)
+}
+
 // TestRTCSyncer_InitialSyncFires runs Run with a tiny initialDelay and
 // confirms the first sync writes the RTC params (0x6F + 0x70) via the
 // captured fake client.

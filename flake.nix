@@ -294,6 +294,14 @@
               services.breezyd.nginx.enable = true;
               services.breezyd.nginx.virtualHost = "breezy.home.lan";
             }).config;
+          hk =
+            (moduleSystem {
+              services.breezyd.homekit = {
+                enable = true;
+                port = 51827;
+              };
+              services.breezyd.settings.homekit.bridge_name = "custom";
+            }).config;
           ngLoc = ng.services.nginx.virtualHosts."breezy.home.lan".locations."/";
           inherit (nixpkgs) lib;
           job = jobs: lib.findFirst (j: j.job_name == "breezyd") null jobs;
@@ -312,6 +320,10 @@
         assert ngLoc.proxyPass == "http://127.0.0.1:9876";
         assert lib.hasInfix "proxy_set_header X-Forwarded-Host $http_host;" ngLoc.extraConfig;
         assert lib.hasInfix "proxy_buffering off;" ngLoc.extraConfig;
+        assert hk.services.breezyd.settings.homekit.enabled == true;
+        assert hk.services.breezyd.settings.homekit.port == 51827;
+        assert hk.services.breezyd.settings.homekit.bridge_name == "custom";
+        assert hk.services.breezyd.settings.homekit.state_dir == "/var/lib/breezyd/homekit";
         vm.systemd.units."breezyd.service".unit;
       moduleCheckPkg =
         let

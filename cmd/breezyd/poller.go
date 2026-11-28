@@ -239,12 +239,16 @@ func (p *Poller) tick(ctx context.Context) {
 		p.recordErr(err)
 		// (2) Dial-failure branch: carry prev.Values and prev.LastPoll
 		// forward (was: empty Values + p.now()).
-		p.State.Set(p.Name, Snapshot{
+		snap := Snapshot{
 			IP:       p.IP,
 			Values:   prev.Values,
 			LastPoll: prev.LastPoll,
 			LastErr:  err,
-		})
+		}
+		p.State.Set(p.Name, snap)
+		if p.OnTick != nil {
+			p.OnTick(p.Name, snap)
+		}
 		return
 	}
 	defer func() { _ = client.Close() }()
@@ -314,7 +318,7 @@ func (p *Poller) tick(ctx context.Context) {
 	}
 	if lastErr == nil {
 		if p.Energy != nil {
-			p.Energy.Tick(values, time.Now())
+			p.Energy.Tick(values, p.now())
 		}
 		if p.OnPoll != nil {
 			p.OnPoll(p.Name, snap)

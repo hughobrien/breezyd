@@ -105,7 +105,7 @@ func TestScheduleTime_ParseAndString(t *testing.T) {
 		is.Equal(got, c.want)        // parsed minutes match expected
 		is.Equal(got.String(), c.in) // String() round-trips the input
 	}
-	bad := []string{"", "8:00", "08:0", "24:00", "08:60", "08-00", "abc", "08:00:00"}
+	bad := []string{"", "8:00", "08:0", "24:00", "08:60", "08-00", "abc", "08:00:00", " 8:00", "+8:00", "08:+5", "08: 5", "-1:00"}
 	for _, in := range bad {
 		_, err := ParseScheduleTime(in)
 		is.True(err != nil) // malformed inputs must reject

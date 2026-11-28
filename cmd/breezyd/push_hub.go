@@ -124,6 +124,13 @@ func (h *PushHub) Unsubscribe(sub *Subscriber) {
 // dropped — the next successful poll re-renders, and noisy logging
 // from the poller hot path costs more than it saves.
 func (h *PushHub) Notify(name string, snap Snapshot) {
+	h.mu.Lock()
+	empty := len(h.subs) == 0
+	h.mu.Unlock()
+	if empty {
+		return
+	}
+
 	ev, err := h.renderBlocks(name, snap)
 	if err != nil || ev == nil {
 		return

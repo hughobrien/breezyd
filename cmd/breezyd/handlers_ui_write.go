@@ -145,8 +145,8 @@ func (h *Handler) putUISchedule(w http.ResponseWriter, r *http.Request) {
 			errorBannerSSE(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("row %d: invalid action %q", i+1, action))
 			return
 		}
-		pct := 0
-		if _, err := fmt.Sscanf(pcts[i], "%d", &pct); err != nil || pct < 10 || pct > 100 {
+		pct, err := strconv.Atoi(pcts[i])
+		if err != nil || pct < 10 || pct > 100 {
 			if action != "off" {
 				errorBannerSSE(w, r, http.StatusUnprocessableEntity, fmt.Sprintf("row %d: pct must be 10–100, got %q", i+1, pcts[i]))
 				return

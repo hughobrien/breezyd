@@ -56,11 +56,10 @@ func (r *RTCSyncer) now() time.Time {
 // today, returns the duration until hour:00 tomorrow.
 func untilNext(now time.Time, hour int) time.Duration {
 	target := time.Date(now.Year(), now.Month(), now.Day(), hour, 0, 0, 0, now.Location())
-	d := target.Sub(now)
-	if d <= 0 {
-		d += 24 * time.Hour
+	if !target.After(now) {
+		target = time.Date(now.Year(), now.Month(), now.Day()+1, hour, 0, 0, 0, now.Location())
 	}
-	return d
+	return target.Sub(now)
 }
 
 // Run blocks until ctx is done. Fires an initial sync after

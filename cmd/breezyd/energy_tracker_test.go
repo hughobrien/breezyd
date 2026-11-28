@@ -33,6 +33,7 @@ func TestEnergyTracker_Load_MissingFile(t *testing.T) {
 
 	wantDate := time.Now().Local().Format("2006-01-02")
 	is.Equal(tr.Today, wantDate) // Today seeded from local wall clock
+	is.Equal(tr.MonthStart, time.Now().Local().Format("2006-01"))
 }
 
 func TestEnergyTracker_Load_MalformedFile(t *testing.T) {
@@ -68,6 +69,7 @@ func TestEnergyTracker_Load_EmptyFile(t *testing.T) {
 	tr.Load()
 	is.Equal(tr.HeatingLifetimeKWh, float64(0))                 // fresh state on empty file
 	is.Equal(tr.Today, time.Now().Local().Format("2006-01-02")) // Today seeded even on empty-file load
+	is.Equal(tr.MonthStart, time.Now().Local().Format("2006-01"))
 }
 
 func TestEnergyTracker_RoundTrip(t *testing.T) {

@@ -37,11 +37,14 @@ func ParseScheduleTime(s string) (ScheduleTime, error) {
 	if len(s) != 5 || s[2] != ':' {
 		return 0, fmt.Errorf("%w: expected HH:MM, got %q", breezy.ErrInvalidArg, s)
 	}
-	var h, m int
-	if _, err := fmt.Sscanf(s, "%2d:%2d", &h, &m); err != nil {
-		return 0, fmt.Errorf("%w: parse HH:MM %q: %v", breezy.ErrInvalidArg, s, err)
+	for _, idx := range [4]int{0, 1, 3, 4} {
+		if s[idx] < '0' || s[idx] > '9' {
+			return 0, fmt.Errorf("%w: expected HH:MM, got %q", breezy.ErrInvalidArg, s)
+		}
 	}
-	if h < 0 || h > 23 || m < 0 || m > 59 {
+	h := int(s[0]-'0')*10 + int(s[1]-'0')
+	m := int(s[3]-'0')*10 + int(s[4]-'0')
+	if h > 23 || m > 59 {
 		return 0, fmt.Errorf("%w: hours 0-23 / minutes 0-59, got %q", breezy.ErrInvalidArg, s)
 	}
 	return ScheduleTime(h*60 + m), nil

@@ -1116,3 +1116,41 @@ func TestPoller_PartialFailureCarriesForwardFailedBatch(t *testing.T) {
 	is.True(snap.LastPoll.Equal(first.LastPoll)) // not counted as a fresh poll
 	is.Equal(polls, 1)                           // OnPoll (energy/push/HomeKit) skipped
 }
+
+func TestPoller_FailedDial_FiresOnTick(t *testing.T) {
+	is := is.New(t)
+	state := newTestState(t, nil)
+	fc := &fakeClient{values: map[breezy.ParamID][]byte{0x0001: {1}}}
+
+	clock := time.Unix(1_700_000_000, 0)
+	dialErr := errors.New("dial refused")
+	dialFails := false
+
+	var ticks []Snapshot
+	p := &Poller{
+		Name: "dev", IP: "127.0.0.1:0", DeviceID: pollerTestDeviceID, Password: pollerTestPassword,
+		Interval: time.Hour, State: state, ReadIDs: []breezy.ParamID{0x0001},
+		NewClient: func() (PollerClient, error) {
+			if dialFails {
+				return nil, dialErr
+			}
+			return fc, nil
+		},
+		OnTick: func(_ string, snap Snapshot) {
+			ticks = append(ticks, snap)
+		},
+		Now: func() time.Time { return clock },
+	}
+
+	p.tick(context.Background())
+	is.Equal(len(ticks), 1)
+	is.NoErr(ticks[0].LastErr)
+
+	dialFails = true
+	clock = clock.Add(time.Minute)
+	p.tick(context.Background())
+	is.Equal(len(ticks), 2)
+	is.True(errors.Is(ticks[1].LastErr, dialErr))
+	is.Equal(ticks[1].Values[0x0001], []byte{1})
+	is.True(ticks[1].LastPoll.Equal(ticks[0].LastPoll))
+}

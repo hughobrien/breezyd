@@ -14,7 +14,7 @@ Tone: skeptical. Each entry includes a critical view if there's a plausible argu
   - **Why this one**: original Go TOML implementation, well-maintained, zero transitive deps. `pelletier/go-toml/v2` is the only serious alternative; no compelling reason to swap.
   - **Critical view**: surface is one call site against a ~10-field schema. A hand-rolled parser is plausible but loses free validation diagnostics. Keep.
 
-- **a-h/templ** v0.3.1020 — HTML templating DSL that compiles `.templ` files into Go. Used throughout `cmd/breezyd/ui/templates/`.
+- **a-h/templ** v0.3.1118 — HTML templating DSL that compiles `.templ` files into Go. Used throughout `cmd/breezyd/ui/templates/`.
   - **Why this one**: type-checked at compile time, no runtime template engine, no template-cache invalidation. SSE patches consume `templ.Component` directly via `datastar.PatchElementTempl`.
   - **Critical view**: `html/template` would mean abandoning every `.templ` file for `*.tmpl` text templates — losing Go-syntax-in-markup and the component model. Not a trade we'd make. Required at build time (`nix build` / `templ generate`).
 
@@ -22,11 +22,17 @@ Tone: skeptical. Each entry includes a critical view if there's a plausible argu
   - **Why this one**: only mature pure-Go HAP implementation. The protocol is hundreds of pages of pairing crypto + service definitions.
   - **Critical view**: only loaded when the user enables HomeKit. Rolling our own HAP is roughly a year of work. Keep.
 
-- **prometheus/client_golang** v1.23.2 — Prometheus metrics. Used by `cmd/breezyd/metrics.go` to register counters/gauges; exposed at `/metrics`.
+- **prometheus/client_golang** v1.25.0 — Prometheus metrics. Used by `cmd/breezyd/metrics.go` to register counters/gauges; exposed at `/metrics`.
   - **Why this one**: canonical Prometheus Go client; matches the exposition format every scraper expects.
   - **Critical view**: `/metrics` is a documented integration point — see `nix/module.nix::services.breezyd.prometheus.enable`. Dropping it would mean dropping that integration entirely. Keep.
 
-- **starfederation/datastar-go** v1.2.1 — Server SDK for the datastar hypermedia library. Used in every SSE-emitting handler (`handlers_ui_sse.go`, `handlers_ui_write.go`) and in templ helpers (`schedule_block.templ`, `sensor_threshold.templ`) for navigation expressions.
+- **prometheus/client_model** v0.6.3 — Prometheus `dto.MetricFamily` protobuf types. Used by `internal/promwrite` to convert gathered registries into remote-write series.
+  - **Why this one**: `client_golang` already pulls it in and returns `*dto.MetricFamily` from `Gather()`; no alternative without re-parsing text exposition. Keep.
+
+- **google.golang.org/protobuf** v1.36.12 — `protowire` encoder used by `internal/promwrite` to build Prometheus Remote Write `WriteRequest` protobufs without generated `.pb.go` bloat.
+  - **Why this one**: `protowire` is lightweight and already in the module graph via `prometheus/client_model`. Keep.
+
+- **starfederation/datastar-go** v1.2.2 — Server SDK for the datastar hypermedia library. Used in every SSE-emitting handler (`handlers_ui_sse.go`, `handlers_ui_write.go`) and in templ helpers (`schedule_block.templ`, `sensor_threshold.templ`) for navigation expressions.
   - **Why this one**: matches the vendored client bundle at `cmd/breezyd/ui/vendor/datastar-1.0.1.min.js`. Hand-rolling the SSE wire format works (it's a few lines per event) but loses the typed patch-mode constants, signal-merge helpers, and `ReadSignals` request parser.
   - **Audit history**: see #192 — the repo is now ~100% SDK-idiomatic for SSE handling.
 

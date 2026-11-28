@@ -109,10 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross-origin (`Sec-Fetch-Site`, else `Origin` vs `Host`, also accepting
   `X-Forwarded-Host` behind the NixOS nginx proxy). Requests with neither
   header (CLI, curl, Prometheus) pass. Request bodies are capped at 64 KiB
-  (413). New opt-in `[daemon].allowed_hosts` Host allowlist closes DNS
-  rebinding: empty (default) means no Host check, so rebinding is blocked only
-  once it is set; IP literals and `localhost` are always accepted. In the
-  NixOS module set it via `services.breezyd.settings.daemon.allowed_hosts`.
+  (413). `[daemon].allowed_hosts` configures the Host allowlist (see Changed
+  above).
   A hand-written reverse proxy serving the dashboard over plain HTTP must
   forward `Host` or `X-Forwarded-Host`, otherwise dashboard writes are
   rejected with 403 (browsers omit `Sec-Fetch-Site` on plain-HTTP LAN

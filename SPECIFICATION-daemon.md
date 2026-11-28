@@ -56,10 +56,10 @@ cache, the Prometheus `Metrics` collector, and the `Handler`; compose
 two poll-fan-out closures — `onPoll` (success-only:
 `handler.SyncHomekit`) and `onTick` (every tick: `handler.PushHub.Notify`,
 so the dashboard's `$lastPollAge` / `$stale` signals advance under
-sustained UDP timeouts); spawn one
-`Poller` and one `Scheduler` goroutine per device with an IP
-(`startPollers`; devices without an IP log a warning and are skipped
-until discovery resolves them); if `discovery ==
+sustained UDP timeouts); spawn one `Poller`, one `Scheduler`, and one
+`RTCSyncer` goroutine per configured device (`startPollers`; devices
+without an IP yet resolve their address from `DeviceRegistry` on each
+tick and record `errNoIPYet` until discovery supplies one); if `discovery ==
 "periodic:<duration>"`, spawn the periodic discovery goroutine; if
 `[homekit].enabled`, start the HAP server; register HTTP routes on a
 `net/http.ServeMux` and start `srv.ListenAndServe`.
@@ -143,9 +143,9 @@ wildcard requests with a password mismatch despite the spec).
 (set by systemd when `StateDirectory=breezyd` is in the unit, the NixOS
 module's canonical case; survives `ProtectSystem=strict` because systemd
 pre-creates and chowns it); (2) `$XDG_STATE_HOME/breezyd`; (3)
-`$HOME/.local/state/breezyd`. Created with mode 0700 if missing. Energy
-tracking and the scheduler tolerate a missing state dir (log warning,
-run with non-persistent state).
+`$HOME/.local/state/breezyd`. Created with mode 0700 if missing. If no state directory can be determined
+or created, the daemon refuses to start rather than writing state files
+into the working directory.
 
 ## Device backend abstraction
 
@@ -183,7 +183,7 @@ required by config validation.
 
 ## Polling
 
-One `Poller` goroutine per configured device with an IP
+One `Poller` goroutine per configured device
 (`cmd/breezyd/poller.go`). The poller is the only writer of the
 per-device `Snapshot` in the `State` cache. `Poller.Run` ticks
 immediately on start (callers see fresh data without waiting one
@@ -557,10 +557,11 @@ shape adds a derived `alert` bool (`last_apply != nil &&
 !last_apply.ok`) so the UI doesn't have to descend into `last_apply` to
 decide whether to force-expand the SCHEDULE block.
 
-**Known limitation: DST.** Times are wall-clock local. Spring-forward
-skips an entry whose `at` lies in the missing hour; fall-back fires an
-entry in the repeated hour twice. Acceptable for residential ERV control
-given the surrounding ±1-minute tick precision.
+**DST handling.** Times are wall-clock local:
+
+- Spring-forward: an entry whose `at` lies in the missing hour fires once at the first tick after the skipped hour.
+- Fall-back: an entry whose `at` lies in the repeated hour fires once at its first occurrence; the per-entry `firedAt` map suppresses the second occurrence on the same local calendar day.
+- Backward clock steps (fall-back hour, NTP step back): a tick whose wall-clock reading is not after the previous tick's crosses no minutes and fires nothing.
 
 ## Push hub (poll → SSE fan-out)
 
