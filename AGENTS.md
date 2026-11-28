@@ -4,11 +4,11 @@ This file provides guidance to coding agents when working with code in this repo
 
 ## Build, test, lint
 
-All local workflows run through `cycle` and `nix develop` / `nix build` / `nix run`:
+Use `cycle` by default for all development rather than editing `main` directly (see [cycle usage](https://forgejo.wg/hughobrien/cycle/src/branch/main/EXAMPLES.md)); all local workflows run through `cycle` and `nix develop` / `nix build` / `nix run`:
 
 ```sh
 cycle test-fast                          # gofmt, go vet, go test, ruff, biome
-cycle test-slow                          # go test -race, test-admin, golangci-lint, templ drift, nixfmt, statix, deadnix, actionlint, rumdl
+cycle test-all                           # full suite (adds go test -race, test-admin, golangci-lint, templ drift, ci-lint)
 nix develop -c templ generate            # templ codegen (writes *_templ.go; required after .templ edits)
 nix build                                # build ./result/bin/{breezyd,breezy}
 nix run .#breezy -- ls                   # run CLI from flake
