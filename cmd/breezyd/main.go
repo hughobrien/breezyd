@@ -41,7 +41,7 @@ import (
 
 // Discovery defaults — kept here rather than buried in config so the
 // timeout is easy to find when tuning for slow networks.
-const discoveryTimeout = 3 * time.Second
+const discoveryTimeout = 2 * time.Second
 
 // shutdownTimeout bounds how long Shutdown waits for in-flight HTTP
 // requests to finish before forcibly closing connections.
@@ -207,7 +207,6 @@ func run(parent context.Context) error {
 				return breezy.EnergyValues{}, false
 			})
 		reg.MustRegister(pusher.Collectors()...)
-		go pusher.Run(rootCtx)
 		slog.Info("pushing polls", "targets", redactedTargets(cfg.Daemon.Push))
 	}
 	onPoll := func(name string, snap Snapshot) {
@@ -240,6 +239,13 @@ func run(parent context.Context) error {
 	// fires on the first tick.
 	handler.Pollers = pollers
 	handler.Schedulers = schedulers
+	if pusher != nil {
+		pollersWg.Add(1)
+		go func() {
+			defer pollersWg.Done()
+			pusher.Run(rootCtx)
+		}()
+	}
 	startPollerGoroutines()
 
 	// Periodic discovery: parse "periodic:<duration>" and tick a goroutine
@@ -247,7 +253,9 @@ func run(parent context.Context) error {
 	// already done above; off is a no-op; anything else has been validated
 	// by the config loader.
 	if d, ok := parsePeriodicDiscovery(cfg.Daemon.Discovery); ok {
+		pollersWg.Add(1)
 		go func() {
+			defer pollersWg.Done()
 			// One probe right away so devices configured without an ip
 			// don't wait a full interval for their first address. The
 			// pollers are already running and pick the address up from the

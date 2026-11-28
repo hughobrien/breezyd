@@ -25,15 +25,16 @@ The dashboard's HTTP surface, registered in `cmd/breezyd/server.go::routes`:
 | `POST` | `/ui/devices/{name}/preset` | 200 + empty | `{"preset": 1..3, "supply": 10..100, "extract": 10..100}`. |
 | `POST` | `/ui/devices/{name}/heater` | 200 + empty | `{"on": bool}`. |
 | `POST` | `/ui/devices/{name}/timer` | 200 + empty | `{"mode": "off"|"night"|"turbo"}`. |
+| `POST` | `/ui/devices/{name}/timer-duration` | 200 + empty | `{"mode": "night"|"turbo", "hours": 0..23, "minutes": 0..59}` (total ≥ 1 min). |
 | `POST` | `/ui/devices/{name}/reset-filter` | 200 + empty | No body. |
 | `POST` | `/ui/devices/{name}/reset-faults` | 200 + empty | No body. |
 | `GET` | `/ui/devices/{name}/threshold/{kind}` | SSE patch | Read-variant cell for `humidity`/`co2`/`voc`. |
 | `GET` | `/ui/devices/{name}/threshold/{kind}/edit` | SSE patch | Edit-variant cell. |
 | `PUT` | `/ui/devices/{name}/threshold` | SSE patch | Form-encoded `kind=...&value=N&enabled=true|false`; emits read variant on success. |
-| `GET` | `/ui/devices/{name}/schedule` | SSE patch | Read-variant SCHEDULE block. |
-| `GET` | `/ui/devices/{name}/schedule/edit` | SSE patch | Edit-variant SCHEDULE block. |
+| `GET` | `/ui/devices/{name}/schedule` | SSE patch | ScheduleBlock SSE patch. |
 | `GET` | `/ui/devices/{name}/schedule/new-row` | SSE patch | Appends an empty edit row to the editor `<tbody>`. |
-| `PUT` | `/ui/devices/{name}/schedule` | SSE patch | Form-encoded parallel arrays `at[]`, `action[]`, `pct[]`, `enabled`. |
+| `PUT` | `/ui/devices/{name}/schedule` | 200 + empty SSE | Form-encoded parallel arrays `at[]`, `action[]`, `pct[]`, `enabled`; autosaves on change. |
+| `POST` | `/ui/devices/{name}/schedule/enabled` | 200 + empty | `{"enabled": bool}`; flips schedule enabled state without touching entries. |
 
 The action endpoints are the dashboard's private surface. The CLI uses `/v1/*`; HomeKit uses `pkg/breezy/ops` directly. No external caller is expected on `/ui/*`.
 
@@ -129,24 +130,30 @@ The unreachable variant deliberately omits all controls and schedule/energy/sens
 
 ### Per-card signal seed
 
-The card root carries a `data-signals` attribute initialised by `device_card.templ::initialCardSignals` and seeded with both static UI flags and runtime data:
+The card root carries a `data-signals` attribute initialised by `device_card.templ::initialCardSignals` and seeded with both static UI flags and runtime data. Each signal is nested under the device name (`$<signal>.<name>`) so SSE signal patches scope to one card without overwriting sibling cards:
 
 ```json
 {
-  "automode": false,
-  "matchSpeeds": true,
-  "editor": 0,
-  "preset": {"1": {"supply": 50, "extract": 50}, "2": {...}, "3": {...}},
-  "detailsOpen": {"info": false, "sensors": true, "energy": false, "schedule": false},
-  "stale": false,
-  "speedMode": "preset2",
-  "airflowMode": "regeneration",
-  "lastPollAge": "3s",
-  "sensorsAlert": false
+  "automode": {"bedroom": false},
+  "matchSpeeds": {"bedroom": true},
+  "editor": {"bedroom": 0},
+  "preset": {"bedroom": {"1": {"supply": 50, "extract": 50}, "2": {...}, "3": {...}}},
+  "detailsOpen": {"bedroom": {"info": false, "sensors": true, "energy": false, "schedule": false}},
+  "stale": {"bedroom": false},
+  "power": {"bedroom": true},
+  "speedMode": {"bedroom": "preset2"},
+  "airflowMode": {"bedroom": "regeneration"},
+  "specialMode": {"bedroom": "off"},
+  "specialModeRemainingSeconds": {"bedroom": 0},
+  "nightDurationSeconds": {"bedroom": 28800},
+  "turboDurationSeconds": {"bedroom": 1800},
+  "heater": {"bedroom": false},
+  "lastPollAge": {"bedroom": "3s"},
+  "sensorsAlert": {"bedroom": false}
 }
 ```
 
-After initial render, the runtime fields (`stale`, `speedMode`, `airflowMode`, `lastPollAge`, `sensorsAlert`, `preset.*.{supply,extract}`) are refreshed via `datastar-patch-signals` events on every push. The static UI flags (`automode`, `matchSpeeds`, `editor`, `detailsOpen`) are user-owned and never touched by SSE. See `cmd/breezyd/ui/view.go::CardSignals`.
+After initial render, the runtime fields (`CardSignals`) are refreshed via `datastar-patch-signals` events on every push. The static UI flags (`automode`, `matchSpeeds`, `editor`, `detailsOpen`) are user-owned and never touched by SSE. See `cmd/breezyd/ui/view.go::CardSignals`.
 
 ### Controls block
 
@@ -174,11 +181,13 @@ Stale-disabled controls are rendered with the HTML `disabled` attribute, which s
 <input
     type="range" name="manual" min="10" max="100" step="1"
     value={ fmt.Sprintf("%d", v.ManualPct) }
-    data-on:change__debounce.200ms={ postActionExpr("/ui/devices/"+v.Name+"/speed", "{manual: evt.target.valueAsNumber}") }
+    data-effect={ fmt.Sprintf("el.value = $_manualPct.%s;", v.Name) }
+    data-on:input={ fmt.Sprintf("$_manualPct.%s = parseInt(evt.target.value, 10);", v.Name) }
+    data-on:change={ manualChangeExpr(v.Name) }
 />
 ```
 
-The slider does not seed a `$manualPct` signal. The input's `value` attribute is the source of truth and the `@post` expression reads `evt.target.valueAsNumber` directly. Going through a signal would force signal-wins on every card re-render, clobbering the server-rendered value when a `data-signals` seed lags one poll behind a drag. The 200 ms debounce on `data-on:change` collapses bursts of drag commits into a single POST.
+Both the range slider and numeric input mirror `$_manualPct.<name>` without `data-bind` (which would emit synthetic `change` events during SSE signal syncs). `data-effect` keeps `el.value` synced from the signal, `data-on:input` updates the signal live during drag, and `data-on:change` (no debounce) clamps to `[10, 100]` and POSTs `{manual: v}` immediately on release.
 
 ## SSE protocol
 
@@ -372,23 +381,20 @@ Edit variant (`SensorThresholdEdit`): a tiny `<form>` with `value`, `enabled` (h
 
 One per device. Files: `cmd/breezyd/ui/templates/schedule_block.templ`, write handler at `handlers_ui_write.go::putUISchedule`.
 
-Read variant (`ScheduleBlock`): the read-only entry table plus enable checkbox, "edit schedule" button, and (when alert) a `⚠` warn footer. The schedule alert appears when the daemon's scheduler reports a failed fire — see `SPECIFICATION-daemon.md` for retry semantics.
+`ScheduleBlock` is a single always-editable `<details>` block containing the `<form>` and entry table, plus (when alert) a `⚠` warn footer. While expanded (`$detailsOpen.<name>.schedule`), `data-attr:data-edit` sets `data-edit="true"` so SSE poll patches (`:not([data-edit])`) skip the block until the user collapses it. The summary also renders `next event: HH:MM` when enabled and non-empty (hidden while expanded). The form has:
 
-Edit variant (`ScheduleBlockEdit`): the editor `<form>`. Editor root carries `data-edit="true"` and `<details ... open>` (forced open for editing). The form has:
+- An enable checkbox (`name="enabled"`) with a hidden `value="false"` fallback; disabled when there are no entries (forced-off invariant).
+- "+ add row" button — re-enables the checkbox and fires `@get('/ui/devices/{name}/schedule/new-row')` which returns an SSE patch with `mode=append` against the editor `<tbody>` (no autosave until a field commits).
+- Per-row fields autosave on `change` via `@put('/ui/devices/{name}/schedule', {contentType: 'form'})`, returning an empty 200 SSE response on success or `#global-error-banner` (`Datastar-Status: 422`) on validation failure.
 
-- An enable checkbox (hidden+checkbox dual-input for the unchecked state).
-- "+ add row" button — fires `@get('/ui/devices/{name}/schedule/new-row')` which returns an SSE patch with `mode=append` against the editor `<tbody>`.
-- Cancel — fires `@get` for the read variant.
-- Save — submits the form via `@put`.
-
-Per row (`ScheduleEditRow`):
+Per row (`ScheduleRow`):
 
 | Field | Element | Notes |
 |---|---|---|
-| At | `<input type="time" name="at" required>` | Browser-native HH:MM picker |
-| Action | `<select name="action">` with five options | `data-on:change` calls `scheduleActionChangeExpr` |
-| Pct | `<input type="number" name="pct" min=10 max=100>` | Carries `data-orig-pct` (initial pct); `data-on:change="evt.target.dataset.origPct = evt.target.value"` updates the per-row stash so subsequent off→on toggles restore the user's most recent pct rather than the server-render original |
-| Delete | `<button class="del">×</button>` | `data-on:click="evt.target.closest('tr').remove()"` |
+| At | `<input type="time" name="at" required>` | Browser-native HH:MM picker; autosaves on change (200 ms debounce) |
+| Action | `<select name="action">` with five options | `data-on:change` calls `scheduleActionChangeExpr` and autosaves |
+| Pct | `<input type="number" name="pct" min=10 max=100>` | Carries `data-orig-pct` (initial pct); `schedulePctChangeExpr` updates `data-orig-pct` and autosaves (200 ms debounce) |
+| Delete | `<button class="del">×</button>` | Removes the row from the DOM, enforces the forced-off invariant if the last row was removed, and autosaves |
 
 The Action `<select>`'s `data-on:change` handler synchronizes the pct input on toggle:
 

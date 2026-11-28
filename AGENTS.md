@@ -201,11 +201,11 @@ Grouped by subsystem / version. Reverse-chronological within each group.
 
 - `docs/superpowers/specs/2026-05-08-device-backend-interface-design.md` — design for the in-process `*breezy.MemClient` (the seam this AGENTS.md describes under "Device backend").
 
-Implementation plans live in `docs/superpowers/plans/`; plans for shipped-and-stable subsystems have been pruned. Designs are the evergreen reference.
+Implementation plans live in `docs/superpowers/plans/`. Designs are the evergreen reference.
 
 ## Out of scope (deliberate, not bugs)
 
-No schedule editing, no WiFi reconfig, no MQTT bridge, no Home Assistant component. The state cache is shaped so a bridge could be added without rewriting the core, but adding any of these is a separate conversation, not a fix to existing scope. (The web UI was originally on this list and got shipped in 1.1 — see CHANGELOG.md.)
+No WiFi reconfig, no MQTT bridge, no Home Assistant component. The state cache is shaped so a bridge could be added without rewriting the core, but adding any of these is a separate conversation, not a fix to existing scope. (The web UI was originally on this list and got shipped in 1.1 — see CHANGELOG.md.)
 
 ## Release plumbing
 

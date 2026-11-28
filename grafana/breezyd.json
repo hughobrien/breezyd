@@ -199,7 +199,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (device) (\n    (max by (device) (breezy_power{device=~\"$device\"}) == 0) * 0\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 2) * 0 + 12\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 1) * 0 + 11\n  or (max by (device) (breezy_in_user_control{device=~\"$device\"}) == 0) * 0 + 10\n  or max by (device) (breezy_airflow_mode{device=~\"$device\"}) + 1\n)",
+          "expr": "max by (device) (\n    (max by (device) (breezy_special_mode{device=~\"$device\"}) == 2) * 0 + 12\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 1) * 0 + 11\n  or (max by (device) (breezy_power{device=~\"$device\"}) == 0) * 0\n  or (max by (device) (breezy_in_user_control{device=~\"$device\"}) == 0) * 0 + 10\n  or max by (device) (breezy_airflow_mode{device=~\"$device\"}) + 1\n)",
           "instant": true,
           "legendFormat": "{{device}}",
           "range": false,
@@ -518,7 +518,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (device) (\n    (max by (device) (breezy_power{device=~\"$device\"}) == 0) * 0\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 2) * 0 + 12\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 1) * 0 + 11\n  or (max by (device) (breezy_in_user_control{device=~\"$device\"}) == 0) * 0 + 10\n  or max by (device) (breezy_airflow_mode{device=~\"$device\"}) + 1\n)",
+          "expr": "max by (device) (\n    (max by (device) (breezy_special_mode{device=~\"$device\"}) == 2) * 0 + 12\n  or (max by (device) (breezy_special_mode{device=~\"$device\"}) == 1) * 0 + 11\n  or (max by (device) (breezy_power{device=~\"$device\"}) == 0) * 0\n  or (max by (device) (breezy_in_user_control{device=~\"$device\"}) == 0) * 0 + 10\n  or max by (device) (breezy_airflow_mode{device=~\"$device\"}) + 1\n)",
           "instant": false,
           "legendFormat": "{{device}}",
           "range": true,

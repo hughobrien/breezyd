@@ -48,4 +48,4 @@ ip = "192.168.1.160"
 # enabled     = true
 # bridge_name = "breezyd"
 # port        = 51827          # pin (default 0 is ephemeral; can't firewall)
-# state_dir   = "/var/lib/breezyd"
+# state_dir   = "/var/lib/breezyd/homekit"

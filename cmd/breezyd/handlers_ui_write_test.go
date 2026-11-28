@@ -937,6 +937,24 @@ func TestUISchedulePut_BadForm_InvalidAction(t *testing.T) {
 	is.True(strings.Contains(bs, "invalid action")) // body explains the action failure
 }
 
+func TestUISchedulePut_BadForm_InvalidPct(t *testing.T) {
+	is := is.New(t)
+	h := newUIScheduleTestHandler(t)
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	resp := putUIScheduleForm(t, srv.URL, "alpha", url.Values{
+		"at":     {"08:00"},
+		"action": {"regeneration"},
+		"pct":    {"50abc"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.Header.Get("Datastar-Status"), "422")
+	body, _ := io.ReadAll(resp.Body)
+	is.True(strings.Contains(string(body), "pct must be 10–100"))
+}
+
 func TestUISchedulePut_BadForm_DuplicateAt(t *testing.T) {
 	is := is.New(t)
 	h := newUIScheduleTestHandler(t)

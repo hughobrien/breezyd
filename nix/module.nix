@@ -284,14 +284,22 @@ in
 
   config = lib.mkIf cfg.enable {
     services = {
-      breezyd.settings.daemon = {
-        prometheus_job = lib.mkDefault cfg.prometheus.jobName;
-        # The daemon rejects Host names it does not know (DNS-rebinding
-        # defence); the proxied vhost name must be one of them.
-        allowed_hosts = lib.mkIf (cfg.nginx.enable && cfg.nginx.virtualHost != null) [
-          cfg.nginx.virtualHost
-        ];
-        push = lib.mkIf (targets != { }) (lib.mapAttrs (_: t: lib.mkDefault t.url) targets);
+      breezyd.settings = {
+        daemon = {
+          prometheus_job = lib.mkDefault cfg.prometheus.jobName;
+          # The daemon rejects Host names it does not know (DNS-rebinding
+          # defence); the proxied vhost name must be one of them.
+          allowed_hosts = lib.mkIf (cfg.nginx.enable && cfg.nginx.virtualHost != null) [
+            cfg.nginx.virtualHost
+          ];
+          push = lib.mkIf (targets != { }) (lib.mapAttrs (_: t: lib.mkDefault t.url) targets);
+        };
+        homekit = lib.mkIf cfg.homekit.enable {
+          enabled = true;
+          bridge_name = lib.mkDefault cfg.homekit.bridgeName;
+          port = lib.mkDefault cfg.homekit.port;
+          state_dir = lib.mkDefault (toString cfg.homekit.stateDir);
+        };
       };
 
       prometheus.scrapeConfigs = lib.mkIf (pushLocal && store == "prometheus") [ scrapeJob ];
@@ -402,16 +410,6 @@ in
         preStart = lib.optionalString (cfg.configFile == null) ''
           install -m 0600 -o ${cfg.user} -g ${cfg.group} \
             ${generatedConfig} /run/breezyd/breezyd.toml
-          ${lib.optionalString cfg.homekit.enable ''
-                    cat >> /run/breezyd/breezyd.toml <<'EOF'
-
-            [homekit]
-            enabled     = true
-            bridge_name = "${cfg.homekit.bridgeName}"
-            port        = ${toString cfg.homekit.port}
-            state_dir   = "${cfg.homekit.stateDir}"
-            EOF
-          ''}
         '';
       in
       {

@@ -63,7 +63,7 @@ What's covered:
 - Per-device snapshots and Prometheus metrics.
 - `breezy discover` for first-time bootstrap.
 - Server-rendered web dashboard at `GET /` on the daemon (templ + datastar over SSE),
-  served from the same binary; auto-refreshes every 5 s; covers sensors,
+  served from the same binary; updates live over SSE; covers sensors,
   fans, service info, and the four high-level controls (power / mode /
   speed / heater). Dark mode supported (auto + manual override).
 - Daemon-driven per-device schedules: edit a small `At | Action | Pct` table from the dashboard's collapsible SCHEDULE block; the daemon fires writes on schedule with bounded retry on failure and an alert banner on persistent failure.
@@ -514,8 +514,6 @@ breezy ls                              # any user can talk to the daemon now
 
 If you turn on `[homekit]` in the config, also:
 
-- Add `StateDirectory=breezyd` to `[Service]` so systemd creates
-  `/var/lib/breezyd/` for the HAP server's pairing state.
 - Pin a fixed `port = N` in `[homekit]` (default `0` is ephemeral
   and can't be firewalled), then open the host firewall:
   `ufw allow N/tcp` (or `firewall-cmd --add-port=N/tcp`).
@@ -538,8 +536,8 @@ commanded percentages, service info (filter, motor lifetime, RTC
 battery, faults), firmware version, plus controls for power, airflow
 mode, fan speed (preset 1-3 or a manual % slider), heater, and the
 night/turbo special-mode timer. Sensor values display in red when the
-firmware's over-threshold flag is set. The page auto-refreshes every
-5 s; cards desaturate when their last poll is more than 90 s old. Dark
+firmware's over-threshold flag is set. Cards update live over SSE as
+polls land and desaturate when their last poll is more than 90 s old. Dark
 mode follows `prefers-color-scheme` automatically; click the theme icon
 next to the title to override.
 
@@ -647,7 +645,7 @@ enabled = true
 Restart `breezyd`. The startup log includes a line like:
 
 ```text
-homekit: bridge ready name="breezyd" pin="123-45-678" state_dir="..."
+time=... level=INFO msg="HomeKit PIN" pin=1234-5678
 ```
 
 Open the Apple Home app on iPhone → Add Accessory → enter the PIN
@@ -703,8 +701,8 @@ Each metric is labelled with `device="<name>"` and `id="<16-char id>"`. A few
 useful queries:
 
 ```promql
-# Indoor temperature per device
-breezy_temperature_celsius{location="indoor"}
+# Indoor (room return) temperature per device
+breezy_temperature_celsius{position="exhaust_inlet"}
 
 # Any sensor over its alert threshold (humidity / co2 / voc)
 max by (device) (breezy_sensor_alert) > 0

@@ -202,3 +202,20 @@ func TestPushHub_CloseEndsSubscribersAndRejectsNew(t *testing.T) {
 		t.Fatalf("subs retained: %d", n)
 	}
 }
+
+func TestPushHub_NotifySkipsRenderWithNoSubscribers(t *testing.T) {
+	is := is.New(t)
+	var renders atomic.Int32
+	hub := NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
+		renders.Add(1)
+		return &PushEvent{DeviceName: name}, nil
+	})
+
+	hub.Notify("bedroom", Snapshot{})
+	is.Equal(renders.Load(), int32(0)) // no subscribers: renderBlocks must not be called
+
+	sub := hub.Subscribe()
+	hub.Unsubscribe(sub)
+	hub.Notify("bedroom", Snapshot{})
+	is.Equal(renders.Load(), int32(0)) // after last unsubscribe: still skipped
+}

@@ -102,9 +102,12 @@ func (e *EnergyTracker) statePath() string {
 // counters are zeroed (lifetime carries over). All errors are handled
 // internally — the caller has nothing to check, hence no return value.
 func (e *EnergyTracker) Load() {
-	today := time.Now().Local().Format("2006-01-02")
+	now := time.Now().Local()
+	today := now.Format("2006-01-02")
+	thisMonth := now.Format("2006-01")
 	fresh := func() {
 		e.Today = today
+		e.MonthStart = thisMonth
 		e.LastTick = time.Time{}
 	}
 
@@ -145,7 +148,6 @@ func (e *EnergyTracker) Load() {
 	}
 
 	// Restore month counters only if the stored month matches this month.
-	thisMonth := time.Now().Local().Format("2006-01")
 	if p.MonthStart == thisMonth {
 		e.HeatingMonthKWh = p.HeatingMonthKWh
 		e.CoolingMonthKWh = p.CoolingMonthKWh
