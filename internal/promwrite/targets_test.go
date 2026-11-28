@@ -96,3 +96,35 @@ func TestPushersCollectors(t *testing.T) {
 		}
 	}
 }
+
+type blockingWriter struct {
+	countWriter
+	block bool
+}
+
+func (w *blockingWriter) Write(ctx context.Context, s []Series) error {
+	if w.block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return w.countWriter.Write(ctx, s)
+}
+
+func TestPushersFlushConcurrently(t *testing.T) {
+	ps := NewPushers(Targets{{"slow", "http://a"}, {"fast", "http://b"}}, nil)
+	slow, fast := &blockingWriter{block: true}, &countWriter{}
+	ps[0].Queue.W, ps[1].Queue.W = slow, fast
+	for _, p := range ps {
+		p.Queue.Now = func() time.Time { return at(10) }
+	}
+	ps.Add(one("m", 1, 1))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := ps.Flush(ctx)
+	if err == nil || !strings.Contains(err.Error(), "push to slow") {
+		t.Fatalf("want slow error, got %v", err)
+	}
+	if fast.n != 1 || ps[1].Queue.Len() != 0 {
+		t.Errorf("fast target should have flushed concurrently: n=%d len=%d", fast.n, ps[1].Queue.Len())
+	}
+}
