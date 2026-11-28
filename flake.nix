@@ -59,7 +59,7 @@
             pname = "breezyd";
             inherit version;
             src = ./.;
-            vendorHash = "sha256-o9F35I8Zz2lT6dPDnTA2BRPcWL9hHU9giYm4YDsf5Ug=";
+            vendorHash = "sha256-9KfLMoVu6VGAgOprQuvlr+RS1TxovrlrC745JPfo4w4=";
             subPackages = [
               "cmd/breezyd"
               "cmd/breezy"
@@ -299,6 +299,7 @@
               services.breezyd.homekit = {
                 enable = true;
                 port = 51827;
+                interfaces = [ "lan" ];
               };
               services.breezyd.settings.homekit.bridge_name = "custom";
             }).config;
@@ -324,6 +325,7 @@
         assert hk.services.breezyd.settings.homekit.port == 51827;
         assert hk.services.breezyd.settings.homekit.bridge_name == "custom";
         assert hk.services.breezyd.settings.homekit.state_dir == "/var/lib/breezyd/homekit";
+        assert hk.services.breezyd.settings.homekit.interfaces == [ "lan" ];
         vm.systemd.units."breezyd.service".unit;
       moduleCheckPkg =
         let

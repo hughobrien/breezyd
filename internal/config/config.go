@@ -102,6 +102,9 @@ type Homekit struct {
 	// $STATE_DIRECTORY/homekit, else $XDG_STATE_HOME/breezyd/homekit. Delete to factory-reset
 	// pairing.
 	StateDir string
+	// Interfaces restricts HomeKit mDNS advertisement and queries to the
+	// named network interfaces. Empty means all multicast interfaces.
+	Interfaces []string
 }
 
 // Device is a single configured device.
@@ -125,10 +128,11 @@ type rawConfig struct {
 }
 
 type rawHomekit struct {
-	Enabled    bool   `toml:"enabled"`
-	BridgeName string `toml:"bridge_name"`
-	Port       int    `toml:"port"`
-	StateDir   string `toml:"state_dir"`
+	Enabled    bool     `toml:"enabled"`
+	BridgeName string   `toml:"bridge_name"`
+	Port       int      `toml:"port"`
+	StateDir   string   `toml:"state_dir"`
+	Interfaces []string `toml:"interfaces"`
 }
 
 type rawDaemon struct {
@@ -199,6 +203,7 @@ func Load(path string) (*Config, error) {
 		BridgeName: raw.Homekit.BridgeName,
 		Port:       raw.Homekit.Port,
 		StateDir:   raw.Homekit.StateDir,
+		Interfaces: raw.Homekit.Interfaces,
 	}
 	if cfg.Homekit.Enabled {
 		if cfg.Homekit.BridgeName == "" {

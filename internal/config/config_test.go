@@ -424,6 +424,7 @@ func TestLoad_HomekitEnabledDefaults(t *testing.T) {
 	path := writeConfig(t, `
 [homekit]
 enabled = true
+interfaces = ["lan"]
 
 [devices.playroom]
 id       = "BREEZY00000000A0"
@@ -433,6 +434,7 @@ password = "testpwd"
 	is.NoErr(err)
 	is.True(cfg.Homekit.Enabled)
 	is.Equal(cfg.Homekit.BridgeName, "breezyd")
+	is.Equal(cfg.Homekit.Interfaces, []string{"lan"})
 	is.True(strings.HasSuffix(cfg.Homekit.StateDir, "/breezyd/homekit")) // StateDir ends in /breezyd/homekit
 }
 

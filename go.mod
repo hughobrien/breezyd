@@ -18,7 +18,7 @@ require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/andybalholm/brotli v1.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/brutella/dnssd v1.2.14 // indirect
+	github.com/brutella/dnssd v1.2.15-0.20260227152348-8c9d3cd68d00 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-chi/chi v1.5.5 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
@@ -41,3 +41,7 @@ require (
 	golang.org/x/tools v0.52.0 // indirect
 	gopkg.in/Regis24GmbH/go-diacritics.v2 v2.0.3 // indirect
 )
+
+replace github.com/brutella/hap => github.com/hughobrien/hap v0.0.36-0.20261128065219-73083d7f7721
+
+replace github.com/brutella/dnssd => github.com/hughobrien/dnssd v1.2.15-0.20261128065052-c8992a5dcb51
