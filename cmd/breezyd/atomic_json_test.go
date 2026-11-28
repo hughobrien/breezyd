@@ -63,3 +63,37 @@ func TestWriteJSONAtomic_FileSyncErrorFails(t *testing.T) {
 	_, statErr = os.Stat(path + ".tmp")
 	is.True(os.IsNotExist(statErr)) // temp cleaned up
 }
+
+func TestWriteJSONAtomicNoSync_SkipsFsyncs(t *testing.T) {
+	is := is.New(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.json")
+	is.NoErr(os.WriteFile(path, []byte(`"old"`), 0o600))
+
+	var fileCalls, dirCalls int
+	origF, origD := fsyncFile, fsyncDir
+	t.Cleanup(func() { fsyncFile, fsyncDir = origF, origD })
+	fsyncFile = func(*os.File) error {
+		fileCalls++
+		return os.ErrInvalid
+	}
+	fsyncDir = func(string) error {
+		dirCalls++
+		return os.ErrInvalid
+	}
+
+	is.NoErr(writeJSONAtomicNoSync(path, "new"))
+	is.Equal(fileCalls, 0) // no-sync write must not fsync temp file
+	is.Equal(dirCalls, 0)  // no-sync write must not fsync parent dir
+
+	got, err := os.ReadFile(path)
+	is.NoErr(err)
+	is.Equal(string(got), `"new"`)
+
+	st, err := os.Stat(path)
+	is.NoErr(err)
+	is.Equal(st.Mode().Perm(), os.FileMode(0o600))
+
+	_, statErr := os.Stat(path + ".tmp")
+	is.True(os.IsNotExist(statErr)) // temp file consumed by rename
+}

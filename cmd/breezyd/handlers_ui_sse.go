@@ -92,10 +92,14 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 		uiSSEAfterSubscribe()
 	}
 
+	unreachable := make(map[string]bool)
 	for _, view := range h.collectViews() {
 		if err := emitInitialCard(sse, view, isReconnect); err != nil {
 			slog.Debug("sse initial: patch failed", "err", err, "device", view.Name)
 			return
+		}
+		if view.Unreachable {
+			unreachable[view.Name] = true
 		}
 	}
 
@@ -109,6 +113,20 @@ func (h *Handler) getUISSE(w http.ResponseWriter, r *http.Request) {
 		case ev, ok := <-sub.Events:
 			if !ok {
 				return
+			}
+			if unreachable[ev.DeviceName] {
+				view, ok := h.viewFor(ev.DeviceName)
+				if !ok {
+					// Still no values (failed poll); keep placeholder and skip
+					// block patches that have no DOM targets on the placeholder.
+					continue
+				}
+				if err := emitInitialCard(sse, view, true); err != nil {
+					slog.Debug("sse upgrade: patch failed", "err", err, "device", ev.DeviceName)
+					return
+				}
+				delete(unreachable, ev.DeviceName)
+				continue
 			}
 			if err := emitPushEvent(sse, ev); err != nil {
 				slog.Debug("sse: patch failed", "err", err, "device", ev.DeviceName)

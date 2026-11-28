@@ -437,3 +437,69 @@ func TestGetUISSE_ShutdownEndsStreamPromptly(t *testing.T) {
 	_, err = io.ReadAll(resp.Body)
 	is.NoErr(err)
 }
+
+func TestGetUISSE_UnreachableUpgradesToLiveCard(t *testing.T) {
+	is := is.New(t)
+	devices := map[string]DeviceConfig{
+		"ghost": {ID: "BREEZYGHOST00001", Password: "1111", IP: "10.0.0.99:4000"},
+	}
+	h := newTestHandler(t, devices,
+		withState(newTestState(t, nil)),
+		withPollers(map[string]*Poller{}),
+		withSchedulers(map[string]*Scheduler{}),
+	)
+	h.PushHub = NewPushHub(func(name string, _ Snapshot) (*PushEvent, error) {
+		view, ok := h.viewFor(name)
+		if !ok {
+			return &PushEvent{DeviceName: name}, nil
+		}
+		return buildPushEvent(name, view)
+	})
+
+	srv := httptest.NewServer(h.mux())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/ui/sse", nil)
+	resp, err := http.DefaultClient.Do(req)
+	is.NoErr(err)
+	defer func() { _ = resp.Body.Close() }()
+
+	initial := readUntil(t, resp.Body, `class="card unreachable"`, 2*time.Second)
+	is.True(strings.Contains(initial, `class="card unreachable"`))
+	is.True(strings.Contains(initial, `data-device="ghost"`))
+
+	hub := h.PushHub.(*PushHub)
+	is.NoErr(waitFor(1*time.Second, func() bool { return subscriberCount(hub) == 1 }))
+
+	// Failed poll with empty Values must NOT upgrade the placeholder card.
+	failSnap := Snapshot{IP: "10.0.0.99:4000", LastErr: errors.New("timeout")}
+	h.State.Set("ghost", failSnap)
+	h.PushHub.Notify("ghost", failSnap)
+
+	// First successful poll populates Values -> next Notify upgrades via
+	// mode=outer targeting .card[data-device="ghost"].
+	liveSnap := testSnap()
+	h.State.Set("ghost", liveSnap)
+	h.PushHub.Notify("ghost", liveSnap)
+
+	upgrade := readUntil(t, resp.Body, `data-block="controls"`, 2*time.Second)
+	is.True(strings.Contains(upgrade, `id: device:ghost`))
+	is.True(strings.Contains(upgrade, `selector .card[data-device="ghost"]`))
+	is.True(!strings.Contains(upgrade, `selector #device-list`))
+	is.True(!strings.Contains(upgrade, `mode append`))
+	is.True(strings.Contains(upgrade, `data-signals=`))
+	is.True(!strings.Contains(upgrade, `class="card unreachable"`))
+
+	// Subsequent Notify emits normal steady-state signals + block patches
+	// (not another full-card device:ghost event).
+	h.PushHub.Notify("ghost", liveSnap)
+	first := readUntil(t, resp.Body, "id: signals:ghost", 2*time.Second)
+	second := readUntil(t, resp.Body, "id: block:ghost", 2*time.Second)
+	steady := first + second
+	is.True(strings.Contains(steady, "id: signals:ghost"))
+	is.True(strings.Contains(steady, "id: block:ghost"))
+	is.True(!strings.Contains(steady, "id: device:ghost"))
+}

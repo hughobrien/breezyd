@@ -495,22 +495,78 @@ func TestEnergyTracker_Tick_UnsupportedModel(t *testing.T) {
 	is.Equal(snap.HeatingTodayKWh, float64(0)) // unsupported model must not accumulate
 }
 
-func TestEnergyTracker_Tick_PersistsAfterEachTick(t *testing.T) {
+func TestEnergyTracker_Tick_ThrottledPersistAndFlush(t *testing.T) {
 	is := is.New(t)
 	dir := t.TempDir()
 	tr := &EnergyTracker{Device: "persist-test", StateDir: dir}
 	tr.Load()
-	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
-	t1 := t0.Add(5 * time.Second)
+
+	t0 := time.Date(2026, 5, 5, 12, 0, 0, 0, time.Local)
+	// Align Today/MonthStart with t0 so t0 does not trigger a date rollover
+	// save (which would set lastSaved = t0 before t1).
+	tr.Today = "2026-05-05"
+	tr.MonthStart = "2026-05"
+	t1 := t0.Add(30 * time.Second)
+	t2 := t1.Add(30 * time.Second)
+	t3 := t1.Add(defaultEnergySaveInterval)
+
+	// Prime on t0, first accumulation on t1 -> persists immediately because
+	// lastSaved is zero.
 	tr.Tick(makeRegenSnap(50, 0, 20), t0)
 	tr.Tick(makeRegenSnap(50, 0, 20), t1)
 	snap1 := tr.Snapshot()
 	is.True(snap1.HeatingLifetimeKWh != 0) // precondition: tick must accumulate heating
 
-	// Reload from disk.
-	tr2 := &EnergyTracker{Device: "persist-test", StateDir: dir}
-	tr2.Load()
-	snap2 := tr2.Snapshot()
-	is.True(snap2.HeatingLifetimeKWh != 0)                       // lifetime persisted
-	is.Equal(snap2.HeatingLifetimeKWh, snap1.HeatingLifetimeKWh) // round-trip preserves value
+	readDisk := func() persistedEnergy {
+		t.Helper()
+		b, err := os.ReadFile(tr.statePath())
+		is.NoErr(err)
+		var p persistedEnergy
+		is.NoErr(json.Unmarshal(b, &p))
+		return p
+	}
+	is.Equal(readDisk().HeatingLifetimeKWh, snap1.HeatingLifetimeKWh)
+
+	// t2 is within defaultEnergySaveInterval (30s < 10m): in-memory counters
+	// advance, but disk stays at t1's value until interval elapses or Flush.
+	tr.Tick(makeRegenSnap(50, 0, 20), t2)
+	snap2 := tr.Snapshot()
+	is.True(snap2.HeatingLifetimeKWh > snap1.HeatingLifetimeKWh)
+	is.Equal(readDisk().HeatingLifetimeKWh, snap1.HeatingLifetimeKWh)
+
+	// Flush writes the buffered t2 counters immediately.
+	tr.Flush()
+	is.Equal(readDisk().HeatingLifetimeKWh, snap2.HeatingLifetimeKWh)
+
+	// Accumulate again and cross SaveInterval at t3 -> auto-persists.
+	tr.Tick(makeRegenSnap(50, 0, 20), t3)
+	snap3 := tr.Snapshot()
+	is.True(snap3.HeatingLifetimeKWh > snap2.HeatingLifetimeKWh)
+	is.Equal(readDisk().HeatingLifetimeKWh, snap3.HeatingLifetimeKWh)
+}
+
+func TestEnergyTracker_Flush_CleanIsNoOp(t *testing.T) {
+	is := is.New(t)
+	dir := t.TempDir()
+	tr := &EnergyTracker{Device: "clean-flush", StateDir: dir}
+	tr.Load()
+
+	tr.Flush()
+	_, err := os.Stat(tr.statePath())
+	is.True(os.IsNotExist(err)) // clean Flush must not write a file
+}
+
+func TestEnergyTracker_Save_DoesNotFsync(t *testing.T) {
+	is := is.New(t)
+	origF, origD := fsyncFile, fsyncDir
+	t.Cleanup(func() { fsyncFile, fsyncDir = origF, origD })
+	fsyncFile = func(*os.File) error { return os.ErrInvalid }
+	fsyncDir = func(string) error { return os.ErrInvalid }
+
+	tr := &EnergyTracker{
+		Device:   "no-fsync",
+		StateDir: t.TempDir(),
+		Today:    "2026-05-05",
+	}
+	is.NoErr(tr.save())
 }

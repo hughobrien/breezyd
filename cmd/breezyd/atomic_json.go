@@ -31,12 +31,27 @@ var (
 // filesystems). On any failure before the rename the temp is removed
 // (best-effort) before the error returns.
 //
-// Used by both EnergyTracker.save and Scheduler.save for their per-device
-// state files. Keep this helper small and unopinionated — error messages
-// here are short ("marshal:" / "write temp:" / "sync temp:" / "rename:")
-// so callers can wrap them with a domain prefix ("energy:" / "schedule:")
-// for the final log line.
+// Used by Scheduler.save (rare user config edits where durability matters).
+// High-frequency non-critical counters (EnergyTracker.save) use
+// writeJSONAtomicNoSync instead. Keep these helpers small and unopinionated —
+// error messages here are short ("marshal:" / "write temp:" / "sync temp:" /
+// "rename:") so callers can wrap them with a domain prefix ("energy:" /
+// "schedule:") for the final log line.
 func writeJSONAtomic(path string, v any) error {
+	return writeJSONAtomicOpts(path, v, true)
+}
+
+// writeJSONAtomicNoSync marshals v to JSON and writes it to path via a
+// sibling temp file (path + ".tmp") + os.Rename, mode 0600, without calling
+// fsync on the file or parent directory. Temp+rename still prevents a
+// process crash from leaving a partial/empty target file, while avoiding
+// synchronous write barriers for high-frequency, low-criticality state
+// such as EnergyTracker counters.
+func writeJSONAtomicNoSync(path string, v any) error {
+	return writeJSONAtomicOpts(path, v, false)
+}
+
+func writeJSONAtomicOpts(path string, v any, sync bool) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -51,10 +66,12 @@ func writeJSONAtomic(path string, v any) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("write temp: %w", err)
 	}
-	if err := fsyncFile(f); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("sync temp: %w", err)
+	if sync {
+		if err := fsyncFile(f); err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmp)
+			return fmt.Errorf("sync temp: %w", err)
+		}
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
@@ -64,7 +81,9 @@ func writeJSONAtomic(path string, v any) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename: %w", err)
 	}
-	_ = fsyncDir(filepath.Dir(path))
+	if sync {
+		_ = fsyncDir(filepath.Dir(path))
+	}
 	return nil
 }
 

@@ -62,14 +62,15 @@ func (h *Handler) unreachableView(name string, cfg DeviceConfig) ui.DeviceView {
 }
 
 // viewFor returns the DeviceView for name, or false if no snapshot
-// exists. Used by the SSE handler's per-device push path and by the
-// PushHub's render closure (where there is no HTTP request in hand).
+// exists or the snapshot has no values yet (failed initial poll). Used by
+// the SSE handler's per-device push path and by the PushHub's render
+// closure (where there is no HTTP request in hand).
 func (h *Handler) viewFor(name string) (ui.DeviceView, bool) {
 	if h.State == nil {
 		return ui.DeviceView{}, false
 	}
 	snap, ok := h.State.Get(name)
-	if !ok {
+	if !ok || len(snap.Values) == 0 {
 		return ui.DeviceView{}, false
 	}
 	return h.buildView(name, snap), true
